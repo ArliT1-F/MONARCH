@@ -12,13 +12,27 @@
     "dev:bot": "npm run dev --workspace @monarch/bot",
     "build": "npm run build --workspace @monarch/dashboard",
     "test": "vitest run",
-    "typecheck": "tsc --build --force || npm run typecheck --workspaces --if-present"
+    "typecheck": "tsc --build --force || npm run typecheck --workspaces --if-present",
+    "postinstall": "prisma generate",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:dev": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11",
+    "dotenv": "^17.4.2",
+    "prisma": "^7.10.0",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0"
   }
 }

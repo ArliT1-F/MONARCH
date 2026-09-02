@@ -57,6 +57,12 @@ Docker (dashboard + bot + PostgreSQL):
 cd docker && docker compose up --build
 ```
 
+Deploying to **Vercel + Postgres (Prisma)** — see
+[docs/deploying-vercel.md](docs/deploying-vercel.md). Set `DATABASE_URL`
+(anywhere: Vercel, Docker, local) and Monarch swaps its file store for the
+PostgreSQL-backed `PrismaStore` automatically; migrations ship in
+`prisma/migrations/` and apply with `npm run db:migrate`.
+
 ## Repository layout
 
 ```

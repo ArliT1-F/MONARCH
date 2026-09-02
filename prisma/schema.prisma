@@ -1,17 +1,23 @@
 // Monarch database schema (PostgreSQL).
 //
 // NOTE: the running MVP uses the file-backed store in
-// apps/dashboard/lib/store.ts behind the MonarchStore interface; this schema
-// is the production target for the PrismaStore implementation
-// (TODO phase-1.5). Keep both in sync when adding models.
+// apps/dashboard/lib/store.ts behind the MonarchStore interface; the
+// PrismaStore implementation lives in apps/dashboard/lib/prisma-store.ts and
+// is selected by getStore() whenever DATABASE_URL is set. Keep both in sync
+// when adding models.
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../apps/dashboard/lib/generated/prisma"
 }
 
+// Connection URLs do not live in the schema anymore (Prisma 7):
+// - CLI / Migrate read them from prisma.config.ts (supports a separate
+//   directUrl for pooled providers like Neon / Vercel Postgres).
+// - The runtime client gets DATABASE_URL via the pg driver adapter in
+//   apps/dashboard/lib/prisma.ts.
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -108,4 +114,12 @@ model AuditEntry {
   createdAt DateTime @default(now())
 
   @@index([guildId, createdAt])
+}
+
+// Demo-mode mock Discord state (MockState in @monarch/discord), persisted so
+// the seeded guilds survive restarts. Singleton row; unused in production.
+model MockDiscordState {
+  id        String   @id @default("singleton")
+  state     Json
+  updatedAt DateTime @updatedAt
 }
