@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# builds
+.next/
+dist/
+out/
+build/
+
+# runtime data (demo-mode file store)
+.monarch-data/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+
+# misc
+.DS_Store
+coverage/
+.turbo/
