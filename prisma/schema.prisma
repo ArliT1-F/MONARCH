@@ -1,0 +1,111 @@
+// Monarch database schema (PostgreSQL).
+//
+// NOTE: the running MVP uses the file-backed store in
+// apps/dashboard/lib/store.ts behind the MonarchStore interface; this schema
+// is the production target for the PrismaStore implementation
+// (TODO phase-1.5). Keep both in sync when adding models.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id // Discord user id
+  username  String
+  avatarUrl String?
+  createdAt DateTime @default(now())
+
+  sessions    Session[]
+  drafts      DesignDraft[]
+  auditEntries AuditEntry[]
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // OAuth tokens are encrypted at rest (application-level AES-GCM).
+  accessTokenEnc String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
+}
+
+model Guild {
+  id        String   @id // Discord guild id
+  name      String
+  iconUrl   String?
+  createdAt DateTime @default(now())
+
+  settings  GuildSettings?
+  drafts    DesignDraft[]
+  versions  DesignVersion[]
+  auditEntries AuditEntry[]
+}
+
+model GuildSettings {
+  guildId            String @id
+  guild              Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  // Designated channels for the Target Resolver
+  welcomeChannelId        String?
+  announcementsChannelId  String?
+  testingChannelId        String?
+  templateTestingChannelId String?
+}
+
+model DesignDraft {
+  id         String   @id @default(cuid())
+  guildId    String
+  guild      Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  design     Json // ServerDesign
+  baseDesign Json // ServerDesign snapshot the draft diffs against
+  updatedAt  DateTime @updatedAt
+
+  @@unique([guildId, userId])
+}
+
+model DesignVersion {
+  id        String   @id @default(cuid())
+  guildId   String
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  name      String
+  kind      String // manual | pre-apply | post-apply
+  design    Json // ServerDesign
+  createdAt DateTime @default(now())
+
+  @@index([guildId, createdAt])
+}
+
+model Template {
+  id        String   @id @default(cuid())
+  ownerId   String
+  name      String
+  type      String // server | embed | message | ...
+  format    Int      @default(1)
+  data      Json // portable, id-detached design payload
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+}
+
+model AuditEntry {
+  id        String   @id @default(cuid())
+  guildId   String
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String
+  summary   String
+  createdAt DateTime @default(now())
+
+  @@index([guildId, createdAt])
+}

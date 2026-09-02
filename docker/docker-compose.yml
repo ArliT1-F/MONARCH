@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: monarch
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monarch}
+      POSTGRES_DB: monarch
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monarch"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/dashboard.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:-monarch}@postgres:5432/monarch
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      SESSION_SECRET: ${SESSION_SECRET}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  bot:
+    build:
+      context: ..
+      dockerfile: docker/bot.Dockerfile
+    environment:
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+    depends_on:
+      - dashboard
+
+volumes:
+  pgdata:

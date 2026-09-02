@@ -1,0 +1,12 @@
+{
+  "name": "@monarch/renderer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@monarch/schemas": "*",
+    "discord-api-types": "^0.37.100"
+  }
+}

@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink-950: #0a0b0e;
+  --color-ink-900: #0e1014;
+  --color-ink-850: #12151b;
+  --color-ink-800: #171b22;
+  --color-ink-700: #1f242e;
+  --color-ink-600: #2a303d;
+  --color-ink-400: #566072;
+  --color-ink-300: #7c8598;
+  --color-ink-200: #aab2c1;
+  --color-ink-100: #dfe3ea;
+
+  --color-royal-500: #7c5cff;
+  --color-royal-400: #937aff;
+  --color-royal-600: #6647e8;
+  --color-gold-400: #e8b64c;
+
+  --color-ok-400: #4cc38a;
+  --color-warn-400: #e5a53b;
+  --color-danger-400: #eb5757;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-ink-950);
+  color: var(--color-ink-100);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-royal-500) 40%, transparent);
+}
+
+/* thin scrollbars befitting a design tool */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-ink-600);
+  border-radius: 8px;
+}
+
+@keyframes monarch-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: monarch-fade-up 0.25s ease both;
+}
