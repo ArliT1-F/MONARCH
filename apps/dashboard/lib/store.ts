@@ -191,11 +191,30 @@ class FileStore implements MonarchStore {
   }
 }
 
+/**
+ * The JSON file store is local-only. It writes under .monarch-data next to
+ * the process, so on Vercel/serverless (read-only, ephemeral filesystem) it
+ * fails with ENOENT when a route first does `mkdir`. Detect that environment
+ * and fail fast with a config error instead of silently falling back.
+ */
+function isServerlessRuntime(): boolean {
+  return process.env.VERCEL === "1" || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
 let storeSingleton: MonarchStore | null = null;
 
 export function getStore(): MonarchStore {
   if (!storeSingleton) {
-    storeSingleton = env.databaseUrl ? new PrismaStore() : new FileStore();
+    if (env.databaseUrl) {
+      storeSingleton = new PrismaStore();
+    } else if (isServerlessRuntime()) {
+      throw new Error(
+        "DATABASE_URL is not set. Monarch's file store is not supported on Vercel/serverless; " +
+          "configure a Postgres database (see docs/deploying-vercel.md).",
+      );
+    } else {
+      storeSingleton = new FileStore();
+    }
   }
   return storeSingleton;
 }

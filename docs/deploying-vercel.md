@@ -51,6 +51,48 @@ URLs from the provider dashboard:
 Local dev against plain Postgres (Docker Compose) only needs one URL —
 set both variables to the same value.
 
+### Neon ✓ (recommended for this app)
+
+1. Create a Neon project and a database (e.g. `monarch`).
+2. In **Dashboard → Connect**, Neon shows two connection strings:
+   - **Pooled** (host contains `-pooler`) and usually labelled
+     `DATABASE_URL` / `POSTGRES_URL` / **Recommended for most uses**.
+   - **Direct** (host has no `-pooler`) and usually labelled
+     `DATABASE_URL_UNPOOLED` / `POSTGRES_URL_NON_POOLING`.
+3. Map Neon's names to this repo's names:
+
+   ```text
+   DATABASE_URL        = Neon "pooled / POSTGRES_URL"  (−pooler host)
+   DIRECT_DATABASE_URL = Neon "DATABASE_URL_UNPOOLED / POSTGRES_URL_NON_POOLING"
+   ```
+
+   Example shape:
+
+   ```text
+   DATABASE_URL=postgresql://<user>:<password>@<project>-pooler-01.region.aws.neon.tech/monarch?sslmode=require
+   DIRECT_DATABASE_URL=postgresql://<user>:<password>@<project>-01.region.aws.neon.tech/monarch?sslmode=require
+   ```
+
+   Neon's pooled URL may include `channel_binding=require` (e.g.
+   `?channel_binding=require&sslmode=require`). Keep it if the `pg` adapter
+   connects fine; if you see a `channel_binding` / SCRAM error locally or on
+   Vercel, strip `channel_binding=require` and keep `sslmode=require`.
+
+4. Run the migration with both URLs (step 2 below), then put only the
+   **pooled** `DATABASE_URL` into Vercel.
+
+### Neon + Vercel Postgres template
+
+If you connected Vercel to Neon via the **Neon Postgres** integration,
+Vercel injects `POSTGRES_URL`, `POSTGRES_URL_NON_POOLING`, etc. This app
+does **not** read those names — it expects `DATABASE_URL` /
+`DIRECT_DATABASE_URL`. Either set those explicitly in Vercel, or map them
+when running scripts locally:
+
+```bash
+DATABASE_URL="$POSTGRES_URL" DIRECT_DATABASE_URL="$POSTGRES_URL_NON_POOLING" npm run db:migrate
+```
+
 ## 2. Run migrations
 
 From your machine (or CI), once:
@@ -121,6 +163,19 @@ installed with *Manage Channels*), and design away.
 - **Demo mode on Vercel:** with no Discord credentials the dashboard runs
   the mock gateway; its state persists through `PrismaStore`
   (`MockDiscordState` table), so seeded guilds survive cold starts.
+- **`Error: ENOENT ... mkdir '/var/task/.monarch-data'`** (or a `500`
+  with `oauth callback storage failed`) → `DATABASE_URL` is not set where
+  the function runs, so `getStore()` falls back to the JSON file store.
+  That store writes to the Lambda filesystem, which is read-only on Vercel.
+  Put the **pooled** `DATABASE_URL` in **both Production and Preview** in
+  the Vercel project settings, run the migration (step 2), then redeploy.
+- **`Sign-in session expired. Please try again.`** at the OAuth callback →
+  the `monarch_oauth_state` cookie wasn't sent (or didn't match). The usual
+  causes are `APP_URL` pointing at a different domain than the page you
+  clicked from, a redirect URI not matching `APP_URL` in the Discord app,
+  or the state cookie expiring before Discord returned. Make `APP_URL` and
+  the Discord OAuth redirect match exactly, use the same domain for login
+  and callback, and reopen Discord sign-in from the same site.
 - **`P1003: Table does not exist`** → migrations weren't applied; re-run
   step 2.
 - **`P1001: Can't reach database`** → check `DATABASE_URL` in the Vercel
