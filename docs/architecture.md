@@ -128,6 +128,7 @@ against real PostgreSQL (apps/dashboard/test/prisma-store.integration.test.ts).
 | Route | Purpose |
 |---|---|
 | `GET/POST /api/auth/*` | OAuth2 login/callback/logout (demo-aware) |
+| `GET /api/invite[?guild_id=]` | Redirect to Discord's bot install dialog (demo-aware) |
 | `GET /api/guilds` | Guild summaries (installed, permissions, members) |
 | `GET /api/guilds/:id/state` | Live structure + caller's draft |
 | `PUT/DELETE /api/guilds/:id/draft` | Autosave / discard draft |

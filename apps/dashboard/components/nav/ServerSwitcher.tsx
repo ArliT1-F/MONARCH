@@ -56,26 +56,41 @@ export function ServerSwitcher({ current }: { current: GuildSummary }) {
           {!guilds ? (
             <p className="px-3 py-3 text-xs text-ink-400">Loading servers…</p>
           ) : (
-            guilds.map((g) => (
-              <button
-                key={g.id}
-                disabled={!g.botInstalled && g.id !== current.id}
-                onClick={() => {
-                  setOpen(false);
-                  if (g.id !== current.id) router.push(`/s/${g.id}`);
-                }}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition ${
-                  g.id === current.id
-                    ? "bg-royal-500/10 text-royal-400"
-                    : g.botInstalled
-                      ? "text-ink-200 hover:bg-ink-800"
-                      : "cursor-not-allowed text-ink-400/60"
-                }`}
-              >
-                <span className="truncate">{g.name}</span>
-                {!g.botInstalled && <span className="ml-auto text-[9px] uppercase">no bot</span>}
-              </button>
-            ))
+            guilds.map((g) =>
+              // Servers without the bot aren't designable — offer the invite
+              // instead of a dead-end row.
+              !g.botInstalled && g.id !== current.id ? (
+                <a
+                  key={g.id}
+                  href={`/api/invite?guild_id=${encodeURIComponent(g.id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setOpen(false)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-ink-400 transition hover:bg-ink-800 hover:text-ink-200"
+                >
+                  <span className="truncate">{g.name}</span>
+                  <span className="ml-auto text-[9px] tracking-wide text-royal-400 uppercase">
+                    invite
+                  </span>
+                </a>
+              ) : (
+                <button
+                  key={g.id}
+                  onClick={() => {
+                    setOpen(false);
+                    if (g.id !== current.id) router.push(`/s/${g.id}`);
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition ${
+                    g.id === current.id
+                      ? "bg-royal-500/10 text-royal-400"
+                      : "text-ink-200 hover:bg-ink-800"
+                  }`}
+                >
+                  <span className="truncate">{g.name}</span>
+                  {!g.botInstalled && <span className="ml-auto text-[9px] uppercase">no bot</span>}
+                </button>
+              ),
+            )
           )}
         </div>
       )}

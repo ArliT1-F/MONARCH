@@ -15,6 +15,7 @@ Draft → Preview → Validate → Diff → Confirm → Apply
 
 - 🔐 Discord OAuth2 sign-in (or zero-config **demo mode** with mock servers)
 - 🏰 Server selection with install/permission awareness
+- ➕ One-click **bot invite** from the web UI (per-server, least-privilege)
 - 🎨 **Server Designer** — categories & channels, drag-and-drop, inline
   properties, duplicate/delete, undo/redo (Ctrl+Z / Ctrl+Shift+Z)
 - 💾 Per-user drafts with autosave; Discord is never touched while editing
@@ -46,8 +47,12 @@ actually executes.
 2. Copy `.env.example` → `apps/dashboard/.env.local` and fill in
    `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_BOT_TOKEN`,
    `SESSION_SECRET`.
-3. Invite the bot to your server with `Manage Channels` (and `Send Messages`
-   for test sends).
+3. Invite the bot from the dashboard: **Add Monarch to Discord** on the
+   landing page, or **Invite Monarch** next to any server on the select
+   screen (that one pre-selects the server). The link is built server-side by
+   `GET /api/invite` and requests only the permissions Monarch uses —
+   `Manage Channels`, `Manage Roles`, `Manage Webhooks`, `View Channel`,
+   `Send Messages`, `Embed Links`, `Attach Files`. Never Administrator.
 4. `npm run dev` — then `npm run dev:bot` in another terminal for slash
    commands (`/monarch dashboard`).
 

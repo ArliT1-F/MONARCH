@@ -10,6 +10,7 @@ import {
 import { emptyServerDesign, type GuildSummary, type ServerDesign } from "@monarch/schemas";
 import { canDesignGuild, createLogger } from "@monarch/shared";
 import { env, isDemoMode } from "./env";
+import { invitePermissionBits } from "./invite";
 import { getStore, type SessionRecord } from "./store";
 
 const log = createLogger("dashboard.discord");
@@ -97,6 +98,26 @@ export async function getGuildSummary(
 ): Promise<GuildSummary | null> {
   const all = await listGuildSummaries(session);
   return all.find((g) => g.id === guildId) ?? null;
+}
+
+/**
+ * Demo-mode counterpart of inviting the bot: flips `botInstalled` on a mock
+ * guild so the invite button leads somewhere real without a Discord app.
+ * No-op (false) outside demo mode or for unknown guilds.
+ */
+export async function installBotInDemoGuild(guildId: string): Promise<boolean> {
+  if (!isDemoMode()) return false;
+  const mockStore = new StoreBackedMockStore();
+  const state = await mockStore.load();
+  const guild = state.guilds[guildId];
+  if (!guild) return false;
+  if (!guild.botInstalled) {
+    guild.botInstalled = true;
+    guild.botPermissions = invitePermissionBits();
+    await mockStore.save(state);
+    log.info("demo bot installed", { guildId });
+  }
+  return true;
 }
 
 /**
