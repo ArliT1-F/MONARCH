@@ -13,6 +13,19 @@ services:
       timeout: 3s
       retries: 10
 
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/dashboard.Dockerfile
+    # One-shot: apply Prisma migrations before the dashboard boots.
+    command: sh -c "npx prisma migrate deploy"
+    environment:
+      DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:-monarch}@postgres:5432/monarch
+      DIRECT_DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:-monarch}@postgres:5432/monarch
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   dashboard:
     build:
       context: ..
@@ -27,8 +40,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   bot:
     build:

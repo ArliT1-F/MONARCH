@@ -14,6 +14,9 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [{ protocol: "https", hostname: "cdn.discordapp.com" }],
   },
+  // Prisma 7 runtime + pg driver adapter must stay external (server-side
+  // only, resolved from node_modules at runtime instead of bundled).
+  serverExternalPackages: ["@prisma/client", "@prisma/adapter-pg", "pg"],
   // Workspace packages use ESM-style ".js" specifiers in TS source.
   webpack: (config) => {
     config.resolve.extensionAlias = {

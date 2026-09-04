@@ -97,13 +97,21 @@ context — the resolver is only for generated/published content.
 
 Routes depend on the `MonarchStore` interface
 (apps/dashboard/lib/store.ts): sessions, drafts, snapshots, guild settings,
-audit entries, demo mock state. Current implementation is a JSON file store
-(`.monarch-data/`, gitignored) for development/demo.
+audit entries, demo mock state. Two implementations sit behind it:
 
-**TODO(phase-1.5):** `PrismaStore` against `prisma/schema.prisma`
-(PostgreSQL). The swap is confined to `getStore()`; OAuth tokens must be
-encrypted at rest when that lands. Session cookies already carry only an
-HMAC-signed opaque id — tokens never reach the browser.
+- **PrismaStore** (apps/dashboard/lib/prisma-store.ts) — PostgreSQL via
+  Prisma 7 (engine-free client + `@prisma/adapter-pg`). Active whenever
+  `DATABASE_URL` is set; this is the production backend and what runs on
+  Vercel (see docs/deploying-vercel.md). OAuth tokens are encrypted at
+  rest with AES-256-GCM (lib/secure-token.ts, key derived from
+  `SESSION_SECRET`). The swap is confined to `getStore()`.
+- **FileStore** — JSON files under `.monarch-data/` (gitignored) when no
+  `DATABASE_URL` is configured. Development/demo only.
+
+Session cookies already carry only an HMAC-signed opaque id — tokens never
+reach the browser. The initial migration lives in `prisma/migrations/`
+(`npm run db:migrate`); the store contract is covered by tests that run
+against real PostgreSQL (apps/dashboard/test/prisma-store.integration.test.ts).
 
 ## Security model
 

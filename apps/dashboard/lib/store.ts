@@ -2,16 +2,22 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { ServerDesign } from "@monarch/schemas";
 import type { MockState } from "@monarch/discord";
+import { env } from "./env";
+import { PrismaStore } from "./prisma-store";
 
 /**
  * Monarch persistence layer.
  *
  * Interface first: routes talk to `MonarchStore`, never to a concrete
- * backend. The default implementation is a JSON file store rooted at
- * .monarch-data/ — intended for development and demo mode.
+ * backend. Two implementations:
  *
- * TODO(phase-1.5): PrismaStore backed by PostgreSQL (schema already exists
- * in /prisma/schema.prisma). Swap happens here only; no route changes.
+ * - PrismaStore (PostgreSQL, apps/dashboard/lib/prisma-store.ts) — used
+ *   whenever DATABASE_URL is set. This is the production target and what
+ *   runs on Vercel.
+ * - FileStore — a JSON file store rooted at .monarch-data/, used when no
+ *   DATABASE_URL is configured. Development/demo only.
+ *
+ * The swap happens here only; routes never change.
  */
 
 export interface SessionRecord {
@@ -188,7 +194,9 @@ class FileStore implements MonarchStore {
 let storeSingleton: MonarchStore | null = null;
 
 export function getStore(): MonarchStore {
-  if (!storeSingleton) storeSingleton = new FileStore();
+  if (!storeSingleton) {
+    storeSingleton = env.databaseUrl ? new PrismaStore() : new FileStore();
+  }
   return storeSingleton;
 }
 

@@ -23,3 +23,6 @@ npm-debug.log*
 .DS_Store
 coverage/
 .turbo/
+
+# prisma generated client (npm run db:generate / postinstall)
+apps/dashboard/lib/generated/
