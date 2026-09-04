@@ -1,0 +1,17 @@
+# Optional companion deployment for the long-lived Discord gateway.
+# Keep the dashboard on Vercel; deploy this worker to Render (or any worker
+# host). Both services must use the same DISCORD_BOT_TOKEN.
+services:
+  - type: worker
+    name: monarch-bot
+    runtime: docker
+    dockerfilePath: ./docker/bot.Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    envVars:
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: DISCORD_CLIENT_ID
+        sync: false

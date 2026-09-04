@@ -63,10 +63,14 @@ cd docker && docker compose up --build
 ```
 
 Deploying to **Vercel + Postgres (Prisma)** — see
-[docs/deploying-vercel.md](docs/deploying-vercel.md). Set `DATABASE_URL`
-(anywhere: Vercel, Docker, local) and Monarch swaps its file store for the
-PostgreSQL-backed `PrismaStore` automatically; migrations ship in
-`prisma/migrations/` and apply with `npm run db:migrate`.
+[docs/deploying-vercel.md](docs/deploying-vercel.md). Vercel runs the dashboard;
+the Discord Gateway bot must run as a long-lived worker (Render, Railway,
+Fly.io, a VM, or Docker). Set the same `DISCORD_BOT_TOKEN` and `APP_URL` in
+both services so slash commands and dashboard changes stay online together.
+`render.yaml` is ready for a Render worker. Set `DATABASE_URL` (anywhere:
+Vercel, Docker, local) and Monarch swaps its file store for the PostgreSQL-
+backed `PrismaStore` automatically; migrations ship in `prisma/migrations/`
+and apply with `npm run db:migrate`.
 
 ## Repository layout
 

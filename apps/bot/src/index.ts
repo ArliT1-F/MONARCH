@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Events, MessageFlags } from "discord.js";
+import { Client, GatewayIntentBits, Events, MessageFlags, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { createLogger } from "@monarch/shared";
 
 /**
@@ -16,6 +16,7 @@ import { createLogger } from "@monarch/shared";
 const log = createLogger("bot");
 
 const token = process.env.DISCORD_BOT_TOKEN;
+const clientId = process.env.DISCORD_CLIENT_ID;
 const appUrl = process.env.APP_URL ?? "http://localhost:3000";
 
 if (!token) {
@@ -67,7 +68,30 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-client.login(token).catch((e) => {
-  log.error("login failed — check DISCORD_BOT_TOKEN", { error: String(e) });
-  process.exit(1);
-});
+async function registerCommands() {
+  if (!clientId) {
+    log.warn("DISCORD_CLIENT_ID is not set — slash commands were not registered");
+    return;
+  }
+
+  const commands = [
+    new SlashCommandBuilder()
+      .setName("monarch")
+      .setDescription("Monarch — design your Discord server")
+      .addSubcommand((s) => s.setName("dashboard").setDescription("Open this server in the Monarch design studio"))
+      .addSubcommand((s) => s.setName("status").setDescription("Show Monarch's status for this server"))
+      .toJSON(),
+  ];
+
+  await new REST({ version: "10" }).setToken(token).put(Routes.applicationCommands(clientId), {
+    body: commands,
+  });
+  log.info("registered slash commands", { count: commands.length });
+}
+
+registerCommands()
+  .then(() => client.login(token))
+  .catch((e) => {
+    log.error("bot startup failed", { error: String(e) });
+    process.exit(1);
+  });
