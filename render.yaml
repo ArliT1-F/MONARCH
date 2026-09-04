@@ -13,3 +13,5 @@ services:
         sync: false
       - key: APP_URL
         sync: false
+      - key: DISCORD_CLIENT_ID
+        sync: false

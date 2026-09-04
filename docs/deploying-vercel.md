@@ -151,7 +151,45 @@ jobs:
 > `DIRECT_DATABASE_URL` is **not** needed on Vercel — nothing serverless
 > runs migrations.
 
-## 4. Point Discord at the deployment
+## 4. Run the bot beside Vercel (required for slash commands)
+
+Vercel cannot keep a Discord Gateway connection alive: its functions are
+short-lived and may be frozen between requests. Therefore do **not** try to
+start `apps/bot` from a Vercel build command or API route. Run the dashboard
+on Vercel and the bot as one long-lived worker on Render, Railway, Fly.io, a
+VM, or Docker. This repository includes a ready-to-use `render.yaml` for the
+Render worker.
+
+### Render worker (recommended quick setup)
+
+1. Create a new Render Blueprint connected to this repository. Render detects
+   `render.yaml` and creates `monarch-bot`.
+2. Set `DISCORD_BOT_TOKEN` to the **same token** used by the Vercel dashboard
+   and set `APP_URL` to the exact Vercel URL, for example
+   `https://monarch.vercel.app`.
+3. Deploy and check the worker logs for `bot ready`. Keep exactly one worker
+   running; two Gateway sessions with the same bot token can disconnect each
+   other.
+
+The dashboard and worker are not separate copies of the Discord state. The
+Vercel API uses Discord REST with that same bot token, while the worker owns
+the Gateway connection for slash commands. Discord is the source of truth,
+so an apply from the dashboard is immediately visible to the bot and to
+Discord. `DATABASE_URL` is still required on Vercel for dashboard sessions,
+drafts, and audit data; it is not a substitute for the Gateway worker.
+
+For another provider, run the equivalent long-lived command from the repo
+root:
+
+```bash
+npm ci
+npm run start --workspace @monarch/bot
+```
+
+Set `DISCORD_BOT_TOKEN` and `APP_URL` in that worker's environment. Never
+put the bot token in browser-exposed `NEXT_PUBLIC_*` variables.
+
+## 5. Point Discord at the deployment
 
 In the Discord developer portal add
 `https://<your-app>.vercel.app/api/auth/callback` as an OAuth2 redirect,
