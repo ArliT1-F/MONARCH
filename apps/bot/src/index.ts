@@ -30,6 +30,45 @@ client.once(Events.ClientReady, (c) => {
   log.info("bot ready", { user: c.user.tag, guilds: c.guilds.cache.size });
 });
 
+// Surface gateway trouble instead of letting an EventEmitter "error" event
+// take the whole worker down (discord.js reconnects on its own).
+client.on(Events.Error, (e) => {
+  log.error("gateway error", { error: String(e) });
+});
+
+/**
+ * Graceful shutdown.
+ *
+ * The container runtime signals PID 1 on every redeploy and SIGKILLs whatever
+ * is still alive after the grace period. Without a handler the bot is killed
+ * mid-session: Discord keeps the dead gateway session until its heartbeat
+ * times out, and the deploy log ends in a non-zero exit that reads like a
+ * crash. Handlers only help if the signal actually reaches *this* process, so
+ * the image must exec node directly (see docker/bot.Dockerfile) instead of
+ * wrapping it in `npm run` — npm absorbs SIGTERM, exits 143 and never
+ * forwards it.
+ */
+let shuttingDown = false;
+function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log.info("shutting down", { signal });
+  try {
+    client.destroy(); // closes the gateway session cleanly
+  } catch (e) {
+    log.warn("gateway close failed", { error: String(e) });
+  }
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+// A stray rejection must not kill a worker that is otherwise serving guilds.
+process.on("unhandledRejection", (e) => {
+  log.error("unhandled rejection", { error: String(e) });
+});
+
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName !== "monarch") return;
@@ -68,7 +107,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-async function registerCommands() {
+async function registerCommands(botToken: string) {
   if (!clientId) {
     log.warn("DISCORD_CLIENT_ID is not set — slash commands were not registered");
     return;
@@ -83,13 +122,19 @@ async function registerCommands() {
       .toJSON(),
   ];
 
-  await new REST({ version: "10" }).setToken(token).put(Routes.applicationCommands(clientId), {
-    body: commands,
-  });
-  log.info("registered slash commands", { count: commands.length });
+  try {
+    await new REST({ version: "10" }).setToken(botToken).put(Routes.applicationCommands(clientId), {
+      body: commands,
+    });
+    log.info("registered slash commands", { count: commands.length });
+  } catch (e) {
+    // Non-fatal: previously registered commands keep working, and crash-looping
+    // the worker on a transient Discord REST error would take them offline too.
+    log.error("slash command registration failed — continuing with existing commands", { error: String(e) });
+  }
 }
 
-registerCommands()
+registerCommands(token)
   .then(() => client.login(token))
   .catch((e) => {
     log.error("bot startup failed", { error: String(e) });

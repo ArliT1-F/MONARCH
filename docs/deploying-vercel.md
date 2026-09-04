@@ -171,6 +171,24 @@ Render worker.
    running; two Gateway sessions with the same bot token can disconnect each
    other.
 
+### Reading the worker logs
+
+- `bot ready` — the Gateway session is live and slash commands work.
+- `shutting down {"signal":"SIGTERM"}` — the host is replacing this instance
+  (redeploy, restart, scale-down). The bot closes its Gateway session and
+  exits `0`.
+- Exit `143` is **not** a crash: `143 = 128 + 15 (SIGTERM)`, i.e. the host
+  stopped the process. Every redeploy produces one for the instance it
+  replaces, so a `143` immediately before a fresh `bot ready` is normal.
+  Repeated `143`s with no `bot ready` between them mean something is
+  restarting the worker — check the host's health/restart settings.
+
+The image runs `node --import tsx apps/bot/src/index.ts` as PID 1 so the
+host's SIGTERM actually reaches the bot. Launching it through
+`npm run start` instead swallows the signal: npm exits `143` without
+forwarding it, the bot is SIGKILLed mid-session, and Discord keeps the dead
+session until its heartbeat times out.
+
 The dashboard and worker are not separate copies of the Discord state. The
 Vercel API uses Discord REST with that same bot token, while the worker owns
 the Gateway connection for slash commands. Discord is the source of truth,
