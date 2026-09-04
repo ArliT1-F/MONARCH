@@ -55,19 +55,43 @@ set both variables to the same value.
 
 1. Create a Neon project and a database (e.g. `monarch`).
 2. In **Dashboard → Connect**, Neon shows two connection strings:
-   - **Pooled** (`pooled`, host contains `-pooler`): the
-     `DATABASE_URL` you put in Vercel.
-   - **Direct** (host has no `-pooler`): the `DIRECT_DATABASE_URL`.
-3. Keep the default `sslmode=require` (the `pg` driver in this repo uses
-   it naturally). Example:
+   - **Pooled** (host contains `-pooler`) and usually labelled
+     `DATABASE_URL` / `POSTGRES_URL` / **Recommended for most uses**.
+   - **Direct** (host has no `-pooler`) and usually labelled
+     `DATABASE_URL_UNPOOLED` / `POSTGRES_URL_NON_POOLING`.
+3. Map Neon's names to this repo's names:
+
+   ```text
+   DATABASE_URL        = Neon "pooled / POSTGRES_URL"  (−pooler host)
+   DIRECT_DATABASE_URL = Neon "DATABASE_URL_UNPOOLED / POSTGRES_URL_NON_POOLING"
+   ```
+
+   Example shape:
 
    ```text
    DATABASE_URL=postgresql://<user>:<password>@<project>-pooler-01.region.aws.neon.tech/monarch?sslmode=require
    DIRECT_DATABASE_URL=postgresql://<user>:<password>@<project>-01.region.aws.neon.tech/monarch?sslmode=require
    ```
 
+   Neon's pooled URL may include `channel_binding=require` (e.g.
+   `?channel_binding=require&sslmode=require`). Keep it if the `pg` adapter
+   connects fine; if you see a `channel_binding` / SCRAM error locally or on
+   Vercel, strip `channel_binding=require` and keep `sslmode=require`.
+
 4. Run the migration with both URLs (step 2 below), then put only the
    **pooled** `DATABASE_URL` into Vercel.
+
+### Neon + Vercel Postgres template
+
+If you connected Vercel to Neon via the **Neon Postgres** integration,
+Vercel injects `POSTGRES_URL`, `POSTGRES_URL_NON_POOLING`, etc. This app
+does **not** read those names — it expects `DATABASE_URL` /
+`DIRECT_DATABASE_URL`. Either set those explicitly in Vercel, or map them
+when running scripts locally:
+
+```bash
+DATABASE_URL="$POSTGRES_URL" DIRECT_DATABASE_URL="$POSTGRES_URL_NON_POOLING" npm run db:migrate
+```
 
 ## 2. Run migrations
 
