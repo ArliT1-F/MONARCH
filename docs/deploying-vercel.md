@@ -51,6 +51,24 @@ URLs from the provider dashboard:
 Local dev against plain Postgres (Docker Compose) only needs one URL —
 set both variables to the same value.
 
+### Neon ✓ (recommended for this app)
+
+1. Create a Neon project and a database (e.g. `monarch`).
+2. In **Dashboard → Connect**, Neon shows two connection strings:
+   - **Pooled** (`pooled`, host contains `-pooler`): the
+     `DATABASE_URL` you put in Vercel.
+   - **Direct** (host has no `-pooler`): the `DIRECT_DATABASE_URL`.
+3. Keep the default `sslmode=require` (the `pg` driver in this repo uses
+   it naturally). Example:
+
+   ```text
+   DATABASE_URL=postgresql://<user>:<password>@<project>-pooler-01.region.aws.neon.tech/monarch?sslmode=require
+   DIRECT_DATABASE_URL=postgresql://<user>:<password>@<project>-01.region.aws.neon.tech/monarch?sslmode=require
+   ```
+
+4. Run the migration with both URLs (step 2 below), then put only the
+   **pooled** `DATABASE_URL` into Vercel.
+
 ## 2. Run migrations
 
 From your machine (or CI), once:
