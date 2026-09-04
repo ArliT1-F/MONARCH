@@ -121,6 +121,19 @@ installed with *Manage Channels*), and design away.
 - **Demo mode on Vercel:** with no Discord credentials the dashboard runs
   the mock gateway; its state persists through `PrismaStore`
   (`MockDiscordState` table), so seeded guilds survive cold starts.
+- **`Error: ENOENT ... mkdir '/var/task/.monarch-data'`** (or a `500`
+  with `oauth callback storage failed`) → `DATABASE_URL` is not set where
+  the function runs, so `getStore()` falls back to the JSON file store.
+  That store writes to the Lambda filesystem, which is read-only on Vercel.
+  Put the **pooled** `DATABASE_URL` in **both Production and Preview** in
+  the Vercel project settings, run the migration (step 2), then redeploy.
+- **`Sign-in session expired. Please try again.`** at the OAuth callback →
+  the `monarch_oauth_state` cookie wasn't sent (or didn't match). The usual
+  causes are `APP_URL` pointing at a different domain than the page you
+  clicked from, a redirect URI not matching `APP_URL` in the Discord app,
+  or the state cookie expiring before Discord returned. Make `APP_URL` and
+  the Discord OAuth redirect match exactly, use the same domain for login
+  and callback, and reopen Discord sign-in from the same site.
 - **`P1003: Table does not exist`** → migrations weren't applied; re-run
   step 2.
 - **`P1001: Can't reach database`** → check `DATABASE_URL` in the Vercel
