@@ -24,6 +24,8 @@ export function DesignerApp({ guildId }: { guildId: string }) {
   const [guild, setGuild] = useState<GuildSummary | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [reviewOpen, setReviewOpen] = useState(false);
+  /** Phones show one pane at a time; selecting something jumps to the inspector. */
+  const [mobilePane, setMobilePane] = useState<"canvas" | "inspector">("canvas");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -76,6 +78,10 @@ export function DesignerApp({ guildId }: { guildId: string }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  useEffect(() => {
+    if (state.selection) setMobilePane("inspector");
+  }, [state.selection]);
 
   // ── derived: diff + validation (client-side preview; server re-checks) ──
   const diff = useMemo(
@@ -150,43 +156,48 @@ export function DesignerApp({ guildId }: { guildId: string }) {
     : 0;
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-[calc(100dvh-3.25rem)] flex-col md:h-screen">
       {/* ── toolbar ── */}
-      <header className="flex items-center gap-3 border-b border-ink-800 bg-ink-900/60 px-5 py-2.5 backdrop-blur">
-        <div>
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-ink-800 bg-ink-900/60 px-3 py-2 backdrop-blur sm:px-5 sm:py-2.5">
+        <div className="min-w-0">
           <h1 className="text-sm font-semibold text-ink-100">Server Designer</h1>
-          <p className="text-[11px] text-ink-400">
+          <p className="hidden text-[11px] text-ink-400 sm:block">
             Draft → Preview → Diff → Apply. Discord is untouched while you edit.
           </p>
         </div>
 
-        <div className="mx-4 h-6 w-px bg-ink-700" />
+        <div className="mx-1 hidden h-6 w-px bg-ink-700 sm:mx-4 sm:block" />
 
-        <button
-          onClick={() => dispatch({ type: "UNDO" })}
-          disabled={state.past.length === 0}
-          title="Undo (Ctrl+Z)"
-          className="rounded-lg border border-ink-700 px-2.5 py-1.5 text-xs text-ink-200 transition hover:border-ink-500 disabled:opacity-35"
-        >
-          ↩ Undo
-        </button>
-        <button
-          onClick={() => dispatch({ type: "REDO" })}
-          disabled={state.future.length === 0}
-          title="Redo (Ctrl+Shift+Z)"
-          className="rounded-lg border border-ink-700 px-2.5 py-1.5 text-xs text-ink-200 transition hover:border-ink-500 disabled:opacity-35"
-        >
-          ↪ Redo
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => dispatch({ type: "UNDO" })}
+            disabled={state.past.length === 0}
+            title="Undo (Ctrl+Z)"
+            aria-label="Undo"
+            className="rounded-lg border border-ink-700 px-2.5 py-1.5 text-xs text-ink-200 transition hover:border-ink-500 disabled:opacity-35"
+          >
+            ↩<span className="hidden sm:inline"> Undo</span>
+          </button>
+          <button
+            onClick={() => dispatch({ type: "REDO" })}
+            disabled={state.future.length === 0}
+            title="Redo (Ctrl+Shift+Z)"
+            aria-label="Redo"
+            className="rounded-lg border border-ink-700 px-2.5 py-1.5 text-xs text-ink-200 transition hover:border-ink-500 disabled:opacity-35"
+          >
+            ↪<span className="hidden sm:inline"> Redo</span>
+          </button>
+        </div>
 
-        <div className="ml-auto flex items-center gap-3">
-          <span className="text-[11px] text-ink-400">
+        <div className="ml-auto flex items-center gap-2 sm:gap-3">
+          <span className="text-[11px] text-ink-400" aria-live="polite">
             {dirty ? (
               <span className="flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-gold-400" />
-                Unsaved changes
-                {saveState === "saving" && " · saving draft…"}
-                {saveState === "saved" && " · draft saved"}
+                <span className="hidden sm:inline">Unsaved changes</span>
+                <span className="sm:hidden">Unsaved</span>
+                {saveState === "saving" && <span className="hidden sm:inline"> · saving draft…</span>}
+                {saveState === "saved" && <span className="hidden sm:inline"> · draft saved</span>}
                 {saveState === "error" && (
                   <span className="text-danger-400"> · draft save failed</span>
                 )}
@@ -194,7 +205,8 @@ export function DesignerApp({ guildId }: { guildId: string }) {
             ) : (
               <span className="flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-ok-400" />
-                In sync with Discord
+                <span className="hidden sm:inline">In sync with Discord</span>
+                <span className="sm:hidden">In sync</span>
               </span>
             )}
           </span>
@@ -210,17 +222,42 @@ export function DesignerApp({ guildId }: { guildId: string }) {
           <button
             onClick={() => setReviewOpen(true)}
             disabled={!dirty}
-            className="rounded-lg bg-royal-500 px-4 py-1.5 text-xs font-medium text-white shadow shadow-royal-500/25 transition hover:bg-royal-400 disabled:opacity-40"
+            className="rounded-lg bg-royal-500 px-3 py-1.5 text-xs font-medium text-white shadow shadow-royal-500/25 transition hover:bg-royal-400 disabled:opacity-40 sm:px-4"
           >
-            Review changes{changeCount > 0 ? ` (${changeCount})` : ""}
+            Review{changeCount > 0 ? ` (${changeCount})` : ""}
+            <span className="hidden sm:inline"> changes</span>
           </button>
         </div>
       </header>
 
+      {/* ── mobile pane switch ── */}
+      <div className="flex border-b border-ink-800 bg-ink-900/40 md:hidden" role="tablist" aria-label="Designer panes">
+        {(["canvas", "inspector"] as const).map((pane) => (
+          <button
+            key={pane}
+            role="tab"
+            aria-selected={mobilePane === pane}
+            onClick={() => setMobilePane(pane)}
+            className={`flex-1 py-2 text-xs font-medium transition ${
+              mobilePane === pane
+                ? "border-b-2 border-royal-400 text-royal-400"
+                : "text-ink-400 hover:text-ink-200"
+            }`}
+          >
+            {pane === "canvas" ? "Structure" : "Inspector"}
+            {pane === "inspector" && validation && validation.issues.length > 0 && (
+              <span className={`ml-1.5 rounded-full px-1.5 text-[10px] ${validation.errors.length > 0 ? "bg-danger-400/15 text-danger-400" : "bg-warn-400/15 text-warn-400"}`}>
+                {validation.issues.length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {/* ── validation strip ── */}
       {validation && validation.issues.length > 0 && (
         <div
-          className={`border-b px-5 py-1.5 text-[11px] ${
+          className={`border-b px-3 py-1.5 text-[11px] sm:px-5 ${
             validation.errors.length > 0
               ? "border-danger-400/20 bg-danger-400/10 text-danger-400"
               : "border-warn-400/20 bg-warn-400/10 text-warn-400"
@@ -236,10 +273,18 @@ export function DesignerApp({ guildId }: { guildId: string }) {
 
       {/* ── canvas + inspector ── */}
       <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-y-auto px-6 py-5">
+        <div
+          className={`min-w-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 ${
+            mobilePane === "canvas" ? "block" : "hidden md:block"
+          }`}
+        >
           <StructureTree state={state} dispatch={dispatch} />
         </div>
-        <aside className="w-80 shrink-0 overflow-y-auto border-l border-ink-800 bg-ink-900/40 p-4">
+        <aside
+          className={`w-full shrink-0 overflow-y-auto border-ink-800 bg-ink-900/40 p-4 md:w-80 md:border-l ${
+            mobilePane === "inspector" ? "block" : "hidden md:block"
+          }`}
+        >
           <Inspector state={state} dispatch={dispatch} validation={validation} />
         </aside>
       </div>

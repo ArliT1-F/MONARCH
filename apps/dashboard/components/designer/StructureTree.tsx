@@ -5,6 +5,7 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  TouchSensor,
   closestCorners,
   useDroppable,
   useSensor,
@@ -54,7 +55,11 @@ export function StructureTree({
   const categories = orderedCategories(design);
   const rootChannels = channelsIn(design, undefined);
   const [active, setActive] = useState<{ kind: string; id: string } | null>(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // Mouse/pen: drag after 6px. Touch: press-and-hold so the list still scrolls.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
+  );
 
   const activeChannel = useMemo(
     () => (active?.kind === "ch" ? design.channels.find((c) => c.id === active.id) : undefined),
@@ -213,7 +218,7 @@ function CategoryBlock({
         <button
           {...attributes}
           {...listeners}
-          className="cursor-grab text-ink-500 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
+          className="touch-visible cursor-grab touch-none text-ink-500 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
           title="Drag to reorder category"
           onClick={(e) => e.stopPropagation()}
         >
@@ -322,7 +327,7 @@ function ChannelRow({
         {...attributes}
         {...listeners}
         onClick={(e) => e.stopPropagation()}
-        className="cursor-grab text-ink-500 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
+        className="touch-visible cursor-grab touch-none text-ink-500 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
         title="Drag to move"
       >
         <GripIcon />

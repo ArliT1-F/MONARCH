@@ -1,11 +1,11 @@
-import { ComingSoon } from "@/components/ui/ComingSoon";
+import { redirect } from "next/navigation";
 
-export default function Page() {
-  return (
-    <ComingSoon
-      title="Templates"
-      phase="Phase 6"
-      description="Save, version, import and export portable Monarch designs — from single embeds to complete server layouts."
-    />
-  );
+/** Templates live on the Import / Export page — one place for portable designs. */
+export default async function TemplatesPage({
+  params,
+}: {
+  params: Promise<{ guildId: string }>;
+}) {
+  const { guildId } = await params;
+  redirect(`/s/${guildId}/import-export`);
 }

@@ -11,7 +11,7 @@ Monarch is not a moderation bot and will not become one.
 Draft → Preview → Validate → Diff → Confirm → Apply
 ```
 
-## What works today (MVP: Phase 1–4)
+## What works today (Phase 1–4 + Backups & Templates)
 
 - 🔐 Discord OAuth2 sign-in (or zero-config **demo mode** with mock servers)
 - 🏰 Server selection with install/permission awareness
@@ -28,12 +28,34 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   Send Test and Publish through the Target Resolver
 - 💬 **Message Designer** (Phase 4) — full messages as content + embeds +
   link buttons with live preview, validation, autosave, Send Test and Publish
-- 🤖 Slash commands: `/monarch dashboard`, `/monarch status`, `/monarch embed`
-  and `/monarch test` (Test/Publish the saved design from Discord; requires
-  `INTERNAL_API_TOKEN` in both dashboard and bot)
+- 🗄️ **Backups & History** — save a snapshot any time (dashboard or
+  `/monarch backup`) and **restore** any snapshot: it loads into the Server
+  Designer as a draft, deleted channels come back as creates, channels added
+  since show as deletes, renames revert — reviewed and applied like any change
+- 📤 **Templates · Import / Export** — download the layout as a portable
+  `monarch-template` JSON (no snowflakes, no server-specific settings) and
+  import it into any server, either *added under* the existing structure or
+  *replacing* it, always with the full diff preview first
+- 📱 **Mobile-friendly dashboard** — collapsible navigation drawer, one-pane
+  designer/builder views with tabs, touch drag-and-drop
+- 🤖 Slash commands (`/monarch help` lists them all):
 
-Role Designer, Welcome Designer, Branding, Templates, Backups, Analyzer and
-Import/Export are phased next — see [docs/architecture.md](docs/architecture.md).
+  | Command | What it does | Who |
+  | --- | --- | --- |
+  | `/monarch help` | List every command | everyone |
+  | `/monarch dashboard` · `/monarch status` | Dashboard link / status | everyone |
+  | `/monarch backup [name]` | Snapshot the server structure | Manage Server / Admin |
+  | `/monarch export` | Post the layout as a `.json` template file | Manage Server / Admin |
+  | `/monarch embed` · `/monarch test` | Embed Builder link · test/publish the saved design | Manage Server / Admin |
+  | `/monarch jail @user [duration] [reason]` | Delete everything the user posts and re-post it in the **Standard Galactic Alphabet** (the Minecraft enchanting script) under their name and avatar. No duration = until `/monarch unjail`; `10m`, `2h`, `1d`, `1h30m` auto-release | Administrator or Kick Members |
+  | `/monarch unjail @user` · `/monarch jailed` | Release early · list jailed members | Administrator or Kick Members |
+
+  `backup`, `export`, `embed` and `test` need `INTERNAL_API_TOKEN` set in
+  both the dashboard and the bot. The jail needs the **Message Content**
+  privileged intent (see below) and the **Manage Messages** permission.
+
+Role Designer, Welcome Designer, Branding and Analyzer are phased next — see
+[docs/architecture.md](docs/architecture.md).
 
 ## Quick start (demo mode — no Discord app needed)
 
@@ -58,15 +80,22 @@ actually executes.
    landing page, or **Invite Monarch** next to any server on the select
    screen (that one pre-selects the server). The link is built server-side by
    `GET /api/invite` and requests only the permissions Monarch uses —
-   `Manage Channels`, `Manage Roles`, `Manage Webhooks`, `View Channel`,
-   `Send Messages`, `Embed Links`, `Attach Files`. Never Administrator.
-4. `npm run dev` — then `npm run dev:bot` in another terminal for slash
-   commands (`/monarch dashboard`, `/monarch embed`, `/monarch test`).
+   `Manage Channels`, `Manage Roles`, `Manage Webhooks`, `Manage Messages`
+   (jail), `View Channel`, `Send Messages`, `Send Messages in Threads`,
+   `Embed Links`, `Attach Files`. Never Administrator. If Monarch was
+   installed before `Manage Messages` was added, re-run the invite link or
+   grant it in Server Settings → Roles.
+4. In the developer portal, under **Bot → Privileged Gateway Intents**,
+   enable **Message Content**. The jail relay needs it to read messages; if
+   it is off the bot still starts (Guilds-only) and `/monarch jail` explains
+   what is missing. Free below 100 servers; Discord verification above.
+5. `npm run dev` — then `npm run dev:bot` in another terminal for slash
+   commands.
 
-   For `/monarch embed` (saved-design summary) and `/monarch test`
-   (test/publish the saved design) set the same `INTERNAL_API_TOKEN` in both
-   environments; the bot then talks to the dashboard's `/api/internal/*`
-   routes. `/monarch dashboard` works without it.
+   `/monarch backup`, `/monarch export`, `/monarch embed` and `/monarch test`
+   call the dashboard's `/api/internal/*` routes — set the same
+   `INTERNAL_API_TOKEN` in both environments. `/monarch dashboard`, `help`,
+   `status` and the jail work without it.
 
 Docker (dashboard + bot + PostgreSQL):
 

@@ -23,10 +23,10 @@ export default async function DesignatedChannelsPage({
       .map((c) => ({ id: c.id, name: c.name })) ?? [];
 
   return (
-    <main className="mx-auto max-w-2xl px-8 py-10">
+    <main className="mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
       <p className="mb-1 text-xs font-semibold tracking-[0.2em] text-ink-400 uppercase">Settings</p>
       <h1 className="mb-2 text-2xl font-semibold tracking-tight">Designated channels</h1>
-      <p className="mb-8 text-sm leading-relaxed text-ink-300">
+      <p className="mb-6 text-sm leading-relaxed text-ink-300 sm:mb-8">
         Every Monarch feature that publishes content resolves its destination through these
         defaults (or a per-feature override). Monarch never guesses a channel.
       </p>

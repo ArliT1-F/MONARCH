@@ -22,10 +22,15 @@ vi.mock("discord.js", () => {
       get: (_t, prop) => (prop === "toJSON" ? () => ({ name: "monarch" }) : () => builder()),
     });
   return {
+    AttachmentBuilder: vi.fn(),
+    ChannelType: { GuildForum: 15, GuildMedia: 16 },
     Client: vi.fn(() => ({ destroy: mocks.destroy, login: mocks.login, on: mocks.clientOn, once: mocks.clientOnce })),
-    Events: { ClientReady: "ready", InteractionCreate: "interactionCreate", Error: "error" },
-    GatewayIntentBits: { Guilds: 1 },
+    Events: { ClientReady: "ready", InteractionCreate: "interactionCreate", MessageCreate: "messageCreate", Error: "error" },
+    GatewayIntentBits: { Guilds: 1, GuildMessages: 512, MessageContent: 32768 },
+    InteractionContextType: { Guild: 0 },
     MessageFlags: { Ephemeral: 64 },
+    Partials: { Channel: 1 },
+    PermissionFlagsBits: { Administrator: 8n, KickMembers: 2n, ManageGuild: 32n, ManageMessages: 8192n, ManageWebhooks: 536870912n },
     REST: vi.fn(() => ({ setToken: () => ({ put: mocks.put }) })),
     Routes: { applicationCommands: (id: string) => `/applications/${id}/commands` },
     SlashCommandBuilder: vi.fn(() => builder()),
@@ -134,6 +139,18 @@ describe("bot startup", () => {
 
     expect(find("slash command registration failed — continuing with existing commands")).toBeDefined();
     expect(mocks.login).toHaveBeenCalledWith("test-token");
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it("falls back to Guilds-only intents when Message Content is not enabled", async () => {
+    const err = Object.assign(new Error("Used disallowed intents"), { code: "DisallowedIntents" });
+    mocks.login.mockRejectedValueOnce(err).mockResolvedValue("test-token");
+    await boot();
+    // let the async fallback settle
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mocks.login).toHaveBeenCalledTimes(2);
+    expect(find("Message Content intent is not enabled for this application — /monarch jail is disabled. Enable it under Bot → Privileged Gateway Intents in the Discord developer portal, then restart.")).toBeDefined();
     expect(exitSpy).not.toHaveBeenCalled();
   });
 

@@ -83,6 +83,8 @@ export interface MonarchStore {
   deleteDraft(guildId: string, userId: string): Promise<void>;
 
   listSnapshots(guildId: string): Promise<SnapshotRecord[]>;
+  /** Scoped by guild so a snapshot id from another server can never be restored. */
+  getSnapshot(guildId: string, id: string): Promise<SnapshotRecord | null>;
   addSnapshot(snapshot: SnapshotRecord): Promise<void>;
 
   getGuildSettings(guildId: string): Promise<GuildSettingsRecord>;
@@ -101,7 +103,8 @@ export interface MonarchStore {
 
 // ── File store implementation ────────────────────────────────────────
 
-const DATA_DIR = path.join(process.cwd(), "..", "..", ".monarch-data");
+/** Override with MONARCH_DATA_DIR (tests point it at a temp directory). */
+const DATA_DIR = process.env.MONARCH_DATA_DIR ?? path.join(process.cwd(), "..", "..", ".monarch-data");
 
 async function readJson<T>(file: string): Promise<T | null> {
   try {
@@ -168,6 +171,10 @@ class FileStore implements MonarchStore {
   async listSnapshots(guildId: string) {
     const all = (await readJson<SnapshotRecord[]>("snapshots.json")) ?? [];
     return all.filter((s) => s.guildId === guildId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  async getSnapshot(guildId: string, id: string) {
+    const all = (await readJson<SnapshotRecord[]>("snapshots.json")) ?? [];
+    return all.find((s) => s.id === id && s.guildId === guildId) ?? null;
   }
   async addSnapshot(snapshot: SnapshotRecord) {
     const all = (await readJson<SnapshotRecord[]>("snapshots.json")) ?? [];

@@ -249,6 +249,11 @@ export class PrismaStore implements MonarchStore {
     return rows.map(snapshotRowToRecord);
   }
 
+  async getSnapshot(guildId: string, id: string): Promise<SnapshotRecord | null> {
+    const row = await this.db.designVersion.findFirst({ where: { id, guildId } });
+    return row ? snapshotRowToRecord(row) : null;
+  }
+
   async addSnapshot(snapshot: SnapshotRecord): Promise<void> {
     await this.ensureGuild(snapshot.guildId);
     await this.db.designVersion.create({

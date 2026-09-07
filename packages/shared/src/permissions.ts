@@ -12,8 +12,10 @@ export const Permission = {
   EmbedLinks: 1n << 14n,
   AttachFiles: 1n << 15n,
   ManageMessages: 1n << 13n,
+  ReadMessageHistory: 1n << 16n,
   ManageRoles: 1n << 28n,
   ManageWebhooks: 1n << 29n,
+  SendMessagesInThreads: 1n << 38n,
 } as const;
 
 export type PermissionName = keyof typeof Permission;

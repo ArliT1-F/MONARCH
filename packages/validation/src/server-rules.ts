@@ -8,14 +8,22 @@ import { runRules, type Rule, type ValidationIssue, type ValidationReport } from
  * incoming designs.
  */
 
-/** Discord normalizes text-like channel names: lowercase, dashes, no spaces. */
+/**
+ * Discord normalizes text-like channel names: lowercase, spaces become dashes
+ * and ASCII punctuation (other than `-` and `_`) is dropped. Emoji, symbols and
+ * non-ASCII punctuation such as "︱" are kept — `📘︱rules` stays `📘︱rules`.
+ *
+ * Only used to detect names that would collapse to nothing and to compare
+ * names for duplicates; we deliberately do NOT warn about the cosmetic
+ * rewrite itself (users write `General Chat` and expect `general-chat`).
+ */
 export function normalizeTextChannelName(name: string): string {
   return name
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/[^a-z0-9_\-\p{L}\p{N}]/gu, "");
+    .replace(/[\u0021-\u002C\u002E\u002F\u003A-\u0040\u005B-\u005E\u0060\u007B-\u007E]/g, "")
+    .replace(/-+/g, "-");
 }
 
 const isTextLike = (c: ChannelDesign) =>
@@ -35,25 +43,14 @@ const channelNames: Rule<ServerDesign> = (design) => {
       });
       continue;
     }
-    if (isTextLike(ch)) {
-      const normalized = normalizeTextChannelName(name);
-      if (normalized.length === 0) {
-        issues.push({
-          severity: "error",
-          code: "channel.name.invalid",
-          message: `Channel name "${truncate(ch.name)}" contains no valid characters for a ${ch.type} channel.`,
-          fix: "Use letters, numbers and dashes.",
-          target: { kind: "channel", id: ch.id, name: ch.name },
-        });
-      } else if (normalized !== name) {
-        issues.push({
-          severity: "warning",
-          code: "channel.name.normalized",
-          message: `Discord will store "${truncate(ch.name)}" as "${normalized}".`,
-          fix: `Rename it to "${normalized}" to match what Discord will show.`,
-          target: { kind: "channel", id: ch.id, name: ch.name },
-        });
-      }
+    if (isTextLike(ch) && normalizeTextChannelName(name).length === 0) {
+      issues.push({
+        severity: "error",
+        code: "channel.name.invalid",
+        message: `Channel name "${truncate(ch.name)}" contains no valid characters for a ${ch.type} channel.`,
+        fix: "Use letters, numbers and dashes.",
+        target: { kind: "channel", id: ch.id, name: ch.name },
+      });
     }
   }
   return issues;

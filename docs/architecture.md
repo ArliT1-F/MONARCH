@@ -3,7 +3,7 @@
 > Monarch — Design your Discord. A visual design studio for Discord servers.
 > The dashboard is the product; the Discord bot is the integration layer.
 
-## Current status (Phase 1–4 complete)
+## Current status (Phase 1–4 + Backups, Templates, mobile)
 
 Implemented: monorepo, auth (Discord OAuth2 + demo mode), server selection,
 **Server Designer** (drafts, drag-and-drop, undo/redo, validation, diff
@@ -11,13 +11,54 @@ preview, apply), snapshots on apply, designated channels (Target Resolver)
 with Send Test, **Embed Builder** (Phase 3) and **Message Designer**
 (Phase 4) — both with live preview, {variables}, validation, autosaved
 per-guild workspaces, Send Test / Publish through the Target Resolver, audit
-entries, and the `/monarch embed` + `/monarch test` slash commands via the
-internal bot API.
+entries — plus **Backups & Restore**, **Templates (Import / Export)**, a
+responsive/mobile dashboard shell, and the bot's `help`, `backup`, `export`,
+`jail`/`unjail`/`jailed` slash commands.
 
-Features 5–10 of the product spec are represented as phase-labelled
-placeholders in the navigation; their shared infrastructure (schemas,
-validation, diff engine, renderer, target resolver, variables) already exists
-and must be reused — do not fork per-feature copies.
+Role Designer, Welcome Designer, Branding and Analyzer are represented as
+phase-labelled placeholders in the navigation; their shared infrastructure
+(schemas, validation, diff engine, renderer, target resolver, variables)
+already exists and must be reused — do not fork per-feature copies.
+
+## Backups, restore, templates
+
+All four flows share one module, `apps/dashboard/lib/backups.ts`, used by
+both the user-facing routes and the bot-facing `/api/internal/*` routes:
+
+- **Backup** = `fetchCurrentDesign` → `SnapshotRecord{kind:"manual"}` +
+  audit entry. Apply still records `pre-apply` / `post-apply` snapshots.
+- **Restore never touches Discord directly.** It stages the snapshot as the
+  caller's *draft* (`putDraft`) and sends them to the Server Designer, so the
+  normal validate → diff → confirm-destructive → apply pipeline runs. Before
+  staging, `rebaseDesign` (@monarch/design-engine `compose.ts`) makes the
+  snapshot applicable on top of the live server: ids that still exist are
+  kept (modify/rename/move), ids that vanished are *adopted* onto a live
+  entity of the same kind + name when one exists (so history isn't lost by a
+  delete-and-recreate), and whatever is left becomes a `new_*` local id — a
+  plain create — with parent links rewritten. Roles and designated channels
+  always come from the live server.
+- **Export** = `detachDesign` → `TemplateEnvelope` (`format:
+  "monarch-template"`, `version: 1`). **Import** parses with
+  `parseServerTemplate`, forces every id to a local id (`localiseIds`, so a
+  hand-edited file can't "modify" an unrelated live channel), then either
+  appends under the current structure (`mergeDesigns`, "add") or replaces
+  categories/channels wholesale ("replace"), validates, and stages a draft.
+
+## Jail (bot-side moderation gag)
+
+`/monarch jail @user [duration]` is the one feature the bot runs on its own,
+because it needs live `messageCreate` events. State is an in-memory
+`JailRegistry` (apps/bot/src/jail.ts) with per-entry timers — a restart
+releases everyone, by design (no bot database access). The relay deletes the
+original and re-posts it through a per-channel webhook named "Monarch Jail"
+using the member's display name and avatar, with the text transliterated to
+the Standard Galactic Alphabet (apps/bot/src/galactic.ts; mentions, custom
+emoji, timestamps, links and code spans are preserved so formatting can't be
+broken or bypassed). Requires the `GuildMessages` + privileged
+`MessageContent` intents and `Manage Messages`; if the intent is not enabled
+the bot falls back to Guilds-only and the command says so. Invokers must hold
+Administrator or Kick Members, and can only jail members below their highest
+role; owners and bots can't be jailed.
 
 ## Monorepo layout
 
@@ -154,12 +195,15 @@ against real PostgreSQL (apps/dashboard/test/prisma-store.integration.test.ts).
 | `PUT/DELETE /api/guilds/:id/draft` | Autosave / discard draft |
 | `POST /api/guilds/:id/plan` | Validation + diff vs live state (read-only) |
 | `POST /api/guilds/:id/apply` | The only structural mutation (snapshot → execute → audit) |
-| `GET /api/guilds/:id/snapshots` | Version history metadata |
+| `GET/POST /api/guilds/:id/snapshots` | Version history metadata / take a manual backup |
+| `POST /api/guilds/:id/snapshots/:snapshotId/restore` | Stage a snapshot as the caller's draft (rebase, no Discord writes) |
+| `GET/POST /api/guilds/:id/template` | Download the live structure as a template / import one as a draft (`mode: add\|replace`) |
 | `GET/PUT /api/guilds/:id/settings` | Designated channels |
 | `POST /api/guilds/:id/test-message` | Send Test through the Target Resolver |
 | `GET/PUT /api/guilds/:id/workspace` | Autosaved embed/message content designs |
 | `POST /api/guilds/:id/workspace/send` | Test/Publish a content design (validate → Target Resolver → render → send → audit) |
 | `GET/POST /api/internal/guilds/:id/workspace(+/send)` | Bot-facing counterparts, guarded by `INTERNAL_API_TOKEN` (Bearer) |
+| `GET/POST /api/internal/guilds/:id/backup` · `GET …/template` | Bot-facing backup list/create and template export (`/monarch backup`, `/monarch export`) |
 
 The API currently lives in Next.js route handlers; all business logic is in
 packages, so extracting a standalone `apps/api` service later is mechanical

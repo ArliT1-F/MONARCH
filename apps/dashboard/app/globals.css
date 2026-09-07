@@ -68,3 +68,29 @@ body {
 .animate-fade-up {
   animation: monarch-fade-up 0.25s ease both;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up {
+    animation: none;
+  }
+}
+
+/*
+ * Mobile: iOS Safari zooms into any focused control whose font-size is under
+ * 16px. The design language uses 12–13px inputs, so bump them to 16px on
+ * coarse-pointer (touch) devices only — desktop keeps the compact look.
+ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Drag handles are hover-revealed on desktop; touch has no hover. */
+@media (hover: none) {
+  .touch-visible {
+    opacity: 1 !important;
+  }
+}
