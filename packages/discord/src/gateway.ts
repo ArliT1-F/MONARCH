@@ -26,6 +26,57 @@ export interface CreatedChannel {
   name: string;
 }
 
+/** Minimal guild-member shape returned by GET /guilds/:id/members/@me. */
+export interface DiscordMemberInfo {
+  roles: string[];
+  /** Discord-computed guild permission bitfield (decimal string). */
+  permissions?: string | null;
+}
+
+/** Minimal role shape returned by GET /guilds/:id/roles. */
+export interface DiscordRoleInfo {
+  id: string;
+  permissions: string;
+  position: number;
+}
+
+/**
+ * Compute the bot's guild-level permission bitfield.
+ *
+ * Prefers Discord's computed `member.permissions` when present; otherwise
+ * ORs the permission bitfields of every role the member holds (including
+ * @everyone, whose role id equals the guild id). Administrator ("8") is
+ * kept as-is — `hasPermission` treats it as granting every permission,
+ * exactly like Discord does.
+ */
+export function computeBotPermissions(
+  member: DiscordMemberInfo,
+  roles: DiscordRoleInfo[],
+  guildId: string,
+): string {
+  if (typeof member.permissions === "string" && member.permissions.length > 0) {
+    return member.permissions;
+  }
+  let permissions = 0n;
+  for (const r of roles) {
+    if (member.roles.includes(r.id)) permissions |= BigInt(r.permissions);
+  }
+  const everyone = roles.find((r) => r.id === guildId);
+  if (everyone) permissions |= BigInt(everyone.permissions);
+  return permissions.toString();
+}
+
+/**
+ * A message Monarch sends. Discord API payload bodies (embeds/components)
+ * are produced exclusively by @monarch/renderer — the gateway only
+ * transports them.
+ */
+export interface MessagePayload {
+  content?: string;
+  embeds?: unknown[];
+  components?: unknown[];
+}
+
 export interface DiscordGateway {
   /** Guilds the BOT is installed in (ids). */
   listBotGuildIds(): Promise<Set<string>>;
@@ -64,8 +115,8 @@ export interface DiscordGateway {
   ): Promise<Result<void>>;
   deleteChannel(guildId: string, channelId: string): Promise<Result<void>>;
 
-  /** Send a plain message (used by Send Test via the Target Resolver). */
-  sendMessage(channelId: string, content: string): Promise<Result<{ messageId: string }>>;
+  /** Send a message (Send Test / publish) through the Target Resolver. */
+  sendMessage(channelId: string, payload: MessagePayload): Promise<Result<{ messageId: string }>>;
 }
 
 /** OAuth-side guild info, obtained with the USER's token, not the bot's. */

@@ -14,7 +14,15 @@ import {
   discordTypeToChannelKind,
   supportsTopic,
 } from "@monarch/renderer";
-import type { BotGuildInfo, CreatedChannel, DiscordGateway } from "./gateway.js";
+import {
+  computeBotPermissions,
+  type BotGuildInfo,
+  type CreatedChannel,
+  type DiscordGateway,
+  type DiscordMemberInfo,
+  type DiscordRoleInfo,
+  type MessagePayload,
+} from "./gateway.js";
 import { translateDiscordError } from "./errors.js";
 
 const log = createLogger("discord.rest");
@@ -43,24 +51,19 @@ export class RestDiscordGateway implements DiscordGateway {
 
   async getBotGuildInfo(guildId: string): Promise<BotGuildInfo | null> {
     try {
-      const me = (await this.rest.get(Routes.userGuildMember(guildId))) as {
-        roles: string[];
-      };
-      const roles = (await this.rest.get(Routes.guildRoles(guildId))) as {
-        id: string;
-        position: number;
-        permissions: string;
-      }[];
-      const myRoles = roles.filter((r) => me.roles.includes(r.id));
-      let permissions = 0n;
+      // GET /guilds/:id/members/@me — the bot-correct way to read the bot's
+      // own member object. (GET /users/@me/guilds/:id/member requires the
+      // OAuth2 `guilds.members.read` scope and does NOT work with a bot
+      // token, which made Monarch report missing permissions for bots whose
+      // role actually has Administrator.)
+      const me = (await this.rest.get(Routes.guildMember(guildId, "@me"))) as DiscordMemberInfo;
+      const roles = (await this.rest.get(Routes.guildRoles(guildId))) as DiscordRoleInfo[];
+      const botPermissions = computeBotPermissions(me, roles, guildId);
       let highest = 0;
-      for (const r of myRoles) {
-        permissions |= BigInt(r.permissions);
-        highest = Math.max(highest, r.position);
+      for (const r of roles) {
+        if (me.roles.includes(r.id)) highest = Math.max(highest, r.position);
       }
-      const everyone = roles.find((r) => r.id === guildId);
-      if (everyone) permissions |= BigInt(everyone.permissions);
-      return { id: guildId, botPermissions: permissions.toString(), botHighestRolePosition: highest };
+      return { id: guildId, botPermissions, botHighestRolePosition: highest };
     } catch (e) {
       log.warn("failed to get bot guild info", { guildId, error: String(e) });
       return null;
@@ -188,10 +191,14 @@ export class RestDiscordGateway implements DiscordGateway {
     }
   }
 
-  async sendMessage(channelId: string, content: string) {
+  async sendMessage(channelId: string, payload: MessagePayload) {
     try {
+      const body: Record<string, unknown> = {};
+      if (payload.content) body.content = payload.content;
+      if (payload.embeds && payload.embeds.length > 0) body.embeds = payload.embeds;
+      if (payload.components && payload.components.length > 0) body.components = payload.components;
       const msg = (await this.rest.post(Routes.channelMessages(channelId), {
-        body: { content },
+        body,
       })) as { id: string };
       return ok({ messageId: msg.id });
     } catch (e) {

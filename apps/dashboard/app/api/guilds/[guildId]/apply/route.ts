@@ -38,12 +38,25 @@ export async function POST(
   const { session, guild } = access.ctx;
 
   // Bot-side permission check (user-side already done by requireGuildAccess).
-  if (!guild.botPermissions || !hasPermission(guild.botPermissions, Permission.ManageChannels)) {
+  // `hasPermission` treats the Administrator bit as granting every
+  // permission, exactly like Discord. We only hard-block when we POSITIVELY
+  // know Manage Channels is missing; if Discord's info can't be fetched we
+  // try anyway and Discord enforces its own rules (a 403 comes back as a
+  // translated, human-readable error from the executor).
+  let botPermissions = guild.botPermissions ?? null;
+  if (!botPermissions) {
+    const fresh = await getGateway().getBotGuildInfo(guildId);
+    botPermissions = fresh?.botPermissions ?? null;
+    if (!botPermissions) {
+      log.warn("bot permissions unknown at apply time — letting Discord enforce", { guildId });
+    }
+  }
+  if (botPermissions && !hasPermission(botPermissions, Permission.ManageChannels)) {
     return jsonError(409, {
       code: "bot.permissions",
       message: "Monarch can't manage channels in this server.",
-      reason: "The Monarch bot is missing the Manage Channels permission.",
-      fix: "Grant Monarch the Manage Channels permission in Server Settings → Roles.",
+      reason: "The Monarch bot is missing Manage Channels (Administrator also satisfies this).",
+      fix: "Grant Monarch the Manage Channels permission — or Administrator — in Server Settings → Roles.",
     });
   }
 

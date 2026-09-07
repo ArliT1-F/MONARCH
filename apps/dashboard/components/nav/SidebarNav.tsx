@@ -13,8 +13,8 @@ const SECTIONS: { label: string | null; items: { name: string; slug: string; soo
     label: "Design",
     items: [
       { name: "Server Designer", slug: "designer" },
-      { name: "Embed Builder", slug: "embeds", soon: true },
-      { name: "Message Designer", slug: "messages", soon: true },
+      { name: "Embed Builder", slug: "embeds" },
+      { name: "Message Designer", slug: "messages" },
       { name: "Role Designer", slug: "roles", soon: true },
       { name: "Welcome Designer", slug: "welcome", soon: true },
       { name: "Branding", slug: "branding", soon: true },

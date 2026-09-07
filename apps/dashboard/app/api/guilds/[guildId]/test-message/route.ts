@@ -51,7 +51,7 @@ export async function POST(
     channel: { id: target.value.channelId, name: target.value.channelName },
   });
 
-  const sent = await gateway.sendMessage(target.value.channelId, content);
+  const sent = await gateway.sendMessage(target.value.channelId, { content });
   if (!sent.ok) {
     return NextResponse.json({ error: sent.error }, { status: 502 });
   }

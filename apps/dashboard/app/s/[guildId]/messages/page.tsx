@@ -1,11 +1,14 @@
-import { ComingSoon } from "@/components/ui/ComingSoon";
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/session";
+import { BuilderApp } from "@/components/content/BuilderApp";
 
-export default function Page() {
-  return (
-    <ComingSoon
-      title="Message Designer"
-      phase="Phase 4"
-      description="Design full messages as a component tree — content, embeds, buttons, selects and Components V2 layouts — with live preview and validation."
-    />
-  );
+export default async function MessageDesignerPage({
+  params,
+}: {
+  params: Promise<{ guildId: string }>;
+}) {
+  const session = await getSession();
+  if (!session) redirect("/");
+  const { guildId } = await params;
+  return <BuilderApp guildId={guildId} kind="message" />;
 }

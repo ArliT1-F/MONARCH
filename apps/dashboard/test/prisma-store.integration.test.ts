@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -39,9 +39,17 @@ beforeAll(async () => {
   const migrationDir = path.resolve(__dirname, "../../../prisma/migrations");
   const lock = readFileSync(path.join(migrationDir, "migration_lock.toml"), "utf8");
   expect(lock).toContain("postgresql");
-  const sql = readFileSync(path.join(migrationDir, "20260902000000_init", "migration.sql"), "utf8");
-  for (const stmt of sql.split(";").map((s) => s.replace(/--[^\n]*/g, "").trim()).filter(Boolean)) {
-    await pglite.exec(stmt);
+  // Apply every committed migration in order so new tables (e.g.
+  // GuildWorkspace) are covered, not just the initial schema.
+  const dirs = readdirSync(migrationDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort();
+  for (const dir of dirs) {
+    const sql = readFileSync(path.join(migrationDir, dir, "migration.sql"), "utf8");
+    for (const stmt of sql.split(";").map((s) => s.replace(/--[^\n]*/g, "").trim()).filter(Boolean)) {
+      await pglite.exec(stmt);
+    }
   }
 
   const SocketServer = await loadSocketServer();
