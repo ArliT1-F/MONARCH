@@ -9,6 +9,12 @@ describe("normalizeTextChannelName", () => {
     expect(normalizeTextChannelName("  Hello   World ")).toBe("hello-world");
     expect(normalizeTextChannelName("média-café")).toBe("média-café");
   });
+
+  it("keeps emoji and non-ASCII separators, drops ASCII punctuation", () => {
+    expect(normalizeTextChannelName("📘︱Rules")).toBe("📘︱rules");
+    expect(normalizeTextChannelName("rules & info!")).toBe("rules-info");
+    expect(normalizeTextChannelName("dev_talk|misc")).toBe("dev_talkmisc");
+  });
 });
 
 describe("validateServerDesign", () => {
@@ -33,13 +39,26 @@ describe("validateServerDesign", () => {
     expect(report.errors).toHaveLength(2);
   });
 
-  it("warns when Discord will normalize a text channel name", () => {
+  it("does not nag about names Discord will merely lowercase or dash", () => {
     const d = emptyServerDesign("g", "G");
-    d.channels = [{ id: "a", name: "General Chat", type: "text", position: 0 }];
+    d.channels = [
+      { id: "a", name: "General Chat", type: "text", position: 0 },
+      { id: "b", name: "📘︱rules", type: "text", position: 1 },
+    ];
     const report = validateServerDesign(d);
     expect(report.valid).toBe(true);
-    expect(report.warnings[0]?.code).toBe("channel.name.normalized");
-    expect(report.warnings[0]?.fix).toContain("general-chat");
+    expect(report.issues).toHaveLength(0);
+  });
+
+  it("errors only when a text channel name would collapse to nothing", () => {
+    const d = emptyServerDesign("g", "G");
+    d.channels = [
+      { id: "a", name: "!!!", type: "text", position: 0 },
+      { id: "b", name: "📘", type: "text", position: 1 },
+    ];
+    const report = validateServerDesign(d);
+    expect(report.errors.map((e) => e.code)).toEqual(["channel.name.invalid"]);
+    expect(report.errors[0]?.target?.id).toBe("a");
   });
 
   it("errors on orphaned channels and overlong topics", () => {

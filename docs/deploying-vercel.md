@@ -167,13 +167,19 @@ Render worker.
 2. Set `DISCORD_BOT_TOKEN` to the **same token** used by the Vercel dashboard
    and set `APP_URL` to the exact Vercel URL, for example
    `https://monarch.vercel.app`.
-3. For `/monarch embed` and `/monarch test`, also set the **same**
-   `INTERNAL_API_TOKEN` on Vercel (dashboard) and the bot worker. Generate
-   one with `openssl rand -hex 32`. Without it those subcommands reply with
-   setup guidance; `/monarch dashboard` and `/monarch status` still work.
-4. Deploy and check the worker logs for `bot ready`. Keep exactly one worker
-   running; two Gateway sessions with the same bot token can disconnect each
-   other.
+3. For `/monarch backup`, `/monarch export`, `/monarch embed` and
+   `/monarch test`, also set the **same** `INTERNAL_API_TOKEN` on Vercel
+   (dashboard) and the bot worker. Generate one with `openssl rand -hex 32`.
+   Without it those subcommands reply with setup guidance; `/monarch help`,
+   `dashboard`, `status` and the jail commands still work.
+4. In the Discord developer portal enable **Message Content** under
+   Bot → Privileged Gateway Intents — `/monarch jail` reads and re-posts
+   messages. If it is off, the worker logs `Message Content intent is not
+   enabled…`, reconnects with Guilds-only intents and the jail command tells
+   users it is disabled. Everything else keeps working.
+5. Deploy and check the worker logs for `bot ready` (the log line includes
+   `"jail": true|false`). Keep exactly one worker running; two Gateway
+   sessions with the same bot token can disconnect each other.
 
 ### Reading the worker logs
 
@@ -216,7 +222,9 @@ put the bot token in browser-exposed `NEXT_PUBLIC_*` variables.
 In the Discord developer portal add
 `https://<your-app>.vercel.app/api/auth/callback` as an OAuth2 redirect,
 matching `APP_URL` exactly. Then sign in, pick a server (the bot must be
-installed with *Manage Channels*), and design away.
+installed with *Manage Channels*; *Manage Messages* is needed only for the
+jail — servers that installed Monarch before it was added to the invite must
+re-run the invite link or grant it manually), and design away.
 
 ## Notes & troubleshooting
 

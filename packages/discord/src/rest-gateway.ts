@@ -23,7 +23,7 @@ import {
   type DiscordRoleInfo,
   type MessagePayload,
 } from "./gateway.js";
-import { translateDiscordError } from "./errors.js";
+import { isNotInGuildError, translateDiscordError } from "./errors.js";
 
 const log = createLogger("discord.rest");
 
@@ -34,9 +34,28 @@ const log = createLogger("discord.rest");
  */
 export class RestDiscordGateway implements DiscordGateway {
   private rest: REST;
+  /** The bot's own user id (`GET /users/@me`), resolved once per process. */
+  private botUserId: Promise<string> | null = null;
 
   constructor(botToken: string) {
     this.rest = new REST({ version: "10" }).setToken(botToken);
+  }
+
+  /**
+   * Discord has no documented `GET /guilds/:id/members/@me`; the member
+   * endpoint wants a real user id. Resolve the bot's id from `/users/@me`
+   * once and reuse it (a failure is not cached so the next call retries).
+   */
+  private getBotUserId(): Promise<string> {
+    if (!this.botUserId) {
+      this.botUserId = (this.rest.get(Routes.user("@me")) as Promise<{ id: string }>)
+        .then((u) => u.id)
+        .catch((e) => {
+          this.botUserId = null;
+          throw e;
+        });
+    }
+    return this.botUserId;
   }
 
   async listBotGuildIds(): Promise<Set<string>> {
@@ -50,13 +69,33 @@ export class RestDiscordGateway implements DiscordGateway {
   }
 
   async getBotGuildInfo(guildId: string): Promise<BotGuildInfo | null> {
+    // Step 1 — is the bot a member of this guild at all?
+    // A definitive "no" (Unknown Guild / Unknown Member / Missing Access)
+    // returns null. Anything else (rate limit, 5xx, network) is NOT "not
+    // installed": we degrade to permissions-unknown and let Discord enforce
+    // at send time, instead of blocking Publish with a misleading
+    // "Monarch isn't installed in this server" error.
+    let me: DiscordMemberInfo;
     try {
-      // GET /guilds/:id/members/@me — the bot-correct way to read the bot's
-      // own member object. (GET /users/@me/guilds/:id/member requires the
-      // OAuth2 `guilds.members.read` scope and does NOT work with a bot
-      // token, which made Monarch report missing permissions for bots whose
-      // role actually has Administrator.)
-      const me = (await this.rest.get(Routes.guildMember(guildId, "@me"))) as DiscordMemberInfo;
+      const botUserId = await this.getBotUserId();
+      me = (await this.rest.get(Routes.guildMember(guildId, botUserId))) as DiscordMemberInfo;
+    } catch (e) {
+      if (isNotInGuildError(e)) {
+        log.info("bot is not a member of guild", { guildId, error: String(e) });
+        return null;
+      }
+      log.warn("could not read bot member (transient) — permissions unknown", {
+        guildId,
+        error: String(e),
+      });
+      return { id: guildId, botPermissions: null, botHighestRolePosition: 0 };
+    }
+
+    // Step 2 — compute permissions. Discord already includes the computed
+    // `permissions` bitfield on the member object for bot requests; roles
+    // are only needed as a fallback and for the hierarchy position, so a
+    // failure here must never turn into "not installed" either.
+    try {
       const roles = (await this.rest.get(Routes.guildRoles(guildId))) as DiscordRoleInfo[];
       const botPermissions = computeBotPermissions(me, roles, guildId);
       let highest = 0;
@@ -65,8 +104,13 @@ export class RestDiscordGateway implements DiscordGateway {
       }
       return { id: guildId, botPermissions, botHighestRolePosition: highest };
     } catch (e) {
-      log.warn("failed to get bot guild info", { guildId, error: String(e) });
-      return null;
+      log.warn("could not read guild roles — using member permissions only", {
+        guildId,
+        error: String(e),
+      });
+      const fromMember =
+        typeof me.permissions === "string" && me.permissions.length > 0 ? me.permissions : null;
+      return { id: guildId, botPermissions: fromMember, botHighestRolePosition: 0 };
     }
   }
 

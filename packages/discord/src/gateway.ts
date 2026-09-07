@@ -17,7 +17,14 @@ import type { Result } from "@monarch/shared";
 
 export interface BotGuildInfo {
   id: string;
-  botPermissions: string;
+  /**
+   * Guild-level permission bitfield (decimal string), or `null` when the
+   * bot IS in the guild but its permissions could not be read right now
+   * (Discord hiccup, rate limit). Callers must treat `null` as *unknown*
+   * and let Discord enforce — never as "missing permissions" and never as
+   * "bot not installed" (that case is `getBotGuildInfo()` returning null).
+   */
+  botPermissions: string | null;
   botHighestRolePosition: number;
 }
 

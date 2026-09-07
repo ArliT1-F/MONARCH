@@ -8,7 +8,7 @@ export function ComingSoon({
   description: string;
 }) {
   return (
-    <main className="flex min-h-[70vh] items-center justify-center px-8">
+    <main className="flex min-h-[70vh] items-center justify-center px-4 py-10 sm:px-8">
       <div className="max-w-md text-center">
         <p className="mb-3 inline-block rounded-full border border-royal-500/30 bg-royal-500/10 px-3 py-1 text-[11px] font-medium text-royal-400">
           Planned · {phase}

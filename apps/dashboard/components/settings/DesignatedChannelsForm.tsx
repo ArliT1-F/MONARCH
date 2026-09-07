@@ -75,16 +75,17 @@ export function DesignatedChannelsForm({
       {FIELDS.map((f) => (
         <div
           key={f.key}
-          className="flex items-center justify-between gap-6 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3"
+          className="flex flex-col gap-3 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
         >
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-medium text-ink-100">{f.label}</p>
             <p className="text-[11px] text-ink-400">{f.hint}</p>
           </div>
           <select
             value={values[f.key]}
             onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-            className="w-52 rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-xs text-ink-100 outline-none focus:border-royal-500"
+            aria-label={f.label}
+            className="w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-xs text-ink-100 outline-none focus:border-royal-500 sm:w-52"
           >
             <option value="">Not designated</option>
             {channels.map((c) => (
@@ -96,7 +97,7 @@ export function DesignatedChannelsForm({
         </div>
       ))}
 
-      <div className="flex items-center gap-3 pt-2">
+      <div className="flex flex-wrap items-center gap-3 pt-2">
         <button
           onClick={save}
           disabled={status === "saving"}

@@ -132,7 +132,7 @@ export function EmbedEditor({
               }
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <FieldLabel>Author URL</FieldLabel>
               <TextInput

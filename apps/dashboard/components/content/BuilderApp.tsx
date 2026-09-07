@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { EmbedDesign, MessageDesign } from "@monarch/schemas";
 import {
   validateEmbedDesign,
@@ -34,16 +35,18 @@ export function BuilderApp({ guildId, kind }: { guildId: string; kind: ContentKi
       : "Design a full message — content, embeds and buttons with live preview.";
 
   const canSend = !!w.design && !!validation?.valid;
+  /** Phones show either the editor or the preview; desktop shows both. */
+  const [mobilePane, setMobilePane] = useState<"editor" | "preview">("editor");
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-ink-800 bg-ink-900/60 px-5 py-2.5 backdrop-blur">
-        <div>
+    <div className="flex h-[calc(100dvh-3.25rem)] flex-col md:h-screen">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-ink-800 bg-ink-900/60 px-3 py-2 backdrop-blur sm:px-5 sm:py-2.5">
+        <div className="min-w-0">
           <h1 className="text-sm font-semibold text-ink-100">{title}</h1>
-          <p className="text-[11px] text-ink-400">{subtitle}</p>
+          <p className="hidden text-[11px] text-ink-400 sm:block">{subtitle}</p>
         </div>
-        <div className="mx-2 h-6 w-px bg-ink-700" />
-        <span className="text-[11px] text-ink-400">
+        <div className="mx-2 hidden h-6 w-px bg-ink-700 sm:block" />
+        <span className="hidden text-[11px] text-ink-400 sm:inline" aria-live="polite">
           {w.saveState === "saving" && "Saving draft…"}
           {w.saveState === "saved" && "✓ Saved"}
           {w.saveState === "error" && <span className="text-danger-400">Draft save failed</span>}
@@ -73,10 +76,27 @@ export function BuilderApp({ guildId, kind }: { guildId: string; kind: ContentKi
         </div>
       </header>
 
+      {/* mobile pane switch */}
+      <div className="flex border-b border-ink-800 bg-ink-900/40 md:hidden" role="tablist" aria-label="Builder panes">
+        {(["editor", "preview"] as const).map((pane) => (
+          <button
+            key={pane}
+            role="tab"
+            aria-selected={mobilePane === pane}
+            onClick={() => setMobilePane(pane)}
+            className={`flex-1 py-2 text-xs font-medium capitalize transition ${
+              mobilePane === pane ? "border-b-2 border-royal-400 text-royal-400" : "text-ink-400 hover:text-ink-200"
+            }`}
+          >
+            {pane}
+          </button>
+        ))}
+      </div>
+
       {/* validation strip */}
       {validation && validation.issues.length > 0 && (
         <div
-          className={`border-b px-5 py-1.5 text-[11px] ${
+          className={`border-b px-3 py-1.5 text-[11px] sm:px-5 ${
             validation.errors.length > 0
               ? "border-danger-400/20 bg-danger-400/10 text-danger-400"
               : "border-warn-400/20 bg-warn-400/10 text-warn-400"
@@ -93,7 +113,7 @@ export function BuilderApp({ guildId, kind }: { guildId: string; kind: ContentKi
       {/* send result */}
       {w.sendResult && (
         <div
-          className={`border-b px-5 py-2 text-[12px] ${
+          className={`border-b px-3 py-2 text-[12px] sm:px-5 ${
             w.sendResult.ok
               ? "border-ok-400/20 bg-ok-400/10 text-ok-400"
               : "border-danger-400/20 bg-danger-400/10 text-danger-400"
@@ -129,19 +149,27 @@ export function BuilderApp({ guildId, kind }: { guildId: string; kind: ContentKi
         </div>
       ) : (
         <div className="flex min-h-0 flex-1">
-          <div className="w-[460px] shrink-0 overflow-y-auto border-r border-ink-800 bg-ink-950/40 px-5 py-5">
+          <div
+            className={`w-full shrink-0 overflow-y-auto border-ink-800 bg-ink-950/40 px-4 py-4 sm:px-5 sm:py-5 md:w-[420px] md:border-r lg:w-[460px] ${
+              mobilePane === "editor" ? "block" : "hidden md:block"
+            }`}
+          >
             {kind === "embed" ? (
               <EmbedEditor embed={w.design as EmbedDesign} onChange={(e) => w.update(e)} />
             ) : (
               <MessageEditor message={w.design as MessageDesign} onChange={(m) => w.update(m)} />
             )}
           </div>
-          <div className="relative min-w-0 flex-1 overflow-y-auto px-8 py-6">
+          <div
+            className={`relative min-w-0 flex-1 overflow-y-auto px-3 py-4 sm:px-8 sm:py-6 ${
+              mobilePane === "preview" ? "block" : "hidden md:block"
+            }`}
+          >
             <div className="mx-auto max-w-2xl">
               <p className="mb-4 text-[11px] uppercase tracking-[0.18em] text-ink-500">
                 Live Discord preview
               </p>
-              <div className="rounded-2xl border border-ink-800 bg-ink-900/40 p-6">
+              <div className="rounded-2xl border border-ink-800 bg-ink-900/40 p-3 sm:p-6">
                 {kind === "embed" ? (
                   <EmbedPreview embed={w.design as EmbedDesign} />
                 ) : (
