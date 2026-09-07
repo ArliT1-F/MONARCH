@@ -73,9 +73,14 @@ export async function resolveTarget(
       }),
     );
   }
+  // `botPermissions === null` means the bot IS installed but Discord didn't
+  // tell us its permissions just now. Don't block on a guess — the send
+  // itself is permission-checked by Discord and a 403 comes back as a
+  // translated, human-readable error.
   if (
-    !hasPermission(botInfo.botPermissions, Permission.ViewChannel) ||
-    !hasPermission(botInfo.botPermissions, Permission.SendMessages)
+    botInfo.botPermissions !== null &&
+    (!hasPermission(botInfo.botPermissions, Permission.ViewChannel) ||
+      !hasPermission(botInfo.botPermissions, Permission.SendMessages))
   ) {
     return err(
       monarchError("target.bot-permissions", `Monarch can't send messages to #${channel.name}.`, {
