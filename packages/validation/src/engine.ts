@@ -15,7 +15,11 @@ export interface ValidationIssue {
   message: string;
   fix?: string;
   /** Path to the offending entity, e.g. { kind: "channel", id: "…" } */
-  target?: { kind: "guild" | "category" | "channel" | "role"; id?: string; name?: string };
+  target?: {
+    kind: "guild" | "category" | "channel" | "role" | "embed" | "message" | "button";
+    id?: string;
+    name?: string;
+  };
 }
 
 export interface ValidationReport {

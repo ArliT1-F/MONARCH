@@ -3,14 +3,18 @@
 > Monarch — Design your Discord. A visual design studio for Discord servers.
 > The dashboard is the product; the Discord bot is the integration layer.
 
-## Current status (Phase 1 + Phase 2 complete)
+## Current status (Phase 1–4 complete)
 
 Implemented: monorepo, auth (Discord OAuth2 + demo mode), server selection,
 **Server Designer** (drafts, drag-and-drop, undo/redo, validation, diff
 preview, apply), snapshots on apply, designated channels (Target Resolver)
-with Send Test, structured logging, unit tests for the engines.
+with Send Test, **Embed Builder** (Phase 3) and **Message Designer**
+(Phase 4) — both with live preview, {variables}, validation, autosaved
+per-guild workspaces, Send Test / Publish through the Target Resolver, audit
+entries, and the `/monarch embed` + `/monarch test` slash commands via the
+internal bot API.
 
-Features 2–10 of the product spec are represented as phase-labelled
+Features 5–10 of the product spec are represented as phase-labelled
 placeholders in the navigation; their shared infrastructure (schemas,
 validation, diff engine, renderer, target resolver, variables) already exists
 and must be reused — do not fork per-feature copies.
@@ -93,6 +97,22 @@ before returning a channel. "Send Test" on the Designated Channels page and
 Discord interactions (slash commands) always reply in their own interaction
 context — the resolver is only for generated/published content.
 
+Content designs (embeds/messages) follow their own small pipeline, shared by
+the dashboard UI and the bot's `/monarch test`:
+
+```
+Design (@monarch/schemas content.ts) → validate (@monarch/validation
+content-rules) → resolveTarget (@monarch/discord) → {variables} resolved
+(@monarch/shared) → payload (@monarch/renderer content-renderer) →
+gateway.sendMessage → audit
+```
+
+The service lives in `apps/dashboard/lib/workspace.ts`; route handlers are
+thin. `/monarch embed` and `/monarch test` reach it through `/api/internal/*`
+with `Authorization: Bearer INTERNAL_API_TOKEN` (constant-time compare in
+`lib/internal-auth.ts`). Both entry points go through the exact same
+pipeline, so the bot can never send something the editor would not send.
+
 ## Persistence
 
 Routes depend on the `MonarchStore` interface
@@ -137,6 +157,9 @@ against real PostgreSQL (apps/dashboard/test/prisma-store.integration.test.ts).
 | `GET /api/guilds/:id/snapshots` | Version history metadata |
 | `GET/PUT /api/guilds/:id/settings` | Designated channels |
 | `POST /api/guilds/:id/test-message` | Send Test through the Target Resolver |
+| `GET/PUT /api/guilds/:id/workspace` | Autosaved embed/message content designs |
+| `POST /api/guilds/:id/workspace/send` | Test/Publish a content design (validate → Target Resolver → render → send → audit) |
+| `GET/POST /api/internal/guilds/:id/workspace(+/send)` | Bot-facing counterparts, guarded by `INTERNAL_API_TOKEN` (Bearer) |
 
 The API currently lives in Next.js route handlers; all business logic is in
 packages, so extracting a standalone `apps/api` service later is mechanical

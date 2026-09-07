@@ -1,6 +1,6 @@
 import type { ServerDesign } from "@monarch/schemas";
 import { ok, err, monarchError, type Result } from "@monarch/shared";
-import type { BotGuildInfo, CreatedChannel, DiscordGateway, UserGuild } from "./gateway.js";
+import type { BotGuildInfo, CreatedChannel, DiscordGateway, MessagePayload, UserGuild } from "./gateway.js";
 
 /**
  * MockDiscordGateway — in-memory Discord used for demo mode and tests.
@@ -23,7 +23,7 @@ export interface MockGuild {
   botPermissions: string;
   design: ServerDesign;
   /** Messages "sent" in demo mode, for test-send verification. */
-  outbox: { channelId: string; content: string; at: string }[];
+  outbox: { channelId: string; content?: string; payload: MessagePayload; at: string }[];
 }
 
 export interface MockStateStore {
@@ -155,11 +155,16 @@ export class MockDiscordGateway implements DiscordGateway {
     });
   }
 
-  async sendMessage(channelId: string, content: string) {
+  async sendMessage(channelId: string, payload: MessagePayload) {
     const state = await this.store.load();
     for (const g of Object.values(state.guilds)) {
       if (g.design.channels.some((c) => c.id === channelId)) {
-        g.outbox.push({ channelId, content, at: new Date().toISOString() });
+        g.outbox.push({
+          channelId,
+          content: payload.content,
+          payload,
+          at: new Date().toISOString(),
+        });
         await this.store.save(state);
         return ok({ messageId: mockSnowflake() });
       }

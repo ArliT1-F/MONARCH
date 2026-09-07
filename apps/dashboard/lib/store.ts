@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { ServerDesign } from "@monarch/schemas";
+import type { EmbedDesign, MessageDesign, ServerDesign } from "@monarch/schemas";
 import type { MockState } from "@monarch/discord";
 import { env } from "./env";
 import { PrismaStore } from "./prisma-store";
@@ -61,6 +61,18 @@ export interface AuditRecord {
   createdAt: string;
 }
 
+/**
+ * Per-guild autosaved content designs (Embed Builder / Message Designer).
+ * Design-time values keep {variable} placeholders; they are only resolved
+ * at send time.
+ */
+export interface GuildWorkspaceRecord {
+  guildId: string;
+  embed: EmbedDesign | null;
+  message: MessageDesign | null;
+  updatedAt: string;
+}
+
 export interface MonarchStore {
   getSession(id: string): Promise<SessionRecord | null>;
   putSession(session: SessionRecord): Promise<void>;
@@ -78,6 +90,9 @@ export interface MonarchStore {
 
   addAudit(entry: AuditRecord): Promise<void>;
   listAudit(guildId: string, limit?: number): Promise<AuditRecord[]>;
+
+  getWorkspace(guildId: string): Promise<GuildWorkspaceRecord>;
+  putWorkspace(workspace: GuildWorkspaceRecord): Promise<void>;
 
   /** Demo-mode mock Discord state (unused in production). */
   getMockState(): Promise<MockState | null>;
@@ -188,6 +203,23 @@ class FileStore implements MonarchStore {
   }
   async putMockState(state: MockState) {
     await writeJson("mock-discord.json", state);
+  }
+
+  async getWorkspace(guildId: string) {
+    const all = (await readJson<Record<string, GuildWorkspaceRecord>>("workspace.json")) ?? {};
+    return (
+      all[guildId] ?? {
+        guildId,
+        embed: null,
+        message: null,
+        updatedAt: new Date().toISOString(),
+      }
+    );
+  }
+  async putWorkspace(workspace: GuildWorkspaceRecord) {
+    const all = (await readJson<Record<string, GuildWorkspaceRecord>>("workspace.json")) ?? {};
+    all[workspace.guildId] = workspace;
+    await writeJson("workspace.json", all);
   }
 }
 

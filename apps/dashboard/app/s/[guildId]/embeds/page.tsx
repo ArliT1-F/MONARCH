@@ -1,11 +1,14 @@
-import { ComingSoon } from "@/components/ui/ComingSoon";
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/session";
+import { BuilderApp } from "@/components/content/BuilderApp";
 
-export default function Page() {
-  return (
-    <ComingSoon
-      title="Embed Builder"
-      phase="Phase 3"
-      description="A three-panel visual editor for Discord embeds: components, a pixel-faithful Discord preview, and property inspection — with validation, variables, test sending and templates."
-    />
-  );
+export default async function EmbedBuilderPage({
+  params,
+}: {
+  params: Promise<{ guildId: string }>;
+}) {
+  const session = await getSession();
+  if (!session) redirect("/");
+  const { guildId } = await params;
+  return <BuilderApp guildId={guildId} kind="embed" />;
 }

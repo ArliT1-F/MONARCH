@@ -11,7 +11,7 @@ Monarch is not a moderation bot and will not become one.
 Draft → Preview → Validate → Diff → Confirm → Apply
 ```
 
-## What works today (MVP: Phase 1 + 2)
+## What works today (MVP: Phase 1–4)
 
 - 🔐 Discord OAuth2 sign-in (or zero-config **demo mode** with mock servers)
 - 🏰 Server selection with install/permission awareness
@@ -23,10 +23,17 @@ Draft → Preview → Validate → Diff → Confirm → Apply
 - ± Diff preview against live state; deletions require explicit confirmation
 - 📸 Automatic before/after snapshots and an audit trail on every apply
 - 🎯 Designated channels + Target Resolver with "Send Test" (never #general)
+- 📦 **Embed Builder** (Phase 3) — three-panel visual editor with a
+  pixel-faithful Discord preview, {variable} support, validation, autosave,
+  Send Test and Publish through the Target Resolver
+- 💬 **Message Designer** (Phase 4) — full messages as content + embeds +
+  link buttons with live preview, validation, autosave, Send Test and Publish
+- 🤖 Slash commands: `/monarch dashboard`, `/monarch status`, `/monarch embed`
+  and `/monarch test` (Test/Publish the saved design from Discord; requires
+  `INTERNAL_API_TOKEN` in both dashboard and bot)
 
-Embed Builder, Message/Component Designer, Role Designer, Welcome Designer,
-Branding, Templates, Backups, Analyzer and Import/Export are phased next —
-see [docs/architecture.md](docs/architecture.md).
+Role Designer, Welcome Designer, Branding, Templates, Backups, Analyzer and
+Import/Export are phased next — see [docs/architecture.md](docs/architecture.md).
 
 ## Quick start (demo mode — no Discord app needed)
 
@@ -54,7 +61,12 @@ actually executes.
    `Manage Channels`, `Manage Roles`, `Manage Webhooks`, `View Channel`,
    `Send Messages`, `Embed Links`, `Attach Files`. Never Administrator.
 4. `npm run dev` — then `npm run dev:bot` in another terminal for slash
-   commands (`/monarch dashboard`).
+   commands (`/monarch dashboard`, `/monarch embed`, `/monarch test`).
+
+   For `/monarch embed` (saved-design summary) and `/monarch test`
+   (test/publish the saved design) set the same `INTERNAL_API_TOKEN` in both
+   environments; the bot then talks to the dashboard's `/api/internal/*`
+   routes. `/monarch dashboard` works without it.
 
 Docker (dashboard + bot + PostgreSQL):
 

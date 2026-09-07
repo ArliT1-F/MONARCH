@@ -1,5 +1,5 @@
 import type { MockState } from "@monarch/discord";
-import type { ServerDesign } from "@monarch/schemas";
+import type { EmbedDesign, MessageDesign, ServerDesign } from "@monarch/schemas";
 import type { PrismaClient } from "@/lib/generated/prisma/client";
 import { getPrisma } from "./prisma";
 import { decryptSecret, encryptSecret } from "./secure-token";
@@ -7,6 +7,7 @@ import type {
   AuditRecord,
   DraftRecord,
   GuildSettingsRecord,
+  GuildWorkspaceRecord,
   MonarchStore,
   SessionRecord,
   SnapshotRecord,
@@ -312,6 +313,34 @@ export class PrismaStore implements MonarchStore {
       where: { id: "singleton" },
       create: { id: "singleton", state: state as object },
       update: { state: state as object },
+    });
+  }
+
+  async getWorkspace(guildId: string): Promise<GuildWorkspaceRecord> {
+    const row = await this.db.guildWorkspace.findUnique({ where: { guildId } });
+    return {
+      guildId,
+      embed: (row?.embed as EmbedDesign | null) ?? null,
+      message: (row?.message as MessageDesign | null) ?? null,
+      updatedAt: row ? row.updatedAt.toISOString() : new Date().toISOString(),
+    };
+  }
+
+  async putWorkspace(workspace: GuildWorkspaceRecord): Promise<void> {
+    await this.ensureGuild(workspace.guildId);
+    await this.db.guildWorkspace.upsert({
+      where: { guildId: workspace.guildId },
+      create: {
+        guildId: workspace.guildId,
+        embed: (workspace.embed as object | null) ?? undefined,
+        message: (workspace.message as object | null) ?? undefined,
+        updatedAt: new Date(workspace.updatedAt),
+      },
+      update: {
+        embed: (workspace.embed as object | null) ?? undefined,
+        message: (workspace.message as object | null) ?? undefined,
+        updatedAt: new Date(workspace.updatedAt),
+      },
     });
   }
 }

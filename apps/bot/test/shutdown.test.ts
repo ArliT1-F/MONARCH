@@ -15,12 +15,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("discord.js", () => {
-  const builder = () => ({
-    setName: () => builder(),
-    setDescription: () => builder(),
-    addSubcommand: () => builder(),
-    toJSON: () => ({ name: "monarch" }),
-  });
+  // Generic chainable builder mock: any method returns a fresh builder;
+  // toJSON reports the single "/monarch" command.
+  const builder = () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: (_t, prop) => (prop === "toJSON" ? () => ({ name: "monarch" }) : () => builder()),
+    });
   return {
     Client: vi.fn(() => ({ destroy: mocks.destroy, login: mocks.login, on: mocks.clientOn, once: mocks.clientOnce })),
     Events: { ClientReady: "ready", InteractionCreate: "interactionCreate", Error: "error" },

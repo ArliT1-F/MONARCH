@@ -167,7 +167,11 @@ Render worker.
 2. Set `DISCORD_BOT_TOKEN` to the **same token** used by the Vercel dashboard
    and set `APP_URL` to the exact Vercel URL, for example
    `https://monarch.vercel.app`.
-3. Deploy and check the worker logs for `bot ready`. Keep exactly one worker
+3. For `/monarch embed` and `/monarch test`, also set the **same**
+   `INTERNAL_API_TOKEN` on Vercel (dashboard) and the bot worker. Generate
+   one with `openssl rand -hex 32`. Without it those subcommands reply with
+   setup guidance; `/monarch dashboard` and `/monarch status` still work.
+4. Deploy and check the worker logs for `bot ready`. Keep exactly one worker
    running; two Gateway sessions with the same bot token can disconnect each
    other.
 

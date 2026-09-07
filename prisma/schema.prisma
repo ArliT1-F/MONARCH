@@ -50,9 +50,19 @@ model Guild {
   createdAt DateTime @default(now())
 
   settings  GuildSettings?
+  workspace GuildWorkspace?
   drafts    DesignDraft[]
   versions  DesignVersion[]
   auditEntries AuditEntry[]
+}
+
+// Autosaved content designs for the Embed Builder / Message Designer.
+model GuildWorkspace {
+  guildId   String   @id
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  embed     Json? // EmbedDesign
+  message   Json? // MessageDesign
+  updatedAt DateTime @updatedAt
 }
 
 model GuildSettings {
