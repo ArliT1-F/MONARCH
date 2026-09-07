@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { GuildSummary } from "@monarch/schemas";
-import type { MonarchError } from "@monarch/shared";
+import { createLogger, type MonarchError } from "@monarch/shared";
 import { getSession } from "./session";
 import { getGuildSummary } from "./discord";
 import type { SessionRecord } from "./store";
+
+const log = createLogger("dashboard.api");
 
 /**
  * API route guards. Frontend checks are cosmetic; these are the real ones.
@@ -26,6 +28,33 @@ export function assertSameOrigin(req: NextRequest): NextResponse | null {
     return jsonError(403, { code: "csrf", message: "Cross-origin request rejected." });
   }
   return null;
+}
+
+function isMissingTableError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  // P2021: table does not exist · P2010: raw query failed · 42P01: pg undefined_table
+  if (code === "P2021" || code === "P2010" || code === "42P01") return true;
+  const message = String((error as Error | null)?.message ?? error ?? "");
+  return /relation .* does not exist|table .* does not exist|no such table|P2021/i.test(message);
+}
+
+/**
+ * Convert an unexpected storage/pipeline failure into a JSON 500.
+ * Route handlers must never throw: an unhandled throw produces an
+ * empty-body 500, and clients calling `res.json()` on it crash with a raw
+ * `JSON.parse: unexpected end of data…` string. Full detail goes to the
+ * server log only — the response stays free of connection internals.
+ */
+export function jsonStorageError(error: unknown, fallbackMessage: string): NextResponse {
+  log.error("storage failure", { error: String(error) });
+  if (isMissingTableError(error)) {
+    return jsonError(500, {
+      code: "db.migration-pending",
+      message: fallbackMessage,
+      fix: "The database schema looks outdated — run `npm run db:migrate` against this environment's database, then reload.",
+    });
+  }
+  return jsonError(500, { code: "store.unavailable", message: fallbackMessage });
 }
 
 export async function requireSession(): Promise<

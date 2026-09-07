@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import type { GuildSummary, ServerDesign } from "@monarch/schemas";
 import { diffServerDesign } from "@monarch/design-engine";
 import { validateServerDesign } from "@monarch/validation";
+import { apiErrorMessage, networkErrorMessage, readJsonSafe } from "@/lib/fetch-json";
 import {
   designerReducer,
   initialDesignerState,
@@ -28,22 +29,28 @@ export function DesignerApp({ guildId }: { guildId: string }) {
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/guilds/${guildId}/state`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
+      const data = await readJsonSafe<{
+        guild: GuildSummary;
+        current: ServerDesign;
+        draft: { design: ServerDesign } | null;
+        error?: { message?: string };
+      }>(res);
+      if (!res.ok || !data) {
         dispatch({
           type: "LOAD_ERROR",
-          message: data?.error?.message ?? "Monarch couldn't load this server.",
+          message: !res.ok
+            ? apiErrorMessage(data, res, "Monarch couldn't load this server.")
+            : "Monarch returned an empty response. Try again in a moment.",
         });
         return;
       }
-      const data = await res.json();
       setGuild(data.guild);
       const base: ServerDesign = data.current;
       const design: ServerDesign = data.draft?.design ?? structuredClone(base);
       design.guildId = base.guildId;
       dispatch({ type: "LOAD_SUCCESS", base, design });
-    } catch {
-      dispatch({ type: "LOAD_ERROR", message: "Network error while loading the server." });
+    } catch (e) {
+      dispatch({ type: "LOAD_ERROR", message: networkErrorMessage(e) });
     }
   }, [guildId]);
 
