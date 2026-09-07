@@ -52,13 +52,36 @@ export type SendOutcome =
   | { ok: true; channelId: string; channelName: string; messageId: string }
   | { ok: false; error: MonarchError };
 
+/**
+ * Validate stored designs without throwing: a row written by an older (or
+ * newer) schema version must degrade to an empty editor, never to a 500
+ * with an empty body that crashes the client's `res.json()` call.
+ * Pure — unit-tested without a database.
+ */
+export function parseStoredWorkspace(stored: { embed: unknown; message: unknown }): {
+  embed: EmbedDesign | null;
+  message: MessageDesign | null;
+} {
+  let embed: EmbedDesign | null = null;
+  if (stored.embed != null) {
+    const parsed = EmbedDesignSchema.safeParse(stored.embed);
+    if (parsed.success) embed = parsed.data;
+  }
+  let message: MessageDesign | null = null;
+  if (stored.message != null) {
+    const parsed = MessageDesignSchema.safeParse(stored.message);
+    if (parsed.success) message = parsed.data;
+  }
+  return { embed, message };
+}
+
 export async function loadWorkspace(guildId: string): Promise<GuildWorkspace> {
   const w = await getStore().getWorkspace(guildId);
-  return {
-    guildId,
-    embed: w.embed ? EmbedDesignSchema.parse(w.embed) : null,
-    message: w.message ? MessageDesignSchema.parse(w.message) : null,
-  };
+  const parsed = parseStoredWorkspace({ embed: w.embed, message: w.message });
+  if ((w.embed != null && !parsed.embed) || (w.message != null && !parsed.message)) {
+    log.warn("stored workspace failed validation; starting from empty", { guildId });
+  }
+  return { guildId, ...parsed };
 }
 
 export async function saveWorkspace(

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { GuildSummary } from "@monarch/schemas";
+import { readJsonSafe } from "@/lib/fetch-json";
 
 /**
  * Server context switcher. The selected server is always visible; switching
@@ -18,8 +19,10 @@ export function ServerSwitcher({ current }: { current: GuildSummary }) {
   useEffect(() => {
     if (!open || guilds) return;
     fetch("/api/guilds")
-      .then((r) => r.json())
-      .then((d) => setGuilds((d.guilds as GuildSummary[]).filter((g) => g.userCanDesign)))
+      .then(async (r) => {
+        const d = await readJsonSafe<{ guilds?: GuildSummary[] }>(r);
+        setGuilds((d?.guilds ?? []).filter((g) => g.userCanDesign));
+      })
       .catch(() => setGuilds([]));
   }, [open, guilds]);
 

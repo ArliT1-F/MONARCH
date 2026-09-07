@@ -1,6 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import {
+  apiErrorMessage,
+  networkErrorMessage,
+  readJsonSafe,
+  type ApiErrorShape,
+} from "@/lib/fetch-json";
 
 const FIELDS: { key: string; label: string; hint: string }[] = [
   { key: "welcome", label: "Welcome channel", hint: "Used by the Welcome Designer" },
@@ -41,19 +47,26 @@ export function DesignatedChannelsForm({
 
   async function sendTest() {
     setTestResult(null);
-    const res = await fetch(`/api/guilds/${guildId}/test-message`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        target: { kind: "designated", key: "testing" },
-        content: "👑 Monarch test — designated channels are configured for {server}.",
-      }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      setTestResult(`✓ Test sent to #${data.channelName}`);
-    } else {
-      setTestResult(`✕ ${data.error?.message ?? "Test failed."} ${data.error?.fix ?? ""}`);
+    try {
+      const res = await fetch(`/api/guilds/${guildId}/test-message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target: { kind: "designated", key: "testing" },
+          content: "👑 Monarch test — designated channels are configured for {server}.",
+        }),
+      });
+      const data = await readJsonSafe<{ channelName?: string } & ApiErrorShape>(res);
+      if (res.ok && data) {
+        setTestResult(`✓ Test sent to #${data.channelName}`);
+      } else {
+        const err = data?.error;
+        setTestResult(
+          `✕ ${err?.message ?? apiErrorMessage(data, res, "Test failed.")} ${err?.fix ?? ""}`.trim(),
+        );
+      }
+    } catch (e) {
+      setTestResult(`✕ ${networkErrorMessage(e)}`);
     }
   }
 

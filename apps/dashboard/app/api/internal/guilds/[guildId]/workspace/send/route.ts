@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { TargetConfigSchema } from "@monarch/schemas";
-import { jsonError } from "@/lib/api";
+import { jsonError, jsonStorageError } from "@/lib/api";
 import { assertInternalAuth } from "@/lib/internal-auth";
 import { sendOutcomeResponse, sendWorkspaceDesign } from "@/lib/workspace";
 
@@ -29,13 +29,17 @@ export async function POST(
     return jsonError(400, { code: "workspace.invalid", message: "Invalid send payload." });
   }
 
-  const outcome = await sendWorkspaceDesign({
-    guildId,
-    userId: "bot",
-    username: "Monarch Bot",
-    kind: body.data.kind,
-    mode: body.data.mode,
-    target: body.data.target,
-  });
-  return sendOutcomeResponse(outcome);
+  try {
+    const outcome = await sendWorkspaceDesign({
+      guildId,
+      userId: "bot",
+      username: "Monarch Bot",
+      kind: body.data.kind,
+      mode: body.data.mode,
+      target: body.data.target,
+    });
+    return sendOutcomeResponse(outcome);
+  } catch (error) {
+    return jsonStorageError(error, "Monarch couldn't send the design.");
+  }
 }

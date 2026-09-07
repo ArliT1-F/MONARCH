@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jsonStorageError } from "@/lib/api";
 import { assertInternalAuth } from "@/lib/internal-auth";
 import { loadWorkspace } from "@/lib/workspace";
 
@@ -14,6 +15,10 @@ export async function GET(
   const unauthorized = assertInternalAuth(req);
   if (unauthorized) return unauthorized;
   const { guildId } = await params;
-  const workspace = await loadWorkspace(guildId);
-  return NextResponse.json({ workspace });
+  try {
+    const workspace = await loadWorkspace(guildId);
+    return NextResponse.json({ workspace });
+  } catch (error) {
+    return jsonStorageError(error, "Monarch couldn't load the saved design.");
+  }
 }

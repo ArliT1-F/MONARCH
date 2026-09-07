@@ -5,6 +5,12 @@ import type { ServerDesign } from "@monarch/schemas";
 import type { ServerDiff } from "@monarch/design-engine";
 import type { ValidationReport } from "@monarch/validation";
 import type { MonarchError } from "@monarch/shared";
+import {
+  apiErrorMessage,
+  networkErrorMessage,
+  readJsonSafe,
+  type ApiErrorShape,
+} from "@/lib/fetch-json";
 
 /**
  * Review & apply modal:
@@ -54,11 +60,17 @@ export function ReviewModal({
       body: JSON.stringify({ design }),
     })
       .then(async (r) => {
-        const data = await r.json();
-        if (!r.ok) throw new Error(data?.error?.message ?? "Couldn't compute the change preview.");
+        const data = await readJsonSafe<PlanResponse & ApiErrorShape>(r);
+        if (!r.ok || !data) {
+          throw new Error(
+            !r.ok
+              ? apiErrorMessage(data, r, "Couldn't compute the change preview.")
+              : "Monarch returned an empty response. Try again in a moment.",
+          );
+        }
         setPlan(data);
       })
-      .catch((e) => setPlanError(String(e.message ?? e)));
+      .catch((e) => setPlanError(networkErrorMessage(e)));
   }, [guildId, design]);
 
   async function apply() {
@@ -71,14 +83,26 @@ export function ReviewModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ design, confirmDestructive }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setApplyError(data?.error ?? { code: "apply", message: "Apply failed." });
+      const data = await readJsonSafe<
+        { ok?: boolean; steps?: ApplyStepResult[]; current?: ServerDesign } & ApiErrorShape
+      >(res);
+      if (!res.ok || !data) {
+        const err = data?.error;
+        setApplyError(
+          err?.message
+            ? {
+                code: err.code ?? "apply",
+                message: err.message,
+                ...(err.reason ? { reason: err.reason } : {}),
+                ...(err.fix ? { fix: err.fix } : {}),
+              }
+            : { code: "apply", message: apiErrorMessage(data, res, "Apply failed.") },
+        );
       } else {
-        setApplyResult({ ok: data.ok, steps: data.steps ?? [], current: data.current });
+        setApplyResult({ ok: data.ok ?? true, steps: data.steps ?? [], current: data.current });
       }
-    } catch {
-      setApplyError({ code: "network", message: "Network error while applying." });
+    } catch (e) {
+      setApplyError({ code: "network", message: networkErrorMessage(e) });
     } finally {
       setApplying(false);
     }

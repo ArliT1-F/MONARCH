@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EmbedDesign, MessageDesign } from "@monarch/schemas";
+import { apiErrorMessage, networkErrorMessage, readJsonSafe } from "@/lib/fetch-json";
 
 /**
  * Workspace editor state: load the saved design, autosave (debounced) on
@@ -46,8 +47,17 @@ export function useWorkspace<T extends EmbedDesign | MessageDesign>(
       setLoadError(null);
       try {
         const res = await fetch(`/api/guilds/${guildId}/workspace`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.error?.message ?? "Couldn't load the saved design.");
+        const data = await readJsonSafe<{
+          workspace?: Record<string, unknown>;
+          error?: SendError;
+        }>(res);
+        if (!res.ok || !data) {
+          throw new Error(
+            !res.ok
+              ? apiErrorMessage(data, res, "Couldn't load the saved design.")
+              : "Monarch returned an empty response. Try again in a moment.",
+          );
+        }
         const saved = data.workspace?.[kind];
         const next: T = saved ? (saved as T) : (emptyDesign(kind) as T);
         if (!cancelled) {
@@ -55,7 +65,7 @@ export function useWorkspace<T extends EmbedDesign | MessageDesign>(
           setDesign(next);
         }
       } catch (e) {
-        if (!cancelled) setLoadError(String((e as Error).message ?? e));
+        if (!cancelled) setLoadError(networkErrorMessage(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -104,15 +114,20 @@ export function useWorkspace<T extends EmbedDesign | MessageDesign>(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ kind, mode, design: designRef.current }),
         });
-        const data = await res.json();
-        if (res.ok && data.ok) {
+        const data = await readJsonSafe<{ ok?: boolean; channelName?: string; error?: SendError }>(
+          res,
+        );
+        if (res.ok && data?.ok) {
           setSendResult({ ok: true, channelName: data.channelName });
         } else {
-          const err = data?.error ?? { code: "workspace.send-failed", message: "Send failed." };
+          const err = data?.error ?? {
+            code: `http.${res.status}`,
+            message: apiErrorMessage(data, res, "Send failed."),
+          };
           setSendResult({ ok: false, error: err });
         }
-      } catch {
-        setSendResult({ ok: false, error: { code: "network", message: "Network error while sending." } });
+      } catch (e) {
+        setSendResult({ ok: false, error: { code: "network", message: networkErrorMessage(e) } });
       } finally {
         setSendState("idle");
       }
