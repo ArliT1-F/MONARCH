@@ -87,6 +87,27 @@ export async function POST(
   if (diff.isEmpty) {
     return NextResponse.json({ ok: true, applied: false, message: "No changes to apply.", steps: [] });
   }
+
+  // Role mutations require Manage Roles. We only block when we POSITIVELY
+  // know it's missing; an unknown-permissions bot tries anyway and Discord
+  // enforces at the role step (translated, human-readable error from the
+  // executor — same pattern as the channel check above).
+  const hasRoleChanges = diff.entries.some(
+    (e) => e.resource === "role" && e.op !== "unsupported",
+  );
+  if (
+    hasRoleChanges &&
+    botPermissions &&
+    !hasPermission(botPermissions, Permission.ManageRoles)
+  ) {
+    return jsonError(409, {
+      code: "bot.permissions",
+      message: "Monarch can't manage roles in this server.",
+      reason: "Your draft includes role changes, and the Monarch bot is missing Manage Roles.",
+      fix: "Grant Monarch the Manage Roles permission — or Administrator — in Server Settings → Roles.",
+    });
+  }
+
   const plan = planApply(diff);
   if (plan.destructive && !body.data.confirmDestructive) {
     return jsonError(409, {
@@ -131,8 +152,12 @@ export async function POST(
     guildId,
     userId: session.userId,
     action: "design.apply",
-    summary: `${result.ok ? "Applied" : "Partially applied"} ${plan.steps.length} change(s): ` +
-      `+${diff.creates.length} ~${diff.modifies.length + diff.renames.length + diff.moves.length} -${diff.deletes.length}`,
+    summary:
+      `${result.ok ? "Applied" : "Partially applied"} ${plan.steps.length} change(s): ` +
+      `+${diff.creates.length} ` +
+      `~${diff.modifies.length + diff.renames.length + diff.moves.length} ` +
+      `-${diff.deletes.length}` +
+      ` (channels ${channelCounts(diff)} · roles ${roleCounts(diff)})`,
     createdAt: new Date().toISOString(),
   });
 
@@ -143,4 +168,17 @@ export async function POST(
     createdIds: result.createdIds,
     current: after,
   });
+}
+
+/** "+3 ~1 -0" — applied/modified-or-moved/deleted channel counts. */
+function channelCounts(diff: ReturnType<typeof diffServerDesign>): string {
+  const c = (op: "create" | "modify" | "rename" | "move" | "delete") =>
+    diff.entries.filter((e) => e.resource === "channel" && e.op === op).length;
+  return `+${c("create")} ~${c("modify") + c("rename") + c("move")} -${c("delete")}`;
+}
+
+function roleCounts(diff: ReturnType<typeof diffServerDesign>): string {
+  const c = (op: "create" | "modify" | "rename" | "move" | "delete") =>
+    diff.entries.filter((e) => e.resource === "role" && e.op === op).length;
+  return `+${c("create")} ~${c("modify") + c("rename") + c("move")} -${c("delete")}`;
 }

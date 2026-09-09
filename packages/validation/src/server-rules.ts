@@ -163,12 +163,90 @@ const duplicateNames: Rule<ServerDesign> = (design) => {
   return issues;
 };
 
+// ── Role rules ────────────────────────────────────────────────────
+//
+// Roles live on the same ServerDesign; rules here are sibling to
+// channel/category rules and use the same ValidationIssue shape.
+// Managed roles (bot/integration) are never flagged — Monarch surfaces
+// them but never tries to edit them, so the "managed" flag is treated
+// as a passthrough for validation purposes.
+
+const roleNames: Rule<ServerDesign> = (design) => {
+  const issues: ValidationIssue[] = [];
+  for (const role of design.roles) {
+    if (role.managed) continue;
+    const trimmed = role.name.trim();
+    if (
+      trimmed.length < DiscordLimits.role.nameMin ||
+      trimmed.length > DiscordLimits.role.nameMax
+    ) {
+      issues.push({
+        severity: "error",
+        code: "role.name.length",
+        message: `Role name "${truncate(role.name)}" must be between ${DiscordLimits.role.nameMin} and ${DiscordLimits.role.nameMax} characters.`,
+        fix: "Shorten or fill in the role name.",
+        target: { kind: "role", id: role.id, name: role.name },
+      });
+    }
+    if (role.color && !/^#[0-9a-fA-F]{6}$/.test(role.color)) {
+      issues.push({
+        severity: "error",
+        code: "role.color.format",
+        message: `Role color "${role.color}" is not a valid 6-digit hex (e.g. #ff8800).`,
+        fix: "Use the picker, or type a value like #1a2b3c.",
+        target: { kind: "role", id: role.id, name: role.name },
+      });
+    }
+  }
+  return issues;
+};
+
+const roleLimits: Rule<ServerDesign> = (design) => {
+  if (design.roles.length <= DiscordLimits.guild.maxRoles) return [];
+  return [
+    {
+      severity: "error",
+      code: "guild.roles.max",
+      message: `This design has ${design.roles.length} roles; Discord allows at most ${DiscordLimits.guild.maxRoles}.`,
+      fix: "Remove some roles before applying.",
+      target: { kind: "guild" },
+    },
+  ];
+};
+
+const roleDuplicates: Rule<ServerDesign> = (design) => {
+  const issues: ValidationIssue[] = [];
+  const seen = new Map<string, number>();
+  for (const r of design.roles) {
+    if (r.managed) continue;
+    const key = r.name.trim().toLowerCase();
+    seen.set(key, (seen.get(key) ?? 0) + 1);
+  }
+  for (const r of design.roles) {
+    if (r.managed) continue;
+    const key = r.name.trim().toLowerCase();
+    if ((seen.get(key) ?? 0) > 1) {
+      issues.push({
+        severity: "warning",
+        code: "role.name.duplicate",
+        message: `Multiple roles named "${r.name}" — Discord allows this but it's confusing.`,
+        target: { kind: "role", id: r.id, name: r.name },
+      });
+      seen.set(key, 0);
+    }
+  }
+  return issues;
+};
+
 const SERVER_RULES: Rule<ServerDesign>[] = [
   channelNames,
   channelTopics,
   structureLimits,
   referentialIntegrity,
   duplicateNames,
+  roleNames,
+  roleLimits,
+  roleDuplicates,
 ];
 
 export function validateServerDesign(design: ServerDesign): ValidationReport {

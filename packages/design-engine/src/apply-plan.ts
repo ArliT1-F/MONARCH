@@ -7,9 +7,10 @@ import type { ServerDiff, DiffEntry } from "./diff.js";
  * Order matters on Discord:
  *   1. create categories        (channels may need their parent)
  *   2. create channels
- *   3. renames / modifications
- *   4. moves (parent + position sync)
- *   5. deletions last (and only after explicit confirmation)
+ *   3. create roles             (independent of channels)
+ *   4. renames / modifications
+ *   5. moves (parent + position sync)
+ *   6. deletions last (and only after explicit confirmation)
  *
  * The plan is consumed by the executor in @monarch/discord, which resolves
  * `new_*` local ids to real snowflakes as creations complete.
@@ -35,15 +36,25 @@ const opOrder: Record<string, number> = {
   unsupported: 5,
 };
 
+/** Stable resource ordering within the same op bucket:
+ *  categories → channels → roles (creates, renames, modifies, moves).
+ *  For deletes, the order is the opposite: roles → channels → categories
+ *  (so we never tear down a parent before its children).
+ */
+function resourceRank(op: string, resource: string): number {
+  const creates = ["category", "channel", "role"];
+  const deletes = ["role", "channel", "category"];
+  const order = op === "delete" ? deletes : creates;
+  return order.indexOf(resource);
+}
+
 export function planApply(diff: ServerDiff): ApplyPlan {
   const actionable = diff.entries.filter((e) => e.op !== "unsupported");
   const sorted = [...actionable].sort((a, b) => {
     const byOp = (opOrder[a.op] ?? 9) - (opOrder[b.op] ?? 9);
     if (byOp !== 0) return byOp;
-    // categories before channels for creates; channels before categories for deletes
-    const catFirst = a.op === "delete" ? 1 : -1;
     if (a.resource !== b.resource) {
-      return a.resource === "category" ? catFirst : -catFirst;
+      return resourceRank(a.op, a.resource) - resourceRank(b.op, b.resource);
     }
     return 0;
   });
@@ -57,7 +68,8 @@ export function planApply(diff: ServerDiff): ApplyPlan {
 }
 
 export function describeEntry(e: DiffEntry): string {
-  const label = e.resource === "category" ? "category" : e.resource;
+  const label =
+    e.resource === "category" ? "category" : e.resource === "channel" ? "channel" : e.resource;
   switch (e.op) {
     case "create":
       return `Create ${label} "${e.name}"`;
@@ -83,5 +95,6 @@ export function desiredPositions(design: ServerDesign) {
       position: c.position,
       parentId: c.parentId ?? null,
     })),
+    roles: design.roles.map((r) => ({ id: r.id, position: r.position })),
   };
 }

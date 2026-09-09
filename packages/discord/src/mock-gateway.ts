@@ -172,6 +172,67 @@ export class MockDiscordGateway implements DiscordGateway {
     return err(monarchError("discord.not-found", "That channel doesn't exist."));
   }
 
+  // ── Role mutations (mock) ───────────────────────────────────
+  // The mock matches the rest gateway's contract: roles carry color as
+  // a `#rrggbb` string (matching @monarch/schemas), `permissions` as a
+  // decimal string, and `managed: true` roles cannot be edited or deleted.
+
+  async createRole(
+    guildId: string,
+    payload: { name: string; color?: string; hoist?: boolean; mentionable?: boolean; permissions?: string; position?: number },
+  ) {
+    return this.mutate<CreatedChannel>(guildId, (g) => {
+      const id = mockSnowflake();
+      const nextPosition = payload.position ?? g.design.roles.length;
+      g.design.roles.push({
+        id,
+        name: payload.name,
+        color: payload.color,
+        hoist: payload.hoist,
+        mentionable: payload.mentionable,
+        permissions: payload.permissions ?? "0",
+        position: nextPosition,
+        managed: false,
+      });
+      // Re-sort by position descending so the highest position (e.g. 0) sorts first,
+      // matching what real Discord returns and what fetchServerDesign expects.
+      g.design.roles.sort((a, b) => b.position - a.position);
+      return { id, name: payload.name };
+    });
+  }
+
+  async modifyRole(
+    guildId: string,
+    roleId: string,
+    payload: { name?: string; color?: string | null; hoist?: boolean; mentionable?: boolean; permissions?: string; position?: number },
+  ) {
+    return this.mutate<void>(guildId, (g) => {
+      const role = g.design.roles.find((r) => r.id === roleId);
+      if (!role) throw new Error("role missing");
+      if (role.managed) {
+        // Managed roles cannot be edited; surface as a Discord-style 4xx error.
+        throw new Error(`Role ${roleId} is managed and cannot be modified.`);
+      }
+      if (payload.name !== undefined) role.name = payload.name;
+      if (payload.color !== undefined) role.color = payload.color ?? undefined;
+      if (payload.hoist !== undefined) role.hoist = payload.hoist;
+      if (payload.mentionable !== undefined) role.mentionable = payload.mentionable;
+      if (payload.permissions !== undefined) role.permissions = payload.permissions;
+      if (payload.position !== undefined) role.position = payload.position;
+    });
+  }
+
+  async deleteRole(guildId: string, roleId: string) {
+    return this.mutate<void>(guildId, (g) => {
+      const role = g.design.roles.find((r) => r.id === roleId);
+      if (!role) throw new Error("role missing");
+      if (role.managed) {
+        throw new Error(`Role ${roleId} is managed and cannot be deleted.`);
+      }
+      g.design.roles = g.design.roles.filter((r) => r.id !== roleId);
+    });
+  }
+
   /** Demo-mode helper: the "user guilds" a mock OAuth session would see. */
   async listUserGuilds(): Promise<UserGuild[]> {
     const state = await this.store.load();
