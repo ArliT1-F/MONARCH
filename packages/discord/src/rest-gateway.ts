@@ -249,4 +249,68 @@ export class RestDiscordGateway implements DiscordGateway {
       return err(translateDiscordError(e, "send this message"));
     }
   }
+
+  /**
+   * Convert a Monarch color (`#rrggbb`) to Discord's integer form.
+   * Discord stores colors as the lower 24 bits of an integer (0xRRGGBB);
+   * no alpha. Returns 0 for falsy values so a missing color is the
+   * "no color" state, matching how the rest gateway captures roles.
+   */
+  private colorToInt(color: string | undefined | null): number {
+    if (!color) return 0;
+    const m = /^#?([0-9a-fA-F]{6})$/.exec(color);
+    if (!m) return 0;
+    return parseInt(m[1]!, 16);
+  }
+
+  async createRole(
+    guildId: string,
+    payload: { name: string; color?: string; hoist?: boolean; mentionable?: boolean; permissions?: string; position?: number },
+  ) {
+    try {
+      const body: Record<string, unknown> = { name: payload.name };
+      if (payload.color) body.color = this.colorToInt(payload.color);
+      if (payload.hoist !== undefined) body.hoist = payload.hoist;
+      if (payload.mentionable !== undefined) body.mentionable = payload.mentionable;
+      if (payload.permissions) body.permissions = payload.permissions;
+      if (payload.position !== undefined) body.position = payload.position;
+      const created = (await this.rest.post(Routes.guildRoles(guildId), { body })) as { id: string; name: string };
+      return ok<CreatedChannel>({ id: created.id, name: created.name });
+    } catch (e) {
+      return err(translateDiscordError(e, `create role "${payload.name}"`));
+    }
+  }
+
+  async modifyRole(
+    guildId: string,
+    roleId: string,
+    payload: { name?: string; color?: string | null; hoist?: boolean; mentionable?: boolean; permissions?: string; position?: number },
+  ) {
+    try {
+      const body: Record<string, unknown> = {};
+      if (payload.name !== undefined) body.name = payload.name;
+      if (payload.color !== undefined) body.color = this.colorToInt(payload.color);
+      if (payload.hoist !== undefined) body.hoist = payload.hoist;
+      if (payload.mentionable !== undefined) body.mentionable = payload.mentionable;
+      if (payload.permissions !== undefined) body.permissions = payload.permissions;
+      if (payload.position !== undefined) body.position = payload.position;
+      await this.rest.patch(Routes.guildRole(guildId, roleId), { body });
+      return ok(undefined);
+    } catch (e) {
+      return err(translateDiscordError(e, `update role "${roleId}"`));
+    }
+  }
+
+  async deleteRole(_guildId: string, roleId: string) {
+    try {
+      // The real REST route is DELETE /guilds/:id/roles/:roleId. discord-api-types
+      // exposes it as `Routes.guildRole(guildId, roleId)` with method=DELETE; the
+      // @discordjs/rest client accepts `Routes.x` for the path, so we hand it the
+      // route plus an explicit method.
+      await this.rest.delete(Routes.guildRole(_guildId, roleId));
+      return ok(undefined);
+    } catch (e) {
+      return err(translateDiscordError(e, `delete role "${roleId}"`));
+    }
+  }
 }

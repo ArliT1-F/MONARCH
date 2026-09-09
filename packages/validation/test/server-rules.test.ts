@@ -87,3 +87,64 @@ describe("validateServerDesign", () => {
     expect(report.errors.map((e) => e.code)).toContain("category.channels.max");
   });
 });
+
+describe("validateServerDesign — roles", () => {
+  it("accepts well-formed roles", () => {
+    const d = emptyServerDesign("g", "G");
+    d.roles = [
+      { id: "r1", name: "Member", position: 1, color: "#88c0d0", managed: false },
+      { id: "r2", name: "Mod", position: 5, color: "#ff8800", managed: false },
+    ];
+    const report = validateServerDesign(d);
+    expect(report.errors).toHaveLength(0);
+  });
+
+  it("flags role names that are too long", () => {
+    const d = emptyServerDesign("g", "G");
+    d.roles = [
+      { id: "r1", name: "x".repeat(DiscordLimits.role.nameMax + 1), position: 1, managed: false },
+    ];
+    const report = validateServerDesign(d);
+    expect(report.errors.map((e) => e.code)).toContain("role.name.length");
+  });
+
+  it("flags malformed role colors", () => {
+    const d = emptyServerDesign("g", "G");
+    d.roles = [{ id: "r1", name: "Bad", position: 1, color: "red", managed: false }];
+    const report = validateServerDesign(d);
+    expect(report.errors.map((e) => e.code)).toContain("role.color.format");
+  });
+
+  it("flags designs that exceed the role count limit", () => {
+    const d = emptyServerDesign("g", "G");
+    d.roles = Array.from({ length: DiscordLimits.guild.maxRoles + 1 }, (_, i) => ({
+      id: `r${i}`,
+      name: `R${i}`,
+      position: i,
+      managed: false,
+    }));
+    const report = validateServerDesign(d);
+    expect(report.errors.map((e) => e.code)).toContain("guild.roles.max");
+  });
+
+  it("warns about duplicate role names but does not error", () => {
+    const d = emptyServerDesign("g", "G");
+    d.roles = [
+      { id: "a", name: "Mod", position: 1, managed: false },
+      { id: "b", name: "Mod", position: 2, managed: false },
+    ];
+    const report = validateServerDesign(d);
+    expect(report.warnings.map((w) => w.code)).toContain("role.name.duplicate");
+    expect(report.valid).toBe(true);
+  });
+
+  it("does not flag managed roles for any rule", () => {
+    const d = emptyServerDesign("g", "G");
+    d.roles = [
+      { id: "r1", name: "MEE6", position: 50, managed: true },
+      { id: "r2", name: "MEE6", position: 51, managed: true },
+    ];
+    const report = validateServerDesign(d);
+    expect(report.issues).toHaveLength(0);
+  });
+});

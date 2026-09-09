@@ -15,7 +15,7 @@ const SECTIONS: { label: string | null; items: { name: string; slug: string; soo
       { name: "Server Designer", slug: "designer" },
       { name: "Embed Builder", slug: "embeds" },
       { name: "Message Designer", slug: "messages" },
-      { name: "Role Designer", slug: "roles", soon: true },
+      { name: "Role Designer", slug: "roles" },
       { name: "Welcome Designer", slug: "welcome", soon: true },
       { name: "Branding", slug: "branding", soon: true },
     ],

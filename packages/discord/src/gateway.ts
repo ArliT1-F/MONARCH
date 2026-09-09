@@ -122,6 +122,25 @@ export interface DiscordGateway {
   ): Promise<Result<void>>;
   deleteChannel(guildId: string, channelId: string): Promise<Result<void>>;
 
+  // ── role mutations (Phase 5) ────────────────────────────────
+  createRole(guildId: string, payload: {
+    name: string;
+    color?: string;
+    hoist?: boolean;
+    mentionable?: boolean;
+    permissions?: string;
+    position?: number;
+  }): Promise<Result<CreatedChannel>>;
+  modifyRole(guildId: string, roleId: string, payload: {
+    name?: string;
+    color?: string | null;
+    hoist?: boolean;
+    mentionable?: boolean;
+    permissions?: string;
+    position?: number;
+  }): Promise<Result<void>>;
+  deleteRole(guildId: string, roleId: string): Promise<Result<void>>;
+
   /** Send a message (Send Test / publish) through the Target Resolver. */
   sendMessage(channelId: string, payload: MessagePayload): Promise<Result<{ messageId: string }>>;
 }

@@ -1,5 +1,5 @@
-import type { ServerDesign } from "@monarch/schemas";
-import type { ApplyPlan } from "@monarch/design-engine";
+import type { ServerDesign, RoleDesign } from "@monarch/schemas";
+import type { ApplyPlan, DiffEntry } from "@monarch/design-engine";
 import { desiredPositions, describeEntry } from "@monarch/design-engine";
 import { isLocalId, createLogger, type MonarchError } from "@monarch/shared";
 import type { DiscordGateway } from "./gateway.js";
@@ -74,34 +74,69 @@ export async function executeApplyPlan(
           });
           if (res.ok) createdIds[e.localId] = res.value.id;
           else error = res.error;
+        } else if (e.resource === "role") {
+          const detail = e.detail as RoleDesign;
+          const res = await gateway.createRole(plan.guildId, {
+            name: detail.name,
+            color: detail.color,
+            hoist: detail.hoist,
+            mentionable: detail.mentionable,
+            permissions: detail.permissions,
+            position: detail.position,
+          });
+          if (res.ok) createdIds[e.localId] = res.value.id;
+          else error = res.error;
         }
         break;
       }
       case "rename": {
-        const res = await gateway.modifyChannel(plan.guildId, e.id, {
-          name: e.after,
-          ...changesToPayload(e.changes),
-        });
-        if (!res.ok) error = res.error;
+        if (e.resource === "role") {
+          const res = await gateway.modifyRole(plan.guildId, e.id, {
+            name: e.after,
+            ...roleChangesToPayload(e.changes),
+          });
+          if (!res.ok) error = res.error;
+        } else {
+          const res = await gateway.modifyChannel(plan.guildId, e.id, {
+            name: e.after,
+            ...changesToPayload(e.changes),
+          });
+          if (!res.ok) error = res.error;
+        }
         break;
       }
       case "modify": {
-        const res = await gateway.modifyChannel(plan.guildId, e.id, changesToPayload(e.changes));
-        if (!res.ok) error = res.error;
+        if (e.resource === "role") {
+          const res = await gateway.modifyRole(plan.guildId, e.id, roleChangesToPayload(e.changes));
+          if (!res.ok) error = res.error;
+        } else {
+          const res = await gateway.modifyChannel(plan.guildId, e.id, changesToPayload(e.changes));
+          if (!res.ok) error = res.error;
+        }
         break;
       }
       case "move": {
-        const toParent = e.toParent ? (resolveId(e.toParent) ?? null) : null;
-        const res = await gateway.modifyChannel(plan.guildId, e.id, {
-          parentId: toParent,
-          position: e.toPosition,
-        });
-        if (!res.ok) error = res.error;
+        if (e.resource === "role") {
+          const res = await gateway.modifyRole(plan.guildId, e.id, { position: e.toPosition });
+          if (!res.ok) error = res.error;
+        } else {
+          const toParent = e.toParent ? (resolveId(e.toParent) ?? null) : null;
+          const res = await gateway.modifyChannel(plan.guildId, e.id, {
+            parentId: toParent,
+            position: e.toPosition,
+          });
+          if (!res.ok) error = res.error;
+        }
         break;
       }
       case "delete": {
-        const res = await gateway.deleteChannel(plan.guildId, e.id);
-        if (!res.ok) error = res.error;
+        if (e.resource === "role") {
+          const res = await gateway.deleteRole(plan.guildId, e.id);
+          if (!res.ok) error = res.error;
+        } else {
+          const res = await gateway.deleteChannel(plan.guildId, e.id);
+          if (!res.ok) error = res.error;
+        }
         break;
       }
       case "unsupported":
@@ -129,6 +164,15 @@ export async function executeApplyPlan(
       const id = resolveId(ch.id);
       if (id) await gateway.modifyChannel(plan.guildId, id, { position: ch.position });
     }
+    for (const role of positions.roles) {
+      // Managed roles can't be edited (Discord enforces), so skip
+      // them on position sync. Their position is fixed by whoever
+      // created them.
+      const target = desired.roles.find((r) => r.id === role.id);
+      if (target?.managed) continue;
+      const id = resolveId(role.id);
+      if (id) await gateway.modifyRole(plan.guildId, id, { position: role.position });
+    }
   }
 
   return { ok: !failed, steps: results, createdIds };
@@ -140,6 +184,17 @@ function changesToPayload(changes: { field: string; after: unknown }[]) {
     if (c.field === "topic") payload.topic = (c.after as string | undefined) ?? null;
     if (c.field === "nsfw") payload.nsfw = Boolean(c.after);
     if (c.field === "slowmode") payload.slowmode = (c.after as number | undefined) ?? 0;
+  }
+  return payload;
+}
+
+function roleChangesToPayload(changes: { field: string; after: unknown }[]) {
+  const payload: { color?: string | null; hoist?: boolean; mentionable?: boolean; permissions?: string } = {};
+  for (const c of changes) {
+    if (c.field === "color") payload.color = (c.after as string | undefined) ?? null;
+    if (c.field === "hoist") payload.hoist = Boolean(c.after);
+    if (c.field === "mentionable") payload.mentionable = Boolean(c.after);
+    if (c.field === "permissions") payload.permissions = c.after as string | undefined;
   }
   return payload;
 }

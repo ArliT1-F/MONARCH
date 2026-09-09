@@ -1,4 +1,4 @@
-import type { ServerDesign, ChannelDesign, CategoryDesign } from "@monarch/schemas";
+import type { ServerDesign, ChannelDesign, CategoryDesign, RoleDesign } from "@monarch/schemas";
 import { isLocalId } from "@monarch/shared";
 
 /**
@@ -28,7 +28,7 @@ export interface DiffCreate {
   /** Local id in the desired design (used to resolve parents when applying). */
   localId: string;
   name: string;
-  detail: ChannelDesign | CategoryDesign;
+  detail: ChannelDesign | CategoryDesign | RoleDesign;
 }
 
 export interface DiffModify {
@@ -203,6 +203,13 @@ export function diffServerDesign(current: ServerDesign, desired: ServerDesign): 
     }
   }
 
+  // ── Roles ──────────────────────────────────────────────────
+  // Roles go after channels: position sync happens at the end, and a
+  // role diff is small enough that reordering is cheap.
+  const roleDiff = diffRoles(current, desired);
+  entries.push(...roleDiff.entries);
+  unchanged += roleDiff.unchangedCount;
+
   const creates = entries.filter((e): e is DiffCreate => e.op === "create");
   const modifies = entries.filter((e): e is DiffModify => e.op === "modify");
   const renames = entries.filter((e): e is DiffRename => e.op === "rename");
@@ -222,6 +229,127 @@ export function diffServerDesign(current: ServerDesign, desired: ServerDesign): 
     unchangedCount: unchanged,
     isEmpty: creates.length + modifies.length + renames.length + moves.length + deletes.length === 0,
   };
+}
+
+/**
+ * Role diff. Same op vocabulary as channels/categories, but:
+ *   - "managed" roles (bots, integrations) are surfaced as `unsupported`
+ *     and never edited; Discord does not allow it.
+ *   - "create" uses the same `new_*` local-id pattern as categories.
+ *   - "modify" tracks color, hoist, mentionable, and permissions.
+ *   - "move" is just a position change (no parent — roles are flat).
+ *   - position always goes 0 (top) → N (bottom); we don't drag-reorder
+ *     roles in the UI in this iteration, so the only "move" is when
+ *     the user changes a role's position by editing it.
+ */
+export function diffRoles(
+  current: ServerDesign,
+  desired: ServerDesign,
+): { entries: DiffEntry[]; unchangedCount: number } {
+  const entries: DiffEntry[] = [];
+  let unchanged = 0;
+  const currentById = new Map(current.roles.map((r) => [r.id, r]));
+  const desiredIds = new Set<string>();
+
+  for (const role of desired.roles) {
+    if (isLocalId(role.id)) {
+      entries.push({
+        op: "create",
+        resource: "role",
+        localId: role.id,
+        name: role.name,
+        detail: role,
+      });
+      continue;
+    }
+    desiredIds.add(role.id);
+    const cur = currentById.get(role.id);
+    if (!cur) {
+      entries.push({
+        op: "unsupported",
+        resource: "role",
+        id: role.id,
+        name: role.name,
+        reason: "This role no longer exists on Discord. It will be skipped.",
+      });
+      continue;
+    }
+    if (cur.managed || role.managed) {
+      // Managed roles (bot/integration) cannot be edited by Monarch.
+      // If the user pasted a managed-role design in via template, we
+      // surface it as unsupported rather than failing the apply.
+      if (cur.name !== role.name) {
+        entries.push({
+          op: "unsupported",
+          resource: "role",
+          id: role.id,
+          name: role.name,
+          reason: "This role is managed by a bot or integration and cannot be renamed.",
+        });
+      } else {
+        unchanged++;
+      }
+      continue;
+    }
+    const changes = roleFieldChanges(cur, role);
+    const renamed = cur.name !== role.name;
+    const moved = cur.position !== role.position;
+    if (renamed) {
+      entries.push({
+        op: "rename",
+        resource: "role",
+        id: role.id,
+        before: cur.name,
+        after: role.name,
+        changes,
+      });
+    } else if (changes.length > 0) {
+      entries.push({
+        op: "modify",
+        resource: "role",
+        id: role.id,
+        name: role.name,
+        changes,
+      });
+    }
+    if (moved) {
+      entries.push({
+        op: "move",
+        resource: "role",
+        id: role.id,
+        name: role.name,
+        fromParent: null,
+        toParent: null,
+        fromPosition: cur.position,
+        toPosition: role.position,
+      });
+    }
+    if (!renamed && !moved && changes.length === 0) unchanged++;
+  }
+  for (const cur of current.roles) {
+    if (!desiredIds.has(cur.id) && !desired.roles.some((r) => r.id === cur.id)) {
+      if (cur.managed) {
+        // managed roles are not editable and we don't propose deleting them
+        continue;
+      }
+      entries.push({ op: "delete", resource: "role", id: cur.id, name: cur.name });
+    }
+  }
+  return { entries, unchangedCount: unchanged };
+}
+
+const ROLE_FIELDS = ["color", "hoist", "mentionable", "permissions"] as const;
+
+function roleFieldChanges(before: RoleDesign, after: RoleDesign): FieldChange[] {
+  const changes: FieldChange[] = [];
+  for (const field of ROLE_FIELDS) {
+    const a = (before as Record<string, unknown>)[field];
+    const b = (after as Record<string, unknown>)[field];
+    if (normalizeField(a) !== normalizeField(b)) {
+      changes.push({ field, before: a, after: b });
+    }
+  }
+  return changes;
 }
 
 function normalizeField(v: unknown): unknown {
