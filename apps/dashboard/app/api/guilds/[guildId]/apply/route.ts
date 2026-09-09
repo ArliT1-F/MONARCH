@@ -152,12 +152,7 @@ export async function POST(
     guildId,
     userId: session.userId,
     action: "design.apply",
-    summary:
-      `${result.ok ? "Applied" : "Partially applied"} ${plan.steps.length} change(s): ` +
-      `+${diff.creates.length} ` +
-      `~${diff.modifies.length + diff.renames.length + diff.moves.length} ` +
-      `-${diff.deletes.length}` +
-      ` (channels ${channelCounts(diff)} · roles ${roleCounts(diff)})`,
+    summary: applySummary(plan, result),
     createdAt: new Date().toISOString(),
   });
 
@@ -170,15 +165,38 @@ export async function POST(
   });
 }
 
-/** "+3 ~1 -0" — applied/modified-or-moved/deleted channel counts. */
-function channelCounts(diff: ReturnType<typeof diffServerDesign>): string {
-  const c = (op: "create" | "modify" | "rename" | "move" | "delete") =>
-    diff.entries.filter((e) => e.resource === "channel" && e.op === op).length;
-  return `+${c("create")} ~${c("modify") + c("rename") + c("move")} -${c("delete")}`;
-}
-
-function roleCounts(diff: ReturnType<typeof diffServerDesign>): string {
-  const c = (op: "create" | "modify" | "rename" | "move" | "delete") =>
-    diff.entries.filter((e) => e.resource === "role" && e.op === op).length;
-  return `+${c("create")} ~${c("modify") + c("rename") + c("move")} -${c("delete")}`;
+/**
+ * Audit summary. Counts what the executor ACTUALLY completed (a failed
+ * apply stops at the first error and skips the rest — reporting the full
+ * diff would overstate what changed). result.steps is index-aligned with
+ * plan.steps by construction. Format:
+ * `Applied: +a ~b -c (channels +c ~c -c · roles +r ~r -r)`
+ * or, on failure, `Partially applied (N of M steps): …`
+ */
+function applySummary(
+  plan: ReturnType<typeof planApply>,
+  result: Awaited<ReturnType<typeof executeApplyPlan>>,
+): string {
+  const done = plan.steps.filter((_, i) => result.steps[i]?.status === "done");
+  const c = (op: string, resource: string) =>
+    done.filter((s) => s.entry.op === op && s.entry.resource === resource).length;
+  const breakdown = (resource: string) =>
+    `+${c("create", resource)} ~${c("modify", resource) + c("rename", resource) + c("move", resource)} -${c("delete", resource)}`;
+  const totals = done.reduce(
+    (acc, s) => {
+      if (s.entry.op === "create") acc.created += 1;
+      else if (s.entry.op === "delete") acc.deleted += 1;
+      else if (s.entry.op !== "unsupported") acc.changed += 1;
+      return acc;
+    },
+    { created: 0, changed: 0, deleted: 0 },
+  );
+  const prefix =
+    result.ok
+      ? "Applied"
+      : `Partially applied (${done.length} of ${plan.steps.length} steps)`;
+  return (
+    `${prefix}: +${totals.created} ~${totals.changed} -${totals.deleted}` +
+    ` (channels ${breakdown("channel")} · roles ${breakdown("role")})`
+  );
 }

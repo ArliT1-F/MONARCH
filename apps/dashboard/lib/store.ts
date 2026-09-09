@@ -73,6 +73,27 @@ export interface GuildWorkspaceRecord {
   updatedAt: string;
 }
 
+/**
+ * A saved template in a user's library (FEATURE 7). The envelope columns
+ * (type/format) are split from the portable design payload so a download
+ * can rebuild a valid `monarch-template` envelope, exactly as exported.
+ * `data` never contains live snowflakes (id-detached on save).
+ */
+export interface TemplateRecord {
+  id: string;
+  /** Discord user id of the library owner — always scoped by it on read. */
+  ownerId: string;
+  name: string;
+  /** Envelope type, e.g. "server". Future: "embed" | "message". */
+  type: string;
+  /** Template format version (envelope `version`). */
+  format: number;
+  /** Portable design payload (envelope `data`). */
+  data: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MonarchStore {
   getSession(id: string): Promise<SessionRecord | null>;
   putSession(session: SessionRecord): Promise<void>;
@@ -95,6 +116,23 @@ export interface MonarchStore {
 
   getWorkspace(guildId: string): Promise<GuildWorkspaceRecord>;
   putWorkspace(workspace: GuildWorkspaceRecord): Promise<void>;
+
+  /**
+   * Design Analyzer "mark as intentional" list (FEATURE 9), per guild.
+   * Kept separate from GuildSettingsRecord so the designated-channels
+   * form can never clobber it and vice versa.
+   */
+  getAnalyzerDismissals(guildId: string): Promise<string[]>;
+  putAnalyzerDismissals(guildId: string, checkIds: string[]): Promise<void>;
+
+  /**
+   * Template library (FEATURE 7). Every read is scoped by ownerId so one
+   * user can never list, fetch, overwrite or delete another user's files.
+   */
+  listTemplates(ownerId: string): Promise<TemplateRecord[]>;
+  getTemplate(ownerId: string, id: string): Promise<TemplateRecord | null>;
+  putTemplate(template: TemplateRecord): Promise<void>;
+  deleteTemplate(ownerId: string, id: string): Promise<void>;
 
   /** Demo-mode mock Discord state (unused in production). */
   getMockState(): Promise<MockState | null>;
@@ -227,6 +265,47 @@ class FileStore implements MonarchStore {
     const all = (await readJson<Record<string, GuildWorkspaceRecord>>("workspace.json")) ?? {};
     all[workspace.guildId] = workspace;
     await writeJson("workspace.json", all);
+  }
+
+  async getAnalyzerDismissals(guildId: string) {
+    const all = (await readJson<Record<string, string[]>>("analyzer-dismissals.json")) ?? {};
+    return all[guildId] ?? [];
+  }
+  async putAnalyzerDismissals(guildId: string, checkIds: string[]) {
+    const all = (await readJson<Record<string, string[]>>("analyzer-dismissals.json")) ?? {};
+    if (checkIds.length === 0) delete all[guildId];
+    else all[guildId] = [...new Set(checkIds)];
+    await writeJson("analyzer-dismissals.json", all);
+  }
+
+  async listTemplates(ownerId: string) {
+    const all = (await readJson<Record<string, TemplateRecord>>("templates.json")) ?? {};
+    return Object.values(all)
+      .filter((t) => t.ownerId === ownerId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  async getTemplate(ownerId: string, id: string) {
+    const all = (await readJson<Record<string, TemplateRecord>>("templates.json")) ?? {};
+    const t = all[id];
+    return t && t.ownerId === ownerId ? t : null;
+  }
+  async putTemplate(template: TemplateRecord) {
+    const all = (await readJson<Record<string, TemplateRecord>>("templates.json")) ?? {};
+    // Ownership is immutable: an id that already belongs to someone else
+    // must never be overwritten (mirrors the PrismaStore owner-scoped
+    // update). Reaching this is a programming error — fail loudly.
+    const existing = all[template.id];
+    if (existing && existing.ownerId !== template.ownerId) {
+      throw new Error(`template ${template.id} belongs to a different owner`);
+    }
+    all[template.id] = template;
+    await writeJson("templates.json", all);
+  }
+  async deleteTemplate(ownerId: string, id: string) {
+    const all = (await readJson<Record<string, TemplateRecord>>("templates.json")) ?? {};
+    const t = all[id];
+    if (t && t.ownerId === ownerId) delete all[id];
+    await writeJson("templates.json", all);
   }
 }
 

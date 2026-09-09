@@ -22,13 +22,16 @@ const SECTIONS: { label: string | null; items: { name: string; slug: string; soo
   },
   {
     label: "Library",
-    items: [{ name: "Templates · Import / Export", slug: "import-export" }],
+    items: [
+      { name: "Template Library", slug: "library" },
+      { name: "Templates · Import / Export", slug: "import-export" },
+    ],
   },
   {
     label: "Manage",
     items: [
       { name: "Backups & History", slug: "history" },
-      { name: "Analyzer", slug: "analyzer", soon: true },
+      { name: "Design Analyzer", slug: "analyzer" },
     ],
   },
   {

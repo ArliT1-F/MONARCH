@@ -73,6 +73,10 @@ model GuildSettings {
   announcementsChannelId  String?
   testingChannelId        String?
   templateTestingChannelId String?
+  // Design Analyzer (FEATURE 9): check ids the guild marked "intentional".
+  // JSON array of stable analyzer check ids; managed by
+  // getAnalyzerDismissals/putAnalyzerDismissals (NOT by the settings form).
+  analyzerDismissed Json?
 }
 
 model DesignDraft {

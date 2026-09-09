@@ -456,6 +456,8 @@ function PermissionGrid({
     );
   }
 
+  const adminOn = hasPermission(bits, Permission.Administrator);
+
   return (
     <div className="mb-4">
       <div className="mb-2 flex items-baseline justify-between">
@@ -472,19 +474,27 @@ function PermissionGrid({
       </div>
       <ul className="space-y-1">
         {CURATED_PERMISSIONS.map((p) => {
-          const on = hasPermission(bits, p.bit);
+          // With Administrator on, Discord grants every permission, so the
+          // other toggles are locked "on" rather than pretending each bit
+          // is set (turning Administrator off reveals the real bits).
+          const isAdminRow = p.bit === Permission.Administrator;
+          const on = isAdminRow ? adminOn : adminOn || hasPermission(bits, p.bit);
+          const locked = adminOn && !isAdminRow;
           return (
             <li key={p.name}>
-              <label className="flex items-start gap-2 text-xs text-ink-200">
+              <label className={`flex items-start gap-2 text-xs text-ink-200 ${locked ? "opacity-60" : ""}`}>
                 <input
                   type="checkbox"
                   checked={on}
+                  disabled={locked}
                   onChange={(e) => toggle(p.bit, e.target.checked)}
                   className="mt-0.5 h-3.5 w-3.5 accent-royal-500"
                 />
                 <span className="flex-1">
                   <span className="block text-ink-100">{p.name}</span>
-                  <span className="block text-[10px] text-ink-400">{p.description}</span>
+                  <span className="block text-[10px] text-ink-400">
+                    {locked ? "Granted by Administrator." : p.description}
+                  </span>
                 </span>
               </label>
             </li>
