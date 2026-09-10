@@ -31,10 +31,11 @@ packages/
   shared/       Result, MonarchError, logger, permissions, variables, ids
   schemas/      zod — ServerDesign, content, targets, template envelope
   validation/   validation engine + DiscordLimits
+  analyzer/     Design Analyzer (FEATURE 9) — pure checks, scores, suggestions
   design-engine/ diff, apply-plan, detach/merge/rebase for templates
   renderer/     internal model ⇄ Discord API v10 payloads
   discord/      DiscordGateway abstraction (REST + Mock), Target Resolver, executor
-prisma/         PostgreSQL schema + 2 migrations
+prisma/         PostgreSQL schema + 3 migrations
 docker/         compose + 2 Dockerfiles
 docs/           architecture.md, deploying-vercel.md
 ```
@@ -92,6 +93,11 @@ Dashboard edits → ServerDesign (@monarch/schemas) →
   succeeds (packages install) but `prisma generate` errors out because the
   query-engine binary download fails. Tests that need the generated Prisma
   client (e.g. `prisma-store.integration.test.ts`) will fail here.
+- Workaround used by the Template Library + Analyzer session: a **type-only
+  stub** at `apps/dashboard/lib/generated/prisma/client.ts` (the directory is
+  gitignored) lets `tsc --noEmit` and all non-DB tests run. Every delegate
+  method throws at runtime — never run database code against it. A real
+  `prisma generate` overwrites it.
 - The fix is environment-only; in any normal environment with network
   access, `npm install` runs `prisma generate` cleanly via the root
   `postinstall` hook.
@@ -111,23 +117,33 @@ they live in `prisma.config.ts` (CLI) and `apps/dashboard/lib/prisma.ts`
 | `User` | init | id, username, avatarUrl, createdAt | sessions[], drafts[], auditEntries[] |
 | `Session` | init | id, userId, accessTokenEnc (AES-GCM), createdAt, expiresAt | → User CASCADE |
 | `Guild` | init | id, name, iconUrl, createdAt | settings, workspace, drafts[], versions[], auditEntries[] |
-| `GuildSettings` | init | guildId, welcomeChannelId, announcementsChannelId, testingChannelId, templateTestingChannelId | → Guild CASCADE |
+| `GuildSettings` | init + `…_add_analyzer_dismissed` | guildId, welcomeChannelId, announcementsChannelId, testingChannelId, templateTestingChannelId, analyzerDismissed (Json? — string[] of dismissed analyzer check ids) | → Guild CASCADE |
 | `GuildWorkspace` | guild_workspace | guildId, embed (Json?), message (Json?), updatedAt | → Guild CASCADE |
 | `DesignDraft` | init | id (cuid), guildId, userId, design, baseDesign, updatedAt — UNIQUE(guildId, userId) | → Guild, → User CASCADE |
 | `DesignVersion` | init | id (cuid), guildId, name, kind, design, createdAt | → Guild CASCADE; INDEX(guildId, createdAt) |
-| `Template` | init | id (cuid), ownerId, name, type, format, data, createdAt, updatedAt | INDEX(ownerId) — **NOT used by PrismaStore yet** |
+| `Template` | init | id (cuid), ownerId (plain column, no FK), name, type, format, data, createdAt, updatedAt | INDEX(ownerId) — **used by the Template Library (§17)** |
 | `AuditEntry` | init | id (cuid), guildId, userId, action, summary, createdAt | → Guild, → User CASCADE; INDEX(guildId, createdAt) |
 | `MockDiscordState` | init | id (default "singleton"), state, updatedAt | — (singleton row for demo mode) |
 
 ### Important non-uses
 
-- **`Template` model is in the schema and migrations but not used by `PrismaStore`.**
-  Future feature (template library); not drift, just a model waiting.
+- **`Template` model** — used by the Template Library since the
+  Template Library + Design Analyzer session (see §17). `ownerId` is a plain
+  column (no FK relation) by design: reads/writes are always owner-scoped in
+  the store methods.
 - **`@default(cuid())` and `@default(now())`** — these have no SQL-level default
   in the migrations (cuid is generated in app code; `now()` is `CURRENT_TIMESTAMP`).
   This is the standard Prisma behavior; not a mismatch.
 
 ### Stores
+
+**The store interface also covers** the Template Library (`listTemplates`/
+`getTemplate`/`putTemplate`/`deleteTemplate` — every read is owner-scoped;
+`putTemplate` refuses to overwrite an id that belongs to a different owner)
+and the analyzer dismissals (`getAnalyzerDismissals`/`putAnalyzerDismissals`
+— per-guild string[] of check ids, stored on `GuildSettings.analyzerDismissed`
+in Prisma and in its own JSON file in the FileStore, deliberately OUTSIDE
+`GuildSettingsRecord` so the designated-channels form can never clobber it).
 
 `apps/dashboard/lib/store.ts` defines the `MonarchStore` interface. Two impls:
 - **`PrismaStore`** (`prisma-store.ts`) — picked when `DATABASE_URL` is set.
@@ -190,6 +206,22 @@ This is the cheat sheet for "where do I make change X".
   descriptionMax=4096, fieldsMax=25, fieldName/Value=256/1024, footerMax=2048,
   authorNameMax=256, totalMax=6000, perMessageMax=10; message contentMax=2000,
   actionRowsMax=5, buttonsPerRowMax=5.
+
+### `packages/analyzer` (FEATURE 9)
+- `types.ts` — `AnalyzerReport`, `AnalyzerCategoryScore`, `AnalyzerCheckResult`
+  (stable `id`, 0..1 `score`, optional `suggestion`, optional `dismissed`),
+  `ANALYZER_CATEGORIES` (organization 0.3 · naming 0.3 · roles 0.2 ·
+  branding 0.2), `SCORE_GOOD=80`/`SCORE_FAIR=60` (same breakpoints as the
+  proposed `/monarch health`), `MAX_AFFECTED=6`.
+- `checks.ts` — 15 pure checks. **Check ids are stable API** — they are the
+  keys stored in `GuildSettings.analyzerDismissed`; never rename without a
+  data migration. `naming.duplicates` reuses `normalizeTextChannelName` from
+  `@monarch/validation` (no second copy of the normalization rules).
+  `@everyone` (role id === guildId) and `managed` roles are never flagged.
+- `analyze.ts` — `analyzeServerDesign(design, {dismissed?}): AnalyzerReport`.
+  Deterministic; dismissed checks stay in the report but are excluded from
+  every average; `org.has-structure` has intra-category weight 3 so an
+  empty server can't ride to a high score on vacuous passes.
 - `engine.ts` — `ValidationIssue{severity, code, message, fix?, target?}`,
   `ValidationReport{valid, errors, warnings, issues}`, `runRules(subject, rules)`.
 - `server-rules.ts` — `validateServerDesign(design)`. Rules: channelNames,
@@ -322,6 +354,16 @@ This is the cheat sheet for "where do I make change X".
   localiseIds → `mergeDesigns` (add) or replace → `validateServerDesign` →
   `putDraft`. **In "add" mode roles and designatedChannels always come from
   live**; never trust the template's.
+- `library.ts` — **Template Library service (FEATURE 7, §17).**
+  `saveTemplateFromGuild` (fetchCurrentDesign → buildTemplate → putTemplate +
+  `template.library-save` audit), `saveTemplateFromUpload`
+  (parseServerTemplate → putTemplate), `renameTemplate`/`duplicateTemplate`/
+  `deleteTemplate` (all owner-scoped, 404 for foreign ids),
+  `templateEnvelope` (rebuilds + re-parses the `monarch-template` envelope —
+  a corrupt row degrades to `template.corrupt` 410, never a junk download),
+  `templateMeta`/`templateCounts` (list summaries derived from the payload).
+  **Installing into a guild reuses `stageImport`** — the library never
+  writes to Discord itself.
 - `fetch-json.ts` — **Client-safe** safe response parsing.
   `readJsonSafe<T>(res)` returns null on empty/non-JSON (5xx HTML pages,
   empty 500s). `apiErrorMessage(data, res, fallback)` for 401/403/404/5xx.
@@ -332,8 +374,9 @@ This is the cheat sheet for "where do I make change X".
   top bar + slide-out drawer (closes on route change + Escape, locks body
   scroll).
 - `nav/SidebarNav.tsx` — Sections: Overview, Design (Designer/Embeds/
-  Messages, with Roles/Welcome/Branding `soon`), Library (Import/Export),
-  Manage (History, Analyzer `soon`), Settings (Designated Channels).
+  Messages/Roles, with Welcome/Branding `soon`), Library (Template Library,
+  Import/Export), Manage (History, Design Analyzer), Settings (Designated
+  Channels).
 - `designer/DesignerApp.tsx` — Loads state, manages undo/redo keyboard
   shortcuts, autosave (1.2s debounce), validation strip, mobile pane switch.
 - `designer/designer-state.ts` — Pure reducer. HISTORY_LIMIT=100. Drag ops:
@@ -351,10 +394,17 @@ This is the cheat sheet for "where do I make change X".
 - `settings/DesignatedChannelsForm.tsx` — Edits the 4 designated channel
   keys per guild.
 - `templates/ImportExportPanel.tsx` — Template download/upload UI.
+- `library/TemplateLibrary.tsx` — Template Library UI (save-from-server,
+  upload, rename/duplicate/download/delete, install add/replace → stages a
+  draft via the guild import endpoint and routes to the designer).
 - `ui/InviteBotButton.tsx` — Opens `/api/invite` in new tab; on `focus`
   returns, `router.refresh()`. In demo mode navigates in-place.
-- `ui/ComingSoon.tsx` — Phase-labelled placeholder used by Roles/Welcome/
-  Branding/Analyzer pages.
+- `analyzer/AnalyzerPanel.tsx` — Design Analyzer UI (FEATURE 9): overall
+  score hero, per-category score bars, failing checks with suggestions,
+  "mark as intentional"/"Undo" (PUTs the dismissals endpoint, then
+  `router.refresh()`), Markdown report export (client-side Blob).
+- `ui/ComingSoon.tsx` — Phase-labelled placeholder used by Welcome/Branding
+  pages.
 
 ### `apps/bot/src`
 - `index.ts` — **Lightweight bot.** Guilds + GuildMessages + MessageContent
@@ -407,6 +457,13 @@ This is the cheat sheet for "where do I make change X".
 | GET | `/api/guilds/:id/workspace` | session, design | – | Embed/message designs. |
 | PUT | `/api/guilds/:id/workspace` | session, design, CSRF | – | Save embed/message designs. |
 | POST | `/api/guilds/:id/workspace/send` | session, design, CSRF | **YES** (sends) | The full workspace pipeline (validate → resolve → render → send → audit). |
+| GET | `/api/library/templates` | session | – | The signed-in user's templates (owner-scoped), newest first. |
+| POST | `/api/library/templates` | session (+guild access for `source:"guild"`), CSRF | – | Create: `{source:"guild",guildId,name?}` captures the live structure; `{source:"upload",template,name?}` validates a monarch-template payload. Max 2 MB. |
+| GET | `/api/library/templates/:id` | session (owner) | – | Full `monarch-template` envelope. `?download=1` sets attachment disposition. |
+| PATCH | `/api/library/templates/:id` | session (owner), CSRF | – | `{action:"rename",name}` or `{action:"duplicate"}`. |
+| DELETE | `/api/library/templates/:id` | session (owner), CSRF | – | Remove from the library. |
+| GET | `/api/guilds/:id/analyzer/dismissals` | session, design | – | "Marked as intentional" check ids. |
+| PUT | `/api/guilds/:id/analyzer/dismissals` | session, design, CSRF | – | `{checkId,dismissed}` — toggle one check. checkId is validated against `@monarch/analyzer` CHECKS. |
 | GET | `/api/internal/guilds/:id/workspace` | **INTERNAL_API_TOKEN** | – | Bot counterpart of workspace GET. |
 | POST | `/api/internal/guilds/:id/workspace/send` | **INTERNAL_API_TOKEN** | **YES** (sends) | Bot counterpart for `/monarch test`. |
 | GET | `/api/internal/guilds/:id/backup` | **INTERNAL_API_TOKEN** | – | Top-10 snapshots metadata (bot `/monarch backup` list). |
@@ -426,12 +483,14 @@ at the guild level — `requireGuildAccess` enforces this.
 | `/s/:id/messages` | `messages/page.tsx` + `BuilderApp kind="message"` | **Implemented** |
 | `/s/:id/history` | `history/page.tsx` + `BackupsPanel` | **Implemented** (Backups & History) |
 | `/s/:id/import-export` | `import-export/page.tsx` + `ImportExportPanel` | **Implemented** |
+| `/s/:id/library` | `library/page.tsx` + `TemplateLibrary` | **Implemented** (user's template library; install targets this guild) |
 | `/s/:id/templates` | `templates/page.tsx` | **redirect → import-export** |
 | `/s/:id/settings/channels` | `settings/channels/page.tsx` + `DesignatedChannelsForm` | **Implemented** |
+| `/s/:id/analyzer` (nav) | SidebarNav | **no longer `soon`** — live page |
 | `/s/:id/roles` | `roles/page.tsx` | **ComingSoon (Phase 5)** |
 | `/s/:id/welcome` | `welcome/page.tsx` | **ComingSoon (Phase 5+)** |
 | `/s/:id/branding` | `branding/page.tsx` | **ComingSoon** |
-| `/s/:id/analyzer` | `analyzer/page.tsx` | **ComingSoon** |
+| `/s/:id/analyzer` | `analyzer/page.tsx` + `AnalyzerPanel` | **Implemented** (Design Analyzer; read-only) |
 | `/select` | `select/page.tsx` | **Implemented** (server list) |
 | `/` (landing) | `app/page.tsx` | **Implemented** |
 
@@ -489,9 +548,18 @@ at the guild level — `requireGuildAccess` enforces this.
     definitive vs transient failures (`rest-gateway.test.ts`).
   - `packages/schemas` — template envelope, variables.
   - `packages/renderer` — content rendering + variable resolution.
+  - `packages/analyzer` — `analyzer.test.ts`: determinism, per-check scoring
+    semantics (uncategorized ratio, empty categories, topics, separators,
+    capitalization, duplicates, palette focus, color coverage curve, hoist
+    discipline, branding weights, palette alignment), dismissal exclusion
+    math, @everyone/managed exemptions.
   - `apps/dashboard` — `backups.test.ts` (createBackup/stageRestore/
     export/stageImport against FileStore + stubbed Discord),
-    `prisma-store.test.ts` (mappers, AES-GCM round-trip + tamper cases),
+    `library.test.ts` (library store round-trips, owner scoping + hijack
+    rejection, save-from-guild/upload, rename/duplicate/delete, envelope
+    rebuild, install → stageImport handoff),
+    `prisma-store.test.ts` (mappers incl. template rows, AES-GCM round-trip
+    + tamper cases),
     `prisma-store.integration.test.ts` (PGlite + applied migrations;
     needs Prisma client — fails in this sandbox),
     `fetch-json.test.ts`, `invite.test.ts`, `workspace-parse.test.ts`.
@@ -499,8 +567,10 @@ at the guild level — `requireGuildAccess` enforces this.
     `galactic.test.ts`, `jail.test.ts`, `shutdown.test.ts` (drives the
     real entry point with discord.js stubbed; mutation-checked).
 
-- **Test count (most recent reported):** 136 passed, 8 skipped. (Prisma
-  integration suite is in the skipped bucket in this sandbox.)
+- **Test count (most recent reported):** 198 passed, 8 failing in this
+  sandbox (the PGlite Prisma integration suite — needs the generated
+  Prisma client, which this sandbox can't download; in a normal
+  environment those 8 pass and the count is ~206).
 
 ---
 
@@ -642,6 +712,7 @@ work — the merge commit already contains the full tree).
 |---|---|---|---|
 | `20260902000000_init/` | 2026-09-02 (filename) | All 9 base tables (User, Session, Guild, GuildSettings, DesignDraft, DesignVersion, Template, AuditEntry, MockDiscordState) + FKs + indexes | PR #2 |
 | `20260907000000_add_guild_workspace/` | 2026-09-07 (filename) | `GuildWorkspace` table + FK to Guild | PR #7 |
+| `20260909230000_add_analyzer_dismissed/` | 2026-09-09 (filename) | `GuildSettings.analyzerDismissed JSONB` (Design Analyzer "mark as intentional") | Template Library + Analyzer session |
 
 `migration_lock.toml` provider is `postgresql`.
 
@@ -824,11 +895,14 @@ needed.
 
 ## 15. Open / planned features (per the product IA)
 
-- **Welcome Designer**, **Branding**, **Analyzer** — placeholder pages
-  with `ComingSoon`.
-- **Template library UI** — `Template` model is in the DB but no
-  PrismaStore methods; the bot/dashboard only export/import single
-  templates today.
+- **Welcome Designer**, **Branding** — placeholder pages with
+  `ComingSoon`.
+- **Template Library public/shared templates + curated starter gallery**
+  (Appendix F items 2+9) — the personal library shipped (§17); a
+  `visibility` column and curation surface are still open. Deliberately
+  not built yet: cross-user sharing is an abuse-surface decision.
+- **`/monarch health`** (Appendix E) — the analyzer package can back it;
+  needs an internal route + bot command when picked up.
 
 The product's design philosophy is: anything that mutates structure
 goes through the diff + Review + apply pipeline; anything that publishes
@@ -966,3 +1040,112 @@ the existing `prisma/migrations/20260902000000_init/` shape
 (roles live inside `DesignDraft.design` and `DesignVersion.design`
 as JSON, which the schema accepts).
 
+
+---
+
+## 17. Template Library (FEATURE 7, Phase 6) — implemented
+
+> Supersedes the "Template library UI" bullets in §15 / Appendix C / F of
+> `docs/objective.md`; read those as history.
+
+**Surface.** `/s/:guildId/library` (`components/library/TemplateLibrary.tsx`),
+nav entry "Template Library" in the Library section. The library itself is
+**per-user** (Template rows are owned by their creator); the page lives in a
+guild context so "install" always has a concrete target.
+
+**What it does.**
+
+- **Save this server as a template** — POST `/api/library/templates`
+  `{source:"guild", guildId, name?}` → `fetchCurrentDesign` → `buildTemplate`
+  (ids detached, designatedChannels reset) → stored. Requires the same
+  guards as export (member + Manage Server + bot installed).
+- **Upload** — POST `{source:"upload", template, name?}` — the payload is
+  validated with `parseServerTemplate` before it enters the library.
+- **Manage** — list (newest first, with category/channel/role counts derived
+  from the payload, never stored), rename, duplicate (`"(copy)"` suffix),
+  download (`?download=1` → attachment with a slug-based filename), delete
+  (confirm). All owner-scoped by session: a foreign id is a plain 404.
+- **Install** — "Install (add)" / "Replace structure": the client GETs the
+  envelope and POSTs it to the EXISTING guild import endpoint
+  (`POST /api/guilds/:id/template`), so installs always land as a staged
+  draft in the Server Designer with the full diff. The library never writes
+  to Discord. Replace mode warns with `confirm()` first (final confirmation
+  still happens at apply).
+
+**Storage.** `TemplateRecord { id, ownerId, name, type, format, data,
+createdAt, updatedAt }`. The envelope columns (type/format) are split from
+`data` so a download can rebuild a valid envelope. PrismaStore:
+`updateMany({where:{id, ownerId}})` + create fallback so one user can never
+overwrite another's row. FileStore: `templates.json`, same ownership
+invariant (`putTemplate` throws on cross-owner id collision — unit-tested).
+
+**Envelope safety.** `templateEnvelope(record)` re-parses the rebuilt
+envelope before serving it; a row written by an older/buggier version
+degrades to `template.corrupt` (410) instead of downloading junk. (The
+first implementation read `parsed.data` — undefined — instead of
+`parsed.template`; the library tests caught it before any user could.)
+
+**Routes.** See the route table — `/api/library/templates[...]` (GET list /
+POST create / GET+PATCH+DELETE per id). Mutations check `assertSameOrigin`;
+everything is session-scoped; `source:"guild"` additionally runs
+`requireGuildAccess`.
+
+---
+
+## 18. Design Analyzer (FEATURE 9, Phase 7) — implemented
+
+> Supersedes the "Design Analyzer" bullets in §15 / Appendix C / F of
+> `docs/objective.md`; read those as history.
+
+**Surface.** `/s/:guildId/analyzer` replaces the ComingSoon placeholder
+(nav: "Design Analyzer", no `soon` badge). Read-only by spec — the page
+never writes to Discord; the only mutation is the per-guild "marked as
+intentional" list, which is Monarch settings, not Discord state.
+
+**Pipeline.** Page (server component): `fetchCurrentDesign(guildId)` →
+`store.getAnalyzerDismissals(guildId)` → `analyzeServerDesign(current,
+{ dismissed })` → serializable report into `AnalyzerPanel`. No analyzer API
+route is needed for the report itself; dismissal toggles go through
+`PUT /api/guilds/:id/analyzer/dismissals` (CSRF + `requireGuildAccess`,
+`needBot:false`; `checkId` is validated against the package's CHECKS so the
+stored list can't fill with junk) and then `router.refresh()` re-renders the
+server-computed report.
+
+**Scoring model.** 15 checks in 4 categories (organization/naming/roles/
+branding, weights .3/.3/.2/.2). Check scores are 0..1 with partial credit
+where a ratio is fairer (e.g. share of categorized channels); each category
+averages its non-dismissed checks (checks may carry intra-category weights —
+`org.has-structure` is weighted 3× so a near-empty server can't ride to a
+high score on vacuous passes); overall is the weighted mean. Deterministic —
+same design, same score. Category ids are stable API: they are the keys in
+`GuildSettings.analyzerDismissed`.
+
+**Dismissed checks** stay visible in the report (greyed, `dismissed: true`,
+raw score preserved) but are excluded from all averages — "intentional"
+issues stop dragging the score down without hiding the fact they exist.
+`dismissedCount` is shown in the hero. All-dismissed categories score 100
+by definition (nothing left to flag).
+
+**Storage.** `GuildSettings.analyzerDismissed` (Json?, string[] of check
+ids) — new migration `20260909230000_add_analyzer_dismissed`. Access goes
+through `getAnalyzerDismissals`/`putAnalyzerDismissals`, deliberately NOT
+through `GuildSettingsRecord`, so the designated-channels form and the
+analyzer can't clobber each other (the Prisma settings update only writes
+the 4 channel columns anyway).
+
+**Export.** "Export report (.md)" builds a Markdown report client-side
+(scores + every suggestion with affected entities) and downloads it via a
+Blob — no API round-trip.
+
+**UI conventions.** Score colors reuse the documented breakpoints (green
+≥ 80, yellow ≥ 60, red < 60 — same as the proposed `/monarch health`).
+Failing checks render ⚠ + suggestion (title/detail/fix/affected chips);
+passing-but-advisory checks (e.g. palette alignment without a defined
+palette) render an "advisory" pill with the nudge.
+
+**Not in this iteration** (recorded for the next session):
+- `/monarch health` (Appendix E) — the package can back it via an internal
+  route; not wired.
+- "Not much to analyze yet" empty-state messaging beyond the
+  `org.has-structure` suggestion.
+- Public/shared templates and the curated starter gallery (Appendix F 9).

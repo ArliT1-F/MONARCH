@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
     "@monarch/shared",
     "@monarch/schemas",
     "@monarch/validation",
+    "@monarch/analyzer",
     "@monarch/design-engine",
     "@monarch/renderer",
     "@monarch/discord",

@@ -2013,9 +2013,11 @@ A short legend:
   - Export endpoint streams the JSON; the bot attaches it to a slash
     command reply.
   - Import UI on `/s/:id/import-export`.
-- 🟡 Template *library* (`Template` model in the DB, but no
-  `MonarchStore` methods for it yet — only export/import of a single
-  file). See Appendix B.1.
+- ✅ Template *library* (`/s/:id/library`) — save the live structure as a
+  template, upload `monarch-template` files, rename / duplicate / download /
+  delete, and one-click install into the current guild (always via the
+  diff-first import pipeline). Owner-scoped `MonarchStore` methods back it
+  (`Template` model now consumed). See Appendix H.
 - ✅ Comparison: the Review modal renders the diff (`+ created`,
   `~ changed`, `- deleted`, `! unsupported`) before any apply, and the
   restore flow runs the same diff.
@@ -2023,7 +2025,11 @@ A short legend:
 ### Phase 7 — Analyzer / Import / Export (FEATURE 9 + FEATURE 10)
 
 - ✅ Import / Export (built in Phase 6 alongside Templates).
-- ⏳ Design Analyzer & Cleanup (placeholder page only).
+- ✅ Design Analyzer & Cleanup (`/s/:id/analyzer`) — deterministic 0–100
+  score across organization / naming / role consistency / branding, with
+  per-check suggestions, "mark as intentional" (persisted per guild) and a
+  Markdown report export. Read-only, advisory-only per the FEATURE 9
+  contract. See Appendix H.
 
 ---
 
@@ -2060,7 +2066,7 @@ A short legend:
 | §21 | Dark mode first, clean typography, subtle animations | ✅ | Tailwind palette in `app/globals.css` |
 | §21 | Sidebar / Canvas / Inspector layout | ✅ | `apps/dashboard/app/s/[guildId]/layout.tsx` + `components/designer/DesignerApp.tsx` |
 | §21 | Drag-and-drop, tooltips, keyboard shortcuts, autosave indicator | ✅ | Undo/redo, dirty indicator, "Saving…/Saved/error" |
-| §22 | Global navigation: Overview / Design / Library / Manage / Settings | ✅ | `components/nav/SidebarNav.tsx` (Overview, Server Designer, Embed Builder, Message Designer, Role Designer; Library: Templates · Import/Export; Manage: Backups & History; Settings: Designated Channels). Welcome/Branding/Analyzer show as "soon" — Role Designer shipped. |
+| §22 | Global navigation: Overview / Design / Library / Manage / Settings | ✅ | `components/nav/SidebarNav.tsx` (Overview, Server Designer, Embed Builder, Message Designer, Role Designer; Library: Template Library · Templates Import/Export; Manage: Backups & History · Design Analyzer; Settings: Designated Channels). Welcome/Branding show as "soon". |
 | §23 | Server context always visible; server switcher in the layout | ✅ | `ServerSwitcher` in the layout |
 | §24 | Feature module system | ⏳ | No formal `FeatureModule` registry yet; the structure is implicit (each feature has its own `app/s/[guildId]/<slug>/page.tsx` + components + lib helpers). Adding a registry is a small refactor. |
 | §25 | Shared design system (Button, Modal, Inspector, …) | 🟡 | Custom design system exists (Tailwind, `globals.css` color tokens) but the listed component set is not formalized into a single barrel. Common patterns repeat (panel, pill, error box, summary pill). |
@@ -2318,18 +2324,17 @@ are worth recording:
 
 In rough order of "smallest next step that adds the most user value":
 
-1. **Template library UI.** The `Template` model and its index are
-   in the DB but no `PrismaStore` methods or UI consume it. Smallest
-   first cut: a `/library` page that lists a user's templates and
-   lets them download/upload them, with the existing export/import
-   flow as the transport.
+1. ~~**Template library UI.**~~ **Done** — see Appendix H. Public/shared
+   templates and the curated starter gallery (Appendix F item 9) are
+   deliberately still open: cross-user sharing is an abuse-surface
+   decision that needs a `visibility` concept and curation.
 2. **Branding Studio (FEATURE 6).** `Branding` schema already lives
    inside `ServerDesign`; needs an editor and a way to apply it
    (color changes are a Discord PUT to `Guild`).
 3. **Welcome Designer (FEATURE 5).** Composes content designs
    (already built) with role-selection menus (not yet a thing).
-4. **Design Analyzer (FEATURE 9).** Pure-readonly; can ship without
-   touching any mutating path.
+4. ~~**Design Analyzer (FEATURE 9).**~~ **Done** — see Appendix H.
+   Pure-readonly, shipped without touching any mutating path.
 5. **Components V2 (FEATURE 3, future).** Add a new branch of the
    content renderer for the v2 component tree; legacy embeds stay
    supported.
@@ -2454,16 +2459,17 @@ master spec; they either finish a half-built spec feature (the four
    Appendix G for the implementation record. Remaining scope
    (drag-and-drop hierarchy, full permission editor) is tracked
    in Appendix C item 9.
-2. **Template Library (FEATURE 7, Phase 6).** A `/library` page
-   that lists a user's templates, lets them download/upload them,
-   and shows public templates with one-click install. The `Template`
-   model and its index already exist; this is the UI + a couple of
-   `PrismaStore` methods. **Small–medium.** *Spec-finishing.*
-3. **Design Analyzer (FEATURE 9, Phase 7).** The full analyzer
-   surface — not just the `/monarch health` command but a real
-   dashboard page that explains *why* the score is what it is, lets
-   the user mark issues as "intentional", and exports the report.
-   **Medium.** *Spec-finishing.*
+2. ~~**Template Library (FEATURE 7, Phase 6).**~~ **Done** — see
+   Appendix H. The personal library (save / upload / rename /
+   duplicate / download / delete / one-click install) shipped.
+   Public-template browsing was intentionally deferred: it needs a
+   `visibility` column and an abuse story — pair it with the curated
+   gallery (item 9) when picked up.
+3. ~~**Design Analyzer (FEATURE 9, Phase 7).**~~ **Done** — see
+   Appendix H. The dashboard page explains the score per check, marks
+   issues as "intentional" (persisted per guild) and exports a
+   Markdown report. `/monarch health` (Appendix E) can now reuse the
+   `@monarch/analyzer` package via an internal route when picked up.
 4. **Branding Studio (FEATURE 6, Phase 5).** Centralized server
    branding: a `Branding` editor (primary / secondary / accent
    colors, role palette) that propagates to embed-builder color
@@ -2505,12 +2511,12 @@ master spec; they either finish a half-built spec feature (the four
     `content-disposition: attachment`. Useful for changelogs,
     docs, social posts. **Small–medium.** *Adoption / marketing.*
 
-The three remaining spec-finishing items (Template Library, Design
-Analyzer, Branding Studio) together would close Phases 6 and 7 of
-the master spec; the five extensions are power-user / adoption
-features that make the product feel complete without changing its
-shape. The spec stays the source of truth — these are proposals, not
-edits to the 37 original sections.
+Two of the three remaining spec-finishing items (Template Library,
+Design Analyzer) are now done; **Branding Studio** is the last one and
+would close Phases 6 and 7 of the master spec. The five extensions are
+power-user / adoption features that make the product feel complete
+without changing its shape. The spec stays the source of truth — these
+are proposals, not edits to the 37 original sections.
 
 ---
 
@@ -2565,3 +2571,136 @@ this session resolved:
 
 The master spec's FEATURE 4 paragraph remains untouched; this
 appendix is the implementation record.
+
+---
+
+## Appendix H. Implementation record — Template Library & Design Analyzer
+
+*(Written 2026-09-09, after both features landed on one branch. agent.md
+§17/§18 carry the same record for agent sessions.)*
+
+### H.1 Scope decisions (both features)
+
+1. **No cross-user sharing yet.** The `Template` model stays owner-scoped.
+   Public templates need a `visibility` concept plus moderation; Appendix F
+   item 9 (curated gallery) is the right vehicle for that decision later.
+2. **Installs never bypass the diff.** The library's install buttons call
+   the *existing* guild import endpoint, so every install lands as a staged
+   draft with the full review UX. The library has zero Discord-mutating
+   code.
+3. **Analyzer is advisory-only** (FEATURE 9 contract): the page never
+   mutates Discord. The only write is the per-guild "marked as intentional"
+   list, which is Monarch settings — and deliberately lives OUTSIDE the
+   `GuildSettingsRecord` type so the designated-channels form can never
+   clobber it (and vice versa).
+4. **Scores are deterministic.** Same design, same report — no timestamps,
+   no randomness, locale-independent number formatting.
+
+### H.2 What shipped
+
+**Template Library (FEATURE 7, Phase 6)** — `/s/:guildId/library`
+
+- Save the live structure as a template (`buildTemplate` on the current
+  design: ids detached, designated channels reset).
+- Upload `monarch-template` files (validated with `parseServerTemplate`
+  before storage; 2 MB cap).
+- Rename, duplicate (with "(copy)" suffix), download (attachment), delete
+  (confirm), newest-first list with category/channel/role counts derived
+  from the payload at read time (never stale).
+- One-click **Install (add)** / **Replace structure** into the current
+  guild via `POST /api/guilds/:id/template` → staged draft in the Server
+  Designer, full diff, destructive confirm at apply. Replace asks for an
+  in-page confirm before routing.
+- Storage: `TemplateRecord { id, ownerId, name, type, format, data,
+  createdAt, updatedAt }` in FileStore (`templates.json`) or Prisma
+  (`Template`). Ownership is enforced on every mutation — cross-owner ids
+  are plain 404s, and a cross-owner *write* is refused (PrismaStore uses
+  `updateMany({ where: { id, ownerId } })` + create fallback; FileStore's
+  `putTemplate` throws on id collision under a different owner).
+- Downloads rebuild the envelope from the row (`type`/`format`/`data`) and
+  re-parse it before serving; a corrupt row yields 410 `template.corrupt`
+  instead of a junk file.
+
+**Design Analyzer (FEATURE 9, Phase 7)** — `/s/:guildId/analyzer`
+
+- New package `packages/analyzer` (pure, deterministic): 15 checks across
+  4 categories — organization .3 (uncategorized channels, empty categories,
+  structure weighting, text-vs-voice ratio sanity, slowmode sanity),
+  naming .3 (duplicates via `normalizeTextChannelName`, capitalization,
+  separators, topics, numbering, length), roles .2 (`@everyone`/managed
+  exempt, unassigned-role ratio, distinct role colors, hoist discipline),
+  branding .2 (icon → icon-ish channels, system channel, welcome channel,
+  palette alignment advisory).
+- Scoring: per-check 0..1 with partial credit where a ratio is fairer;
+  category = weighted mean of non-dismissed checks (checks may carry
+  intra-category weights — `org.has-structure` is 3× so an empty server
+  can't ride to 100 on vacuous passes); overall = weighted mean of
+  categories. Breakpoints: green ≥ 80, yellow ≥ 60, red < 60 (same as the
+  proposed `/monarch health`).
+- "Mark as intentional": dismissed checks stay visible (greyed) but drop
+  out of the averages; stored per guild in
+  `GuildSettings.analyzerDismissed` (JSONB string[] of check ids — new
+  migration `20260909230000_add_analyzer_dismissed`), toggled through
+  `PUT /api/guilds/:id/analyzer/dismissals` (CSRF, guild access, checkId
+  validated against the package's CHECKS). `router.refresh()` re-renders
+  the server-computed report.
+- **Export report (.md)** — client-side Blob download, no API round-trip.
+
+### H.3 Files added / touched (net)
+
+- New: `packages/analyzer/` (package.json, tsconfig, src/types.ts,
+  src/checks.ts, src/analyze.ts, src/index.ts, test/analyzer.test.ts);
+  `app/s/[guildId]/library/page.tsx`;
+  `components/library/TemplateLibrary.tsx`; `lib/library.ts`;
+  `app/api/library/templates/route.ts` +
+  `app/api/library/templates/[templateId]/route.ts`;
+  `app/api/guilds/[guildId]/analyzer/dismissals/route.ts`;
+  `app/s/[guildId]/analyzer/page.tsx` (replaces ComingSoon) +
+  `components/analyzer/AnalyzerPanel.tsx`;
+  `prisma/migrations/20260909230000_add_analyzer_dismissed/`.
+- Touched: `prisma/schema.prisma` (`analyzerDismissed`), store + prisma
+  store (template + dismissal methods), `components/nav/SidebarNav.tsx`
+  (nav labels/badges), `apps/dashboard/package.json` (+`@monarch/analyzer`),
+  docs (objective appendices, agent §15–18, README).
+
+### H.4 Tests added
+
+- `packages/analyzer/test/analyzer.test.ts` — 29 tests: determinism,
+  category weighting with dismissals, every check's pass/fail semantics,
+  @everyone/managed exemptions, palette advisory behaviour.
+- `apps/dashboard/test/library.test.ts` — 15 tests: store round-trips,
+  owner scoping + hijack rejection, save-from-guild/upload flows,
+  rename/duplicate/delete, envelope rebuild, corrupt-envelope 410 path,
+  install → stageImport handoff.
+- `apps/dashboard/test/prisma-store.test.ts` — template row→record mapper
+  (incl. null-data → `{}`).
+- `packages/discord/test/gateway.test.ts` — deleting a category re-parents
+  its children to the top level (mock now matches Discord; found via the
+  bug-hunt pass, §H.6).
+
+### H.5 Bugs found & fixed along the way
+
+1. **`FileStore.putTemplate`** allowed one user to overwrite another
+   user's template row by id (library tests now pin the refusal).
+2. **`templateEnvelope`** read `parsed.data` (always undefined) instead of
+   `parsed.template` — every download would have been a junk file.
+3. **`next.config.ts`** missing `@monarch/analyzer` in `transpilePackages`
+   (would break the dashboard build; caught in the same-session bug hunt).
+4. **Mock gateway `deleteChannel`** left category children with a dangling
+   `parentId` — they vanished from the designer tree instead of moving to
+   the top level (Discord re-parents them). Mock + test fixed.
+5. **Apply-route audit summary** counted the full diff rather than the
+   steps actually completed — a partial apply logged numbers that never
+   happened. Now counts completed steps only.
+6. **Role Designer permission grid** — with Administrator on, the other
+   curated toggles showed their raw bits (off), implying admin grants
+   nothing. They now render checked + disabled with an explainer while
+   Administrator is on.
+
+### H.6 Deliberately deferred
+
+- Public/shared templates + curated starter gallery (Appendix F item 9) —
+  needs a `visibility` concept and an abuse story.
+- `/monarch health` slash command (Appendix E) — can now reuse
+  `@monarch/analyzer` via an internal route; not wired this time.
+- Per-check "how to fix" deep-links into the relevant designer panes.

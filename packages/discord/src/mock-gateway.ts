@@ -150,8 +150,18 @@ export class MockDiscordGateway implements DiscordGateway {
 
   async deleteChannel(guildId: string, channelId: string) {
     return this.mutate<void>(guildId, (g) => {
+      const wasCategory = g.design.categories.some((c) => c.id === channelId);
       g.design.categories = g.design.categories.filter((c) => c.id !== channelId);
       g.design.channels = g.design.channels.filter((c) => c.id !== channelId);
+      // Discord re-parents a deleted category's children to the top level.
+      // The mock must do the same, or orphaned channels vanish from
+      // fetchServerDesign's category tree (they'd have a parentId that no
+      // longer exists).
+      if (wasCategory) {
+        for (const ch of g.design.channels) {
+          if (ch.parentId === channelId) ch.parentId = undefined;
+        }
+      }
     });
   }
 

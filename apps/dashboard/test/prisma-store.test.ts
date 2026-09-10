@@ -7,6 +7,7 @@ import {
   sessionRowToRecord,
   settingsRowToRecord,
   snapshotRowToRecord,
+  templateRowToRecord,
 } from "@/lib/prisma-store";
 
 /** Pure row ↔ record mappers + token encryption, no database involved. */
@@ -107,5 +108,23 @@ describe("row → record mappers", () => {
     ).toEqual({
       id: "a1", guildId: "g1", userId: "u1", action: "apply", summary: "Applied 2 changes", createdAt: createdAt.toISOString(),
     });
+  });
+
+  it("maps template rows (FEATURE 7) and tolerates a null payload", () => {
+    const createdAt = new Date("2026-05-05T00:00:00.000Z");
+    const updatedAt = new Date("2026-05-06T00:00:00.000Z");
+    const data = { categories: [], channels: [], roles: [] };
+    const record = templateRowToRecord({
+      id: "tpl_1", ownerId: "u1", name: "Starter", type: "server", format: 1,
+      data, createdAt, updatedAt,
+    });
+    expect(record).toEqual({
+      id: "tpl_1", ownerId: "u1", name: "Starter", type: "server", format: 1,
+      data, createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString(),
+    });
+    expect(templateRowToRecord({
+      id: "tpl_2", ownerId: "u1", name: "Empty", type: "server", format: 1,
+      data: null, createdAt, updatedAt,
+    }).data).toEqual({});
   });
 });

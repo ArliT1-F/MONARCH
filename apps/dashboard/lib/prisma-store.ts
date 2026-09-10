@@ -11,6 +11,7 @@ import type {
   MonarchStore,
   SessionRecord,
   SnapshotRecord,
+  TemplateRecord,
 } from "./store";
 
 /**
@@ -75,6 +76,17 @@ export type AuditRow = {
   action: string;
   summary: string;
   createdAt: Date;
+};
+
+export type TemplateRow = {
+  id: string;
+  ownerId: string;
+  name: string;
+  type: string;
+  format: number;
+  data: unknown;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 // ── row ↔ record mappers (pure; unit-tested without a database) ──────
@@ -142,6 +154,19 @@ export function auditRowToRecord(row: AuditRow): AuditRecord {
     action: row.action,
     summary: row.summary,
     createdAt: row.createdAt.toISOString(),
+  };
+}
+
+export function templateRowToRecord(row: TemplateRow): TemplateRecord {
+  return {
+    id: row.id,
+    ownerId: row.ownerId,
+    name: row.name,
+    type: row.type,
+    format: row.format,
+    data: (row.data ?? {}) as Record<string, unknown>,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
@@ -308,6 +333,49 @@ export class PrismaStore implements MonarchStore {
     return rows.map(auditRowToRecord);
   }
 
+  // ── Template library (FEATURE 7) ────────────────────────────────
+  // Template.ownerId is a plain column (no FK): the library is per-user,
+  // rows are always read and written scoped by it. updateMany-with-owner
+  // (instead of upsert) guarantees one user can never overwrite another
+  // user's row even if ids collided.
+
+  async listTemplates(ownerId: string): Promise<TemplateRecord[]> {
+    const rows = await this.db.template.findMany({
+      where: { ownerId },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows.map(templateRowToRecord);
+  }
+
+  async getTemplate(ownerId: string, id: string): Promise<TemplateRecord | null> {
+    const row = await this.db.template.findFirst({ where: { id, ownerId } });
+    return row ? templateRowToRecord(row) : null;
+  }
+
+  async putTemplate(template: TemplateRecord): Promise<void> {
+    const data = {
+      ownerId: template.ownerId,
+      name: template.name,
+      type: template.type,
+      format: template.format,
+      data: template.data as object,
+      updatedAt: new Date(template.updatedAt),
+    };
+    const updated = await this.db.template.updateMany({
+      where: { id: template.id, ownerId: template.ownerId },
+      data,
+    });
+    if (updated.count === 0) {
+      await this.db.template.create({
+        data: { id: template.id, ...data, createdAt: new Date(template.createdAt) },
+      });
+    }
+  }
+
+  async deleteTemplate(ownerId: string, id: string): Promise<void> {
+    await this.db.template.deleteMany({ where: { id, ownerId } }).catch(() => {});
+  }
+
   async getMockState(): Promise<MockState | null> {
     const row = await this.db.mockDiscordState.findUnique({ where: { id: "singleton" } });
     return row ? (row.state as unknown as MockState) : null;
@@ -318,6 +386,30 @@ export class PrismaStore implements MonarchStore {
       where: { id: "singleton" },
       create: { id: "singleton", state: state as object },
       update: { state: state as object },
+    });
+  }
+
+  // ── Design Analyzer dismissals (FEATURE 9) ──────────────────────
+  // Stored on GuildSettings.analyzerDismissed as a JSON array of check
+  // ids; deliberately NOT part of GuildSettingsRecord/designatedChannels
+  // so the settings form and the analyzer can't clobber each other.
+
+  async getAnalyzerDismissals(guildId: string): Promise<string[]> {
+    const row = await this.db.guildSettings.findUnique({
+      where: { guildId },
+      select: { analyzerDismissed: true },
+    });
+    const value = row?.analyzerDismissed;
+    return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+  }
+
+  async putAnalyzerDismissals(guildId: string, checkIds: string[]): Promise<void> {
+    await this.ensureGuild(guildId);
+    const analyzerDismissed = [...new Set(checkIds)];
+    await this.db.guildSettings.upsert({
+      where: { guildId },
+      create: { guildId, analyzerDismissed },
+      update: { analyzerDismissed },
     });
   }
 

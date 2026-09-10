@@ -36,6 +36,17 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   `monarch-template` JSON (no snowflakes, no server-specific settings) and
   import it into any server, either *added under* the existing structure or
   *replacing* it, always with the full diff preview first
+- 👑 **Role Designer (Phase 5)** — rename, recolor, hoist, mentionable,
+  position and a curated permission grid for every non-managed role, through
+  the same draft → diff → apply pipeline
+- 📚 **Template Library (FEATURE 7)** — your saved layouts, independent of
+  any server: save the live structure as a template, upload `monarch-template`
+  files, rename / duplicate / download them, and install any of them into a
+  server in one click (still via the diff-first import pipeline)
+- 🩺 **Design Analyzer (FEATURE 9)** — a deterministic 0–100 design score
+  (organization · naming · role consistency · branding) with concrete,
+  human-readable suggestions, "mark as intentional" per check, and a
+  Markdown report export. Read-only: it never changes your server
 - 📱 **Mobile-friendly dashboard** — collapsible navigation drawer, one-pane
   designer/builder views with tabs, touch drag-and-drop
 - 🤖 Slash commands (`/monarch help` lists them all):
@@ -54,7 +65,7 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   both the dashboard and the bot. The jail needs the **Message Content**
   privileged intent (see below) and the **Manage Messages** permission.
 
-Role Designer, Welcome Designer, Branding and Analyzer are phased next — see
+Welcome Designer and Branding Studio are phased next — see
 [docs/architecture.md](docs/architecture.md).
 
 ## Quick start (demo mode — no Discord app needed)

@@ -110,4 +110,22 @@ describe("executeApplyPlan against the mock gateway", () => {
     });
     expect(rediff.isEmpty).toBe(true);
   });
+
+  it("re-parents a deleted category's children to the top level (Discord behavior)", async () => {
+    const store = new InMemoryMockStore(makeState());
+    const gw = new MockDiscordGateway(store);
+
+    const deleted = await gw.deleteChannel("g1", "cat1");
+    expect(deleted.ok).toBe(true);
+
+    const after = await gw.fetchServerDesign("g1");
+    if (!after.ok) throw new Error("no design");
+    // The category is gone and its channels survive as top-level channels
+    // (no dangling parentId), so they remain visible in the designer tree.
+    expect(after.value.categories).toHaveLength(0);
+    for (const ch of after.value.channels) {
+      expect(ch.parentId).toBeUndefined();
+    }
+    expect(after.value.channels.map((c) => c.id).sort()).toEqual(["ch1", "ch2"]);
+  });
 });
