@@ -423,8 +423,11 @@ export class MusicManager {
       if (this.sessions.get(guildId) === s) this.teardown(guildId, false);
     });
 
+    const joinStartedAt = Date.now();
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, VOICE_READY_TIMEOUT_MS);
+      // The one line to look for when moving the bot to a new host.
+      log.info("voice connection ready", { guildId, channelId: channel.id, ms: Date.now() - joinStartedAt });
     } catch (error) {
       // entersState only rejects with a bare AbortError ("The operation was
       // aborted") once the 20 s are up — that says nothing about *why* the

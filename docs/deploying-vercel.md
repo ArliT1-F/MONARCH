@@ -201,9 +201,25 @@ up in the voice channel (that part rides the Gateway WebSocket), then nothing
 plays and `/music play` reports `networking: "UdpHandshaking"`.
 
 To use `/music`, run the bot worker on a host that allows outbound UDP — a
-VPS (Hetzner, DigitalOcean, EC2/Oracle free tier…), a Fly.io Machine, a home
-machine or your own Docker host — and point `DISCORD_BOT_TOKEN` / `APP_URL` /
-`INTERNAL_API_TOKEN` at the same dashboard. The dashboard can stay on Vercel.
+VPS, a Fly.io Machine, a home machine or your own Docker host — and point
+`DISCORD_BOT_TOKEN` / `APP_URL` / `INTERNAL_API_TOKEN` at the same dashboard.
+The dashboard can stay on Vercel.
+
+#### Free / cheap hosts that can do voice
+
+| Option | Cost | Runs this bot? | Notes |
+| --- | --- | --- | --- |
+| **Oracle Cloud Always Free** | $0 | Yes (ARM) | The only genuinely free long-running VM with full UDP egress. Ampere A1 allowance was cut to **2 OCPU / 12 GB** (enforced Aug 2026) — far more than this bot needs — plus 2 × AMD micro (1/8 OCPU, 1 GB). Signup wants a card, ARM capacity varies by region, and idle instances can be reclaimed, so check in occasionally. ARM64 is covered: `package-lock.json` carries the `linux-arm64` builds of ffmpeg and davey. |
+| **Google Cloud free e2-micro** | $0 | Barely | One `e2-micro` (1 GB) in `us-west1`/`us-central1`/`us-east1` — but Compute Engine always-free egress is **1 GB/month**, and 24/7 music will pass that. It's the same trap that burned people on free PaaS hosts: a surprise bill. |
+| **Your own PC / Raspberry Pi / old laptop** | $0 | Yes | Best free option if it can stay on: `cd docker && docker compose up --build` (add a `restart: unless-stopped` policy for reboots), or bare `npm ci && npm run dev:bot`. Home NAT is fine — only *outbound* UDP matters, and voice needs no port forwarding. |
+| **Render (current host)** | $0 | **No** | HTTP-only. Gateway, jail and dashboard links work; voice never will. |
+| **Railway** | ~$5 credit/mo | Probably | Container host with normal outbound networking (UDP generally allowed), but the old free tier is gone — the trial credit runs out. |
+| **Fly.io** | ~$5/mo | Yes | UDP works, but free allowances ended Oct 2024; minimum is the $5 Hobby plan. |
+| **Small VPS** (Hetzner, DigitalOcean, …) | ~€3–5/mo | Yes | The reliable answer if free options don't fit. |
+
+Anything here runs the same way: build the bot image (or run
+`npm ci && npm run start --workspace @monarch/bot`), then keep an eye on the
+log for `voice connection ready` — that line means the host can do voice.
 
 ### Reading the worker logs
 
