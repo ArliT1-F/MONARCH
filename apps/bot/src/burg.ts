@@ -119,7 +119,7 @@ const PRESERVE =
 
 const SUFFIXES: Record<Exclude<BurgStyle, "random">, readonly string[]> = {
   soft: [" uwu~", " owo~", " >w<", " ^w^"],
-  cat: [" nya~", " nya nya~", " (=^.c.^=)", " mrrp~"],
+  cat: [" nya~", " nya nya~", " (=^.c.^=)", "mastaw~", ""purr~"],
   chaotic: [" uwu~ (\" 3\")", " owo!! >w<", " (≧ω≦)", " nya~ nya~"],
 };
 
