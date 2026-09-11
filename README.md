@@ -140,9 +140,12 @@ actually executes.
    able to receive UDP packets, even through a firewall or NAT"*
    ([voice connections docs](https://discord.com/developers/docs/topics/voice-connections)) —
    so the bot's host has to allow outbound UDP to Discord's voice servers.
-   A VPS, a home machine or Docker with normal networking is fine; some
-   container/PaaS sandboxes block UDP, and then the bot joins the channel but
-   never plays. `/music` says what went wrong instead of failing silently: it
+   A VPS, a home machine or Docker with normal networking is fine. **Render
+   is not**: it only permits HTTP(S) traffic, so the bot connects to the
+   gateway (commands, jail, dashboard links all work) but voice joins stall at
+   the UDP handshake — the bot appears in the channel and never plays. HTTP-only
+   platforms like it can't host the music player; run that worker on a host with
+   UDP egress. `/music` says what went wrong instead of failing silently: it
    reports the reason in Discord, and the bot log gets a `voice connection
    failed` line with the stage that stalled — `networking: "UdpHandshaking"`
    means the host dropped the UDP handshake — plus the websocket close code

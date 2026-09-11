@@ -1,6 +1,13 @@
 # Optional companion deployment for the long-lived Discord gateway.
 # Keep the dashboard on Vercel; deploy this worker to Render (or any worker
 # host). Both services must use the same DISCORD_BOT_TOKEN.
+#
+# ⚠️ Render passes no UDP — it "only permits http to services" — so the music
+# player can hold the gateway but never joins voice: Discord voice is UDP-only,
+# the join stalls at the UDP handshake and gives up after 20 s (the bot appears
+# in the channel and stays silent). `render.yaml` is fine for /monarch, the
+# jail and the dashboard integration; run the bot on a host with outbound UDP
+# (a VPS, a home machine, or Docker with normal networking) if you want /music.
 services:
   - type: worker
     name: monarch-bot

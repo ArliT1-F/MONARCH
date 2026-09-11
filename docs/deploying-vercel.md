@@ -158,7 +158,8 @@ short-lived and may be frozen between requests. Therefore do **not** try to
 start `apps/bot` from a Vercel build command or API route. Run the dashboard
 on Vercel and the bot as one long-lived worker on Render, Railway, Fly.io, a
 VM, or Docker. This repository includes a ready-to-use `render.yaml` for the
-Render worker.
+Render worker. (Render is fine for everything except the music player — voice
+needs outbound UDP, see [Music and voice](#music-and-voice-udp--render-cant-do-it).)
 
 ### Render worker (recommended quick setup)
 
@@ -187,9 +188,32 @@ Render worker.
    `"jail": true|false`). Keep exactly one worker running; two Gateway
    sessions with the same bot token can disconnect each other.
 
+### Music and voice (UDP) — Render can't do it
+
+Everything except the music player works on Render: slash commands, the jail,
+dashboard links and the REST integration all speak HTTP(S)/WebSocket, which
+Render passes. **Discord voice does not.** Voice media is UDP-only —
+*"your client must be able to receive UDP packets, even through a firewall or
+NAT"* ([voice docs](https://discord.com/developers/docs/topics/voice-connections)) —
+and Render "only permits http to services", so a join stalls at the UDP
+handshake and gives up after 20 s. The symptom is exactly that: the bot shows
+up in the voice channel (that part rides the Gateway WebSocket), then nothing
+plays and `/music play` reports `networking: "UdpHandshaking"`.
+
+To use `/music`, run the bot worker on a host that allows outbound UDP — a
+VPS (Hetzner, DigitalOcean, EC2/Oracle free tier…), a Fly.io Machine, a home
+machine or your own Docker host — and point `DISCORD_BOT_TOKEN` / `APP_URL` /
+`INTERNAL_API_TOKEN` at the same dashboard. The dashboard can stay on Vercel.
+
 ### Reading the worker logs
 
 - `bot ready` — the Gateway session is live and slash commands work.
+- `voice connection failed` — a `/music` join gave up. The line names the
+  stage: `networking: "UdpHandshaking"` means the host dropped the UDP
+  handshake (voice is UDP-only, see below), a `closeCode` means Discord
+  turned the bot away (4014 = missing **Connect**/**Speak**), and
+  `dependencies` lists the ffmpeg/opus/encryption/DAVE versions. The same
+  reason is posted in Discord by the command.
 - `shutting down {"signal":"SIGTERM"}` — the host is replacing this instance
   (redeploy, restart, scale-down). The bot closes its Gateway session and
   exits `0`.
