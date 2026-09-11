@@ -38,6 +38,10 @@ const SECTIONS: { label: string | null; items: { name: string; slug: string; soo
     label: "Settings",
     items: [{ name: "Designated Channels", slug: "settings/channels" }],
   },
+  {
+    label: "Help",
+    items: [{name: "Commands & Help", slug: "help"}],
+  },
 ];
 
 export function SidebarNav({ guildId }: { guildId: string }) {

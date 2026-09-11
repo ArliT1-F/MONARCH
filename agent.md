@@ -495,6 +495,24 @@ at the guild level — `requireGuildAccess` enforces this.
 | `/` (landing) | `app/page.tsx` | **Implemented** |
 
 ---
+### `packages/music` + `apps/bot/src/music` — music player (pure engine + adapter)
+
+`packages/music` (no deps, fully unit-tested):
+- `queue.ts` — `MusicQueue`: `add`/`addMany(cap)`, `next()` (loop off/track/queue; the single way playback advances), `remove` (1-based upcoming positions), `clear`, `shuffle`, `cycleLoop`, `snapshot()`.
+- `skip.ts` — `SkipElector` per-guild vote sets; required = majority of current listeners (recomputed every vote, departed voters pruned); statuses `counted` / `passed-by-this-vote` / `already`.
+- `resolve.ts` — `classifySource`: YouTube watch/youtu.be/shorts/embed/live + `list=` param; Spotify /track /album /playlist, `/intl-xx/` paths, `spotify:` URIs; anything else → search.
+- `roles.ts` — `canForceSkip({roleNames, permissions, isCurrentRequester})` → `{allowed, reason: dj|staff|requester}`; `STAFF_PERMISSION_BITS` = Administrator, ManageGuild, MoveMembers, KickMembers, BanMembers, ModerateMembers.
+- `format.ts` — `formatDuration` (null → "live"), `parseVolume` (0-150), `volumeToGain`, `progressBar`.
+
+`apps/bot/src/music/` (adapter):
+- `sources.ts` — YouTube via **youtubei.js** (search / getBasicInfo / playlists with continuations / `download()` audio); Spotify via the **official Web API** (client-credentials token cached in process, metadata only). Spotify tracks carry `youtubeSearch: "Artist - Title"` and are matched to a YouTube video **lazily at play time** (queuing a 200-track playlist stays instant). Live streams refused. `SourceError` → human-readable replies.
+- `player.ts` — `MusicManager`: per-guild AudioPlayer + VoiceConnection driven by the pure queue. Idle handler advances (loop modes decide); `skipping`/`stopping` flags distinguish manual stop from natural end; 3 consecutive failures -> give up + teardown; empty channel -> leave after 60s; idle -> leave after 5min. Announcements post to the last music command's text channel. Volume 0-150 via `resource.volume` (**needs ffmpeg** — `ffmpeg.ts` resolves FFMPEG_PATH -> @ffmpeg-installer/ffmpeg -> system; Docker image ships the apk).
+- `commands.ts` — `musicCommandJSON()` (/music: play/pause/resume/skip/queue/nowplaying/volume/loop/shuffle/remove/clear/stop) + `handleMusicCommand`. Skip: `canForceSkip` -> instant, else vote; controls require being in the bot's voice channel, queue/nowplaying viewable anywhere.
+- **Intents:** `GuildVoiceStates` is in BOTH intent sets (not privileged).
+
+### Command catalog (single source of truth)
+
+`packages/shared/src/commands.ts` — `CommandDoc` {name, usage, group (general|design|moderation|music), summary, who, details?, args?, examples?, notes?} + `COMMAND_GROUPS` / `MONARCH_COMMANDS` / `MUSIC_COMMANDS` / `COMMAND_CATALOG`. **The bot's `/monarch help` embed (`renderHelpEmbeds` in apps/bot/src/commands.ts) and the dashboard Help page (`app/s/[guildId]/help` + `components/help/HelpPanel.tsx`) both render from it** — tests keep catalogs and registered manifests in sync. Adding a command: update the SlashCommandBuilder, add the catalog entry, run the tests.
 
 ## 5. Environment variables (`.env.example`)
 
@@ -509,7 +527,10 @@ at the guild level — `requireGuildAccess` enforces this.
 | `DIRECT_DATABASE_URL` | only for migrations | prisma migrate | Set to the same as DATABASE_URL for plain Postgres |
 | `MONARCH_DEMO` | optional | `isDemoMode` | `"1"` forces demo even with creds |
 | `INTERNAL_API_TOKEN` | optional | bot/dashboard server-to-server | `openssl rand -hex 32`; same value on dashboard + bot. Without it `/monarch backup/export/embed/test` and `/api/internal/*` reply 503 |
-
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | for Spotify links | bot music | Official Web API, client credentials. Without them `/music` says Spotify isn't configured; YouTube/search work |
+| `MUSIC_DJ_ROLE_NAMES` | optional | `/music skip` | Comma-separated role names that force-skip; default `dj` |
+| `MUSIC_STAFF_ROLE_NAMES` | optional | `/music skip` | Default moderator/mod/staff/admin/administrator + plurals; real moderation permissions always count too |
+| `MUSIC_MAX_QUEUE` / `MUSIC_MAX_PLAYLIST_TRACKS` | optional | bot music | Defaults 500 / 250 |
 ---
 
 ## 6. Security model (recap)

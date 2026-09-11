@@ -129,7 +129,8 @@ describe("bot startup", () => {
 
     expect(mocks.put).toHaveBeenCalledOnce();
     expect(mocks.login).toHaveBeenCalledWith("test-token");
-    expect(find("registered slash commands")).toMatchObject({ level: "info", count: 1 });
+    // Two top-level commands: /monarch and /music.
+    expect(find("registered slash commands")).toMatchObject({ level: "info", count: 2 });
     expect(exitSpy).not.toHaveBeenCalled();
   });
 

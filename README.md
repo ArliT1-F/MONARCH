@@ -49,7 +49,17 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   Markdown report export. Read-only: it never changes your server
 - 📱 **Mobile-friendly dashboard** — collapsible navigation drawer, one-pane
   designer/builder views with tabs, touch drag-and-drop
-- 🤖 Slash commands (`/monarch help` lists them all):
+- 📚 **Help & Commands page** — every command with options, examples,
+  permissions and requirements, searchable, at `/s/<server>/help` (the same
+  catalog `/monarch help` renders in Discord — one source of truth)
+- 🎵 **Music player** — YouTube videos *and* playlists, Spotify tracks,
+  albums and playlists, plus plain search. Per-server queue with
+  pause / resume / stop / volume / loop / shuffle / remove / clear,
+  now-playing progress, and a skip system: **DJ, Moderator/Staff and the
+  requester skip instantly; everyone else votes** and a majority of the
+  listeners passes it
+- 🤖 Slash commands (the full manual lives at **Help → Commands & Help** in
+  the dashboard; `/monarch help` shows the short version):
 
   | Command | What it does | Who |
   | --- | --- | --- |
@@ -60,10 +70,20 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   | `/monarch embed` · `/monarch test` | Embed Builder link · test/publish the saved design | Manage Server / Admin |
   | `/monarch jail @user [duration] [reason]` | Delete everything the user posts and re-post it in the **Standard Galactic Alphabet** (the Minecraft enchanting script) under their name and avatar. No duration = until `/monarch unjail`; `10m`, `2h`, `1d`, `1h30m` auto-release | Administrator or Kick Members |
   | `/monarch unjail @user` · `/monarch jailed` | Release early · list jailed members | Administrator or Kick Members |
-
+  | `/music play <link or search>` | Play/queue YouTube & Spotify tracks, playlists and albums | everyone in voice |
+  | `/music pause` · `/music resume` · `/music stop` | Pause · resume · stop + clear + leave | everyone in the bot's channel |
+  | `/music skip` | Skip — instantly with a **DJ** or **Moderator/Staff** role (or if it's your song), otherwise by listener vote | everyone |
+  | `/music queue [page]` · `/music nowplaying` | Show the queue · now playing with progress | everyone |
+  | `/music volume [0-150]` · `/music loop [off\|track\|queue]` · `/music shuffle` · `/music remove <#>` · `/music clear` | Playback controls | everyone in the bot's channel |
   `backup`, `export`, `embed` and `test` need `INTERNAL_API_TOKEN` set in
   both the dashboard and the bot. The jail needs the **Message Content**
   privileged intent (see below) and the **Manage Messages** permission.
+  Spotify links need `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` on the
+  bot (free app at developer.spotify.com — see `.env.example`); YouTube
+  links and search work out of the box. Playback needs **ffmpeg** — the
+  Docker image ships it, and local installs fall back to the bundled
+  `@ffmpeg-installer/ffmpeg`. DJ roles are recognized by name (`DJ` by
+  default; `MUSIC_DJ_ROLE_NAMES`, staff roles via `MUSIC_STAFF_ROLE_NAMES`).
 
 Welcome Designer and Branding Studio are phased next — see
 [docs/architecture.md](docs/architecture.md).
@@ -106,7 +126,13 @@ actually executes.
    `/monarch backup`, `/monarch export`, `/monarch embed` and `/monarch test`
    call the dashboard's `/api/internal/*` routes — set the same
    `INTERNAL_API_TOKEN` in both environments. `/monarch dashboard`, `help`,
-   `status` and the jail work without it.
+    `status` and all of `/music` work without it.
+
+   The bot also needs the **Server Voice States** intent for `/music`
+   (not privileged — on by default). For Spotify links set
+   `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`; DJ and staff skip roles
+   are tuned with `MUSIC_DJ_ROLE_NAMES` / `MUSIC_STAFF_ROLE_NAMES`. See
+   `.env.example` for the full list.
 
 Docker (dashboard + bot + PostgreSQL):
 
@@ -128,12 +154,18 @@ and apply with `npm run db:migrate`.
 
 ```
 apps/dashboard    Next.js studio (UI + API routes)
-apps/bot          Lightweight discord.js bot (dashboard links, status)
-packages/*        shared · schemas · validation · design-engine · renderer · discord
+apps/bot          discord.js bot (dashboard links, status, jail, music player)
+packages/*        shared · schemas · validation · design-engine · renderer · discord · music
 prisma/           PostgreSQL schema (production persistence target)
 docker/           Compose + Dockerfiles
 docs/             Architecture & decisions
 ```
+
+The music player is split the same way as everything else:
+`packages/music` is a pure engine (queue ordering, loop modes, skip
+elections, source-URL classification, role policy — fully unit-tested) and
+`apps/bot/src/music` is the adapter (voice connection, YouTube via
+youtubei.js, Spotify via the Web API, Discord embeds).
 
 ## Principles
 
