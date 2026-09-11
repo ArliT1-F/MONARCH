@@ -1,9 +1,13 @@
 FROM node:22-alpine AS base
 WORKDIR /app
+# The music player streams through ffmpeg (prism-media shells out to it for
+# every /music play — without this package playback fails at runtime).
+RUN apk add --no-cache ffmpeg
 COPY package.json package-lock.json* ./
 COPY apps/dashboard/package.json apps/dashboard/
 COPY apps/bot/package.json apps/bot/
 COPY packages/shared/package.json packages/shared/
+COPY packages/music/package.json packages/music/
 COPY packages/schemas/package.json packages/schemas/
 COPY packages/validation/package.json packages/validation/
 COPY packages/design-engine/package.json packages/design-engine/

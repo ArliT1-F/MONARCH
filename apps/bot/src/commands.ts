@@ -2,21 +2,30 @@ import {
   InteractionContextType,
   PermissionFlagsBits,
   SlashCommandBuilder,
+  type APIEmbed,
   type RESTPostAPIApplicationCommandsJSONBody,
 } from "discord.js";
+import {
+  COMMAND_CATALOG,
+  COMMAND_GROUPS,
+  MONARCH_COMMANDS,
+  type CommandDoc,
+  type CommandGroupId,
+} from "@monarch/shared";
 
 /**
- * Monarch's slash commands — the single source of truth used by both the
- * worker (apps/bot/src/index.ts, registers at startup) and the one-off
- * `npm run register-commands` script.
+ * Monarch's slash commands — the worker (apps/bot/src/index.ts) registers
+ * this at startup; `npm run register-commands` is the one-off variant.
  *
  * The bot stays lightweight: commands give dashboard links, quick actions
- * (backup / export / test-send) and the jail moderation gag. Any structural
- * change or generated content is executed by the dashboard API layer
- * (through the Target Resolver), never by this process.
+ * (backup / export / test-send), the jail moderation gag and the music
+ * player. Any structural change or generated content is executed by the
+ * dashboard API layer, never by this process.
  *
- * `/monarch help` is rendered from COMMAND_HELP so the two can't drift.
+ * `/monarch help` and the dashboard's Help page both render from the shared
+ * command catalog (@monarch/shared/commands) so the two can't drift.
  */
+
 export interface CommandHelp {
   usage: string;
   description: string;
@@ -24,42 +33,19 @@ export interface CommandHelp {
   who?: string;
 }
 
-export const COMMAND_HELP: CommandHelp[] = [
-  { usage: "/monarch help", description: "Show this list." },
-  { usage: "/monarch dashboard", description: "Open this server in the Monarch design studio." },
-  { usage: "/monarch status", description: "Show Monarch's status for this server." },
-  {
-    usage: "/monarch backup [name]",
-    description: "Save a snapshot of the server's categories and channels. Restore from the dashboard → Backups & History.",
-    who: "Manage Server / Administrator",
-  },
-  {
-    usage: "/monarch export",
-    description: "Download the server layout as a portable Monarch template (.json) you can import into any server.",
-    who: "Manage Server / Administrator",
-  },
-  { usage: "/monarch embed", description: "Open the Embed Builder (and show the saved embed)." },
-  {
-    usage: "/monarch test kind:<embed|message> [mode] [channel]",
-    description: "Test-send or publish the saved embed/message design.",
-    who: "Manage Server / Administrator",
-  },
-  {
-    usage: "/monarch jail @user [duration] [reason]",
-    description:
-      "Everything the user posts is deleted and re-posted in the Standard Galactic Alphabet under their name. No duration = until unjailed; e.g. `10m`, `2h`, `1d`.",
-    who: "Administrator or Kick Members",
-  },
-  { usage: "/monarch unjail @user", description: "Release a jailed user early.", who: "Administrator or Kick Members" },
-  { usage: "/monarch jailed", description: "List who is currently jailed in this server.", who: "Administrator or Kick Members" },
-];
+/** Compact view of the /monarch commands for renderers that want a flat list. */
+export const COMMAND_HELP: CommandHelp[] = MONARCH_COMMANDS.map((c) => ({
+  usage: c.usage,
+  description: c.summary,
+  who: c.who === "everyone" ? undefined : c.who,
+}));
 
 export function monarchCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
   return new SlashCommandBuilder()
     .setName("monarch")
     .setDescription("Monarch — design your Discord server")
     // Guild-only: every subcommand needs a server context.
-    .setContexts(InteractionContextType.Guild)
+    .setContexts(0)
     .addSubcommand((s) => s.setName("help").setDescription("List every Monarch command"))
     .addSubcommand((s) =>
       s.setName("dashboard").setDescription("Open this server in the Monarch design studio"),
@@ -139,17 +125,93 @@ export const JAIL_PERMISSIONS = [PermissionFlagsBits.Administrator, PermissionFl
 /** Bits that let a member run backup / export / test (mirrors the dashboard's "can design" rule). */
 export const DESIGN_PERMISSIONS = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageGuild] as const;
 
-/** Render `/monarch help` (kept under Discord's 2000-char message limit). */
+// ── /monarch help ────────────────────────────────────────────────────
+
+const GOLD = 0xf5c542;
+const GROUP_ORDER: CommandGroupId[] = ["general", "design", "moderation", "music"];
+const FIELD_VALUE_LIMIT = 1024;
+
+function groupLines(docs: CommandDoc[]): string[] {
+  return docs.map((c) => {
+    const who = c.who.toLowerCase() === "everyone" ? "" : ` · *${c.who}*`;
+    return `**\`${c.usage}\`** — ${c.summary}${who}`;
+  });
+}
+
+/** Chunk lines into ≤1024-char field values ("cont." continues a group). */
+function chunkLines(lines: string[], prefix: string, suffix: string): string[][] {
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  let length = 0;
+  for (const line of lines) {
+    if (current.length > 0 && length + line.length + 1 > FIELD_VALUE_LIMIT) {
+      chunks.push(current);
+      current = [];
+      length = 0;
+    }
+    current.push(line);
+    length += line.length + 1;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks.map((chunk, i) =>
+    i === 0 ? chunk : chunk, // grouping handled by the caller via suffixes
+  ).map((chunk, i) => (i === 0 ? chunk : chunk)); // (kept simple — see helpEmbeds)
+}
+
+/**
+ * `/monarch help` → an embed with every command, grouped like the
+ * dashboard's Help page. The shared catalog is the single source of truth.
+ */
+export function renderHelpEmbeds(appUrl: string, guildId?: string): APIEmbed[] {
+  const helpUrl = guildId ? `${appUrl}/s/${guildId}/help` : appUrl;
+
+  const fields: { name: string; value: string }[] = [];
+  for (const groupId of GROUP_ORDER) {
+    const group = COMMAND_GROUPS.find((g) => g.id === groupId);
+    if (!group) continue;
+    const lines = groupLines(COMMAND_CATALOG.filter((c) => c.group === groupId));
+    if (lines.length === 0) continue;
+
+    // Pack lines into field-sized chunks; continuation fields repeat the label.
+    let value = "";
+    const parts: string[] = [];
+    for (const line of lines) {
+      if (value.length + line.length + 1 > FIELD_VALUE_LIMIT) {
+        parts.push(value);
+        value = "";
+      }
+      value += (value ? "\n" : "") + line;
+    }
+    if (value) parts.push(value);
+    parts.forEach((part, i) => {
+      fields.push({
+        name: i === 0 ? `${group.icon} ${group.label}` : `${group.icon} ${group.label} (cont.)`,
+        value: part,
+      });
+    });
+  }
+
+  return [
+    {
+      color: GOLD,
+      title: "👑 Monarch — commands",
+      description:
+        `**Monarch — Design your Discord.** Full usage guide: ${helpUrl}\n` +
+        `-# Music player: /music play · pause · resume · skip · queue · nowplaying · volume · loop · shuffle · remove · clear · stop`,
+      fields,
+      footer: { text: "Preview first → validate → diff → confirm → apply. Never blind writes." },
+    },
+  ];
+}
+
+/**
+ * Plain-text fallback (kept for logs/tests): renders the /monarch list under
+ * Discord's 2000-character message limit.
+ */
 export function renderHelp(appUrl: string): string {
   const lines = COMMAND_HELP.map((c) => {
     const who = c.who ? ` — *${c.who}*` : "";
     return `**${c.usage}**${who}\n${c.description}`;
   });
-  return [
-    "👑 **Monarch commands**",
-    "",
-    ...lines,
-    "",
-    `Dashboard: ${appUrl}`,
-  ].join("\n");
+  return ["👑 **Monarch commands**", "", ...lines, "", `Dashboard: ${appUrl}`].join("\n");
 }

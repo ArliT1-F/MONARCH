@@ -51,6 +51,12 @@ services:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
       APP_URL: ${APP_URL:-http://localhost:3000}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      # Music player (see .env.example)
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
+      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
+      MUSIC_DJ_ROLE_NAMES: ${MUSIC_DJ_ROLE_NAMES:-dj}
+      MUSIC_STAFF_ROLE_NAMES: ${MUSIC_STAFF_ROLE_NAMES:-moderator,moderators,mod,mods,staff,admin,admins,administrator,administrators}
     depends_on:
       - dashboard
 

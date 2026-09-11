@@ -7,16 +7,20 @@ import {
   PermissionFlagsBits,
   REST,
   Routes,
+  type APIEmbed,
   type ChatInputCommandInteraction,
   type GuildMember,
   type Interaction,
   type Message,
+  type VoiceState,
   type Webhook,
 } from "discord.js";
 import { createLogger } from "@monarch/shared";
-import { DESIGN_PERMISSIONS, JAIL_PERMISSIONS, monarchCommandJSON, renderHelp } from "./commands.js";
+import { DESIGN_PERMISSIONS, JAIL_PERMISSIONS, monarchCommandJSON, renderHelpEmbeds } from "./commands.js";
 import { formatDuration, parseDuration, toGalactic } from "./galactic.js";
 import { JailRegistry } from "./jail.js";
+import { handleMusicCommand, musicCommandJSON, spotifyStatusLine } from "./music/commands.js";
+import { MusicManager } from "./music/player.js";
 
 /**
  * Monarch bot — deliberately lightweight.
@@ -45,15 +49,21 @@ if (!token) {
 }
 
 /**
- * Intents: Guilds for slash commands; GuildMessages + MessageContent so the
- * jail can read and relay messages. MessageContent is a *privileged* intent
- * — enable it under Bot → Privileged Gateway Intents in the developer
- * portal (free under 100 servers, verification required above that). If it
- * is not enabled Discord refuses the connection, so `start()` falls back to
- * Guilds-only with the jail disabled instead of crash-looping the worker.
+ * Intents: Guilds for slash commands; GuildVoiceStates for the music player;
+ * GuildMessages + MessageContent so the jail can read and relay messages.
+ * MessageContent is a *privileged* intent — enable it under Bot → Privileged
+ * Gateway Intents in the developer portal (free under 100 servers,
+ * verification required above that). If it is not enabled Discord refuses
+ * the connection, so `start()` falls back to Guilds + VoiceStates with the
+ * jail disabled instead of crash-looping the worker.
  */
-const FULL_INTENTS = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent];
-const BASIC_INTENTS = [GatewayIntentBits.Guilds];
+const FULL_INTENTS = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.MessageContent,
+  GatewayIntentBits.GuildVoiceStates,
+];
+const BASIC_INTENTS = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates];
 
 let jailEnabled = true;
 let client = createClient(FULL_INTENTS);
@@ -61,6 +71,30 @@ let client = createClient(FULL_INTENTS);
 const jail = new JailRegistry((entry) => {
   log.info("jail expired", { guildId: entry.guildId, userId: entry.userId });
 });
+
+// ── music player ─────────────────────────────────────────────────────
+
+/**
+ * The music manager owns one voice connection per guild. It's created lazily
+ * on the first `/music` command so the bot still boots (and jail works)
+ * even if the voice stack is unhappy. Announcements are posted to the text
+ * channel where the last music command ran.
+ */
+let music: MusicManager | null = null;
+
+function getMusic(): MusicManager {
+  music ??= new MusicManager(client, (guildId, embed: APIEmbed, content?: string) => {
+    const channelId = music?.announcementChannelId(guildId);
+    if (!channelId) return;
+    void client.channels
+      .fetch(channelId)
+      .then(async (channel) => {
+        if (channel?.isSendable()) await channel.send({ embeds: [embed], content });
+      })
+      .catch((e) => log.warn("music announcement failed", { guildId, error: String(e) }));
+  });
+  return music;
+}
 
 function createClient(intents: number[]): Client {
   const c = new Client({ intents });
@@ -74,6 +108,11 @@ function createClient(intents: number[]): Client {
   });
   c.on(Events.MessageCreate, onMessage);
   c.on(Events.InteractionCreate, onInteraction);
+  c.on(Events.VoiceStateUpdate, (old: VoiceState, next: VoiceState) => {
+    // Keep the music manager's per-guild presence tracking current
+    // (follow channel moves, leave when everyone's gone).
+    music?.handleVoiceStateUpdate(old, next);
+  });
   return c;
 }
 
@@ -224,6 +263,23 @@ async function onMessage(message: Message) {
 
 async function onInteraction(interaction: Interaction) {
   if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "music") {
+    try {
+      await handleMusicCommand(interaction, getMusic());
+    } catch (e) {
+      log.error("music command failed", { error: String(e) });
+      const msg = "❌ Something went wrong with that music command.";
+      try {
+        if (interaction.deferred || interaction.replied) await interaction.editReply(msg);
+        else await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+      } catch {
+        // interaction already timed out — nothing more to do
+      }
+    }
+    return;
+  }
+
   if (interaction.commandName !== "monarch") return;
 
   const sub = interaction.options.getSubcommand(false);
@@ -232,7 +288,10 @@ async function onInteraction(interaction: Interaction) {
   try {
     switch (sub) {
       case "help": {
-        await reply(renderHelp(appUrl));
+        await interaction.reply({
+          embeds: renderHelpEmbeds(appUrl, interaction.guildId ?? undefined),
+          flags: MessageFlags.Ephemeral,
+        });
         break;
       }
       case "dashboard": {
@@ -556,7 +615,7 @@ async function registerCommands(botToken: string) {
     log.warn("DISCORD_CLIENT_ID is not set — slash commands were not registered");
     return;
   }
-  const commands = [monarchCommandJSON()];
+  const commands = [monarchCommandJSON(), musicCommandJSON()];
   try {
     await new REST({ version: "10" }).setToken(botToken).put(Routes.applicationCommands(clientId), {
       body: commands,

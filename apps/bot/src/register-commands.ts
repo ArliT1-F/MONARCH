@@ -1,6 +1,7 @@
 import { REST, Routes } from "discord.js";
 import { createLogger } from "@monarch/shared";
 import { monarchCommandJSON } from "./commands.js";
+import { musicCommandJSON } from "./music/commands.js";
 
 /** One-off script: registers Monarch's slash commands globally. */
 const log = createLogger("bot.register");
@@ -12,7 +13,7 @@ if (!token || !clientId) {
   process.exit(1);
 }
 
-const commands = [monarchCommandJSON()];
+const commands = [monarchCommandJSON(), musicCommandJSON()];
 
 const rest = new REST({ version: "10" }).setToken(token);
 await rest.put(Routes.applicationCommands(clientId), { body: commands });
