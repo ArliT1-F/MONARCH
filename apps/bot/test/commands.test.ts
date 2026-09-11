@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MUSIC_COMMANDS, MONARCH_COMMANDS } from "@monarch/shared";
 import {
   COMMAND_HELP,
+  burgCommandJSON,
   monarchCommandJSON,
   renderHelp,
   renderHelpEmbeds,
@@ -34,6 +35,25 @@ describe("monarch command manifest", () => {
     expect(help.length).toBeLessThan(2000);
     expect(help).toContain("/monarch jail @user [duration]");
     expect(help).toContain("https://monarch.example");
+  });
+});
+
+describe("/burg command manifest", () => {
+  const json = burgCommandJSON();
+
+  it("is a guild-only top-level command with a required user", () => {
+    expect(json.name).toBe("burg");
+    expect(json.contexts).toEqual([0]);
+    const options = json.options as { name: string; required?: boolean; choices?: { value: string }[] }[];
+    expect(options.find((option) => option.name === "user")?.required).toBe(true);
+    expect(options.map((option) => option.name)).toEqual(["user", "duration", "style", "reason"]);
+  });
+
+  it("offers cute style variations", () => {
+    const style = (json.options as { name: string; choices?: { value: string }[] }[]).find(
+      (option) => option.name === "style",
+    );
+    expect(style?.choices?.map((choice) => choice.value)).toEqual(["random", "soft", "cat", "chaotic"]);
   });
 });
 

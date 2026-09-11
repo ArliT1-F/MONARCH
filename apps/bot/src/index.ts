@@ -16,7 +16,15 @@ import {
   type Webhook,
 } from "discord.js";
 import { createLogger } from "@monarch/shared";
-import { DESIGN_PERMISSIONS, JAIL_PERMISSIONS, monarchCommandJSON, renderHelpEmbeds } from "./commands.js";
+import {
+  BURG_PERMISSIONS,
+  DESIGN_PERMISSIONS,
+  JAIL_PERMISSIONS,
+  burgCommandJSON,
+  monarchCommandJSON,
+  renderHelpEmbeds,
+} from "./commands.js";
+import { BurgRegistry, toBurg, type BurgStyle } from "./burg.js";
 import { formatDuration, parseDuration, toGalactic } from "./galactic.js";
 import { JailRegistry } from "./jail.js";
 import { handleMusicCommand, musicCommandJSON, spotifyStatusLine } from "./music/commands.js";
@@ -28,8 +36,8 @@ import { MusicManager } from "./music/player.js";
  * The web dashboard is the product; the bot is the integration layer.
  * Commands provide quick actions and dashboard links. Structural changes
  * are executed by the API layer through @monarch/discord (REST), not by
- * this process. The one thing the bot does on its own is the jail gag,
- * because it needs live message events (gateway only).
+ * this process. The live message gags (jail and burg) run here because they
+ * need gateway message events; the rest of the design work stays in the API.
  *
  * Note on interactions: replies always go to the interaction's own context
  * (Discord requires this). Only *generated content* (tests, publishes) uses
@@ -51,12 +59,13 @@ if (!token) {
 
 /**
  * Intents: Guilds for slash commands; GuildVoiceStates for the music player;
- * GuildMessages + MessageContent so the jail can read and relay messages.
+ * GuildMessages + MessageContent so the jail and burg relays can read and
+ * re-post messages.
  * MessageContent is a *privileged* intent — enable it under Bot → Privileged
  * Gateway Intents in the developer portal (free under 100 servers,
  * verification required above that). If it is not enabled Discord refuses
  * the connection, so `start()` falls back to Guilds + VoiceStates with the
- * jail disabled instead of crash-looping the worker.
+ * both message gags disabled instead of crash-looping the worker.
  */
 const FULL_INTENTS = [
   GatewayIntentBits.Guilds,
@@ -73,11 +82,15 @@ const jail = new JailRegistry((entry) => {
   log.info("jail expired", { guildId: entry.guildId, userId: entry.userId });
 });
 
+const burg = new BurgRegistry((entry) => {
+  log.info("burg expired", { guildId: entry.guildId, userId: entry.userId, style: entry.style });
+});
+
 // ── music player ─────────────────────────────────────────────────────
 
 /**
  * The music manager owns one voice connection per guild. It's created lazily
- * on the first `/music` command so the bot still boots (and jail works)
+ * on the first `/music` command so the bot still boots (and message gags work)
  * even if the voice stack is unhappy. Announcements are posted to the text
  * channel where the last music command ran.
  */
@@ -175,49 +188,78 @@ function memberHasAny(interaction: ChatInputCommandInteraction, bits: readonly b
   return bits.some((bit) => perms.has(bit));
 }
 
-// ── jail relay ───────────────────────────────────────────────────────
+// ── live message relays (jail + burg) ────────────────────────────────
 
-const WEBHOOK_NAME = "Monarch Jail";
-const webhookCache = new Map<string, Webhook>();
+const JAIL_WEBHOOK_NAME = "Monarch Jail";
+const BURG_WEBHOOK_NAME = "Monarch Burg";
+const jailWebhookCache = new Map<string, Webhook>();
+const burgWebhookCache = new Map<string, Webhook>();
 
 /** One webhook per channel, created lazily and reused (Discord caps them at 15/channel). */
-async function jailWebhook(message: Message<true>): Promise<Webhook | null> {
+async function relayWebhook(
+  message: Message<true>,
+  name: string,
+  reason: string,
+  cache: Map<string, Webhook>,
+): Promise<Webhook | null> {
   const channel = message.channel;
   // Threads post through their parent's webhook with `threadId`.
   const host = channel.isThread() ? channel.parent : channel;
   if (!host || !("fetchWebhooks" in host)) return null;
-  const cached = webhookCache.get(host.id);
+  const cached = cache.get(host.id);
   if (cached) return cached;
   const me = message.guild.members.me;
   if (!me || !host.permissionsFor(me).has(PermissionFlagsBits.ManageWebhooks)) return null;
   const hooks = await host.fetchWebhooks();
-  let hook = hooks.find((h) => h.owner?.id === client.user?.id && h.name === WEBHOOK_NAME && h.token);
+  let hook = hooks.find(
+    (candidate) => candidate.owner?.id === client.user?.id && candidate.name === name && candidate.token,
+  );
   if (!hook) {
-    hook = await host.createWebhook({ name: WEBHOOK_NAME, reason: "Monarch jail relay" });
+    hook = await host.createWebhook({ name, reason });
   }
-  webhookCache.set(host.id, hook);
+  cache.set(host.id, hook);
   return hook;
+}
+
+async function jailWebhook(message: Message<true>): Promise<Webhook | null> {
+  return relayWebhook(message, JAIL_WEBHOOK_NAME, "Monarch jail relay", jailWebhookCache);
+}
+
+async function burgWebhook(message: Message<true>): Promise<Webhook | null> {
+  return relayWebhook(message, BURG_WEBHOOK_NAME, "Monarch burg relay", burgWebhookCache);
 }
 
 async function onMessage(message: Message) {
   try {
     if (!message.inGuild() || message.author.bot || message.webhookId || message.system) return;
-    if (!jail.isJailed(message.guildId, message.author.id)) return;
+
+    // If someone has both gags enabled, jail wins. More importantly, only one
+    // handler ever deletes the source message, so the two relays cannot race.
+    const jailed = jail.isJailed(message.guildId, message.author.id);
+    const burgEntry = jailed ? null : burg.get(message.guildId, message.author.id);
+    if (!jailed && !burgEntry) return;
+    const mode = jailed ? "jail" : "burg";
 
     const me = message.guild.members.me;
     const channelPerms = me ? message.channel.permissionsFor(me) : null;
     if (!channelPerms?.has(PermissionFlagsBits.ManageMessages)) {
-      log.warn("jailed message left alone — missing Manage Messages", {
+      log.warn(`${mode}ged message left alone — missing Manage Messages`, {
         guildId: message.guildId,
         channelId: message.channelId,
       });
       return;
     }
 
-    const content = toGalactic(message.content ?? "");
+    const plainContent = message.content ?? "";
+    const content = jailed ? toGalactic(plainContent) : toBurg(plainContent, burgEntry!.style);
     const files = message.attachments.map((a) => a.url);
     const stickers = message.stickers.map((s) => s.name);
-    const body = [content, stickers.length ? `*(sticker: ${stickers.join(", ")})*` : ""].filter(Boolean).join("\n");
+    const stickerText = stickers.length
+      ? jailed
+        ? `*(sticker: ${stickers.join(", ")})*`
+        : toBurg(`*(sticker: ${stickers.join(", ")})*`, burgEntry!.style)
+      : "";
+    const body = [content, stickerText].filter(Boolean).join("\n");
     if (!body && files.length === 0) {
       await message.delete().catch(() => {});
       return;
@@ -228,11 +270,10 @@ async function onMessage(message: Message) {
     const avatarURL = member?.displayAvatarURL({ size: 256 }) ?? message.author.displayAvatarURL({ size: 256 });
 
     // Relay first (attachments are re-uploaded from the original's CDN
-    // URLs, which must still exist), then delete. The overlap is a few
-    // milliseconds; the delete happens even if the relay failed so the jail
-    // always holds.
+    // URLs, which must still exist), then delete. The delete happens even if
+    // the relay failed so the gag always holds.
     try {
-      const hook = await jailWebhook(message);
+      const hook = jailed ? await jailWebhook(message) : await burgWebhook(message);
       if (hook) {
         await hook.send({
           content: truncate(body, 2000) || undefined,
@@ -250,15 +291,154 @@ async function onMessage(message: Message) {
         });
       }
     } catch (e) {
-      log.warn("jail relay failed — original still deleted", { error: String(e) });
+      log.warn(`${mode} relay failed — original still deleted`, { error: String(e) });
     }
-    await message.delete().catch((e) => log.warn("could not delete jailed message", { error: String(e) }));
+    await message.delete().catch((e) => log.warn(`could not delete ${mode}ged message`, { error: String(e) }));
   } catch (e) {
-    log.error("jail relay failed", { error: String(e) });
+    log.error("message relay failed", { error: String(e) });
   }
 }
 
 // ── slash commands ───────────────────────────────────────────────────
+
+async function handleBurgCommand(interaction: ChatInputCommandInteraction) {
+  if (!interaction.inCachedGuild()) {
+    await interaction.reply({ content: "Run this command inside a server.", flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (!memberHasAny(interaction, BURG_PERMISSIONS)) {
+    await interaction.reply({
+      content: "❌ Only administrators and roles with **Kick Members** can use /burg.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const targetUser = interaction.options.getUser("user", true);
+  const existing = burg.get(interaction.guildId, targetUser.id);
+  if (existing) {
+    // /burg is deliberately a toggle: no second command name to remember.
+    burg.release(interaction.guildId, targetUser.id);
+    log.info("member unburged", { guildId: interaction.guildId, userId: targetUser.id, by: interaction.user.id });
+    await interaction.reply({
+      content: `🧁 ${targetUser} is no longer burg'd — their messages are back to normal.`,
+      flags: MessageFlags.Ephemeral,
+      allowedMentions: { users: [] },
+    });
+    return;
+  }
+
+  if (!jailEnabled) {
+    await interaction.reply({
+      content:
+        "❌ /burg is disabled on this Monarch instance: the **Message Content** intent isn't enabled for the bot application. " +
+        "The host must turn it on under Bot → Privileged Gateway Intents and restart the bot.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const target = interaction.options.getMember("user") as GuildMember | null;
+  if (!target) {
+    await interaction.reply({ content: "❌ That user isn't in this server.", flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (target.id === interaction.user.id) {
+    await interaction.reply({ content: "You can't burg yourself — nice try.", flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (target.user.bot) {
+    await interaction.reply({ content: "❌ Bots can't be burg'd.", flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (target.id === interaction.guild.ownerId) {
+    await interaction.reply({ content: "❌ The server owner can't be burg'd.", flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  const invoker = interaction.member;
+  const invokerIsOwner = interaction.guild.ownerId === invoker.id;
+  if (!invokerIsOwner && target.roles.highest.position >= invoker.roles.highest.position) {
+    await interaction.reply({
+      content: "❌ You can only burg members whose highest role is below yours.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  if (target.permissions.has(PermissionFlagsBits.Administrator) && !invokerIsOwner) {
+    await interaction.reply({
+      content: "❌ Administrators can only be burg'd by the server owner.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  if (jail.isJailed(interaction.guildId, target.id)) {
+    await interaction.reply({
+      content: "❌ That member is already in the Galactic jail. Release them first, then use /burg.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const me = interaction.guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageMessages)) {
+    await interaction.reply({
+      content:
+        "❌ Monarch needs the **Manage Messages** permission to delete and re-post burg'd messages.\n" +
+        `Re-invite it from ${appUrl} or grant the permission in Server Settings → Roles, then try again.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  if (!me.permissions.has(PermissionFlagsBits.ManageWebhooks)) {
+    log.warn("burg without Manage Webhooks — relaying as plain bot messages", { guildId: interaction.guildId });
+  }
+
+  const durationRaw = interaction.options.getString("duration");
+  const reason = interaction.options.getString("reason");
+  const styleRaw = interaction.options.getString("style") ?? "random";
+  const style: BurgStyle =
+    styleRaw === "soft" || styleRaw === "cat" || styleRaw === "chaotic" ? styleRaw : "random";
+  let until: number | null = null;
+  if (durationRaw) {
+    const ms = parseDuration(durationRaw);
+    if (ms === null) {
+      await interaction.reply({
+        content: "❌ I didn't understand that duration. Use `30s`, `10m`, `2h`, `1d` or `1h30m`.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    until = Date.now() + ms;
+  }
+
+  burg.burg({
+    guildId: interaction.guildId,
+    userId: target.id,
+    until,
+    burgedBy: interaction.user.id,
+    style,
+  });
+  log.info("member burged", {
+    guildId: interaction.guildId,
+    userId: target.id,
+    by: interaction.user.id,
+    until,
+    style,
+  });
+  const when = until
+    ? `for **${formatDuration(until - Date.now())}** (until <t:${Math.floor(until / 1000)}:f>)`
+    : "**until toggled off** with `/burg @user`";
+  const styleLabel = style === "random" ? "a random cute style" : `the **${style}** style`;
+  await interaction.reply({
+    content:
+      `🧁 ${targetUser} is burg'd ${when}${reason ? ` — ${reason}` : ""}.\n` +
+      `Their messages will be re-posted as ${styleLabel}, e.g. ${toBurg("hello there", style)} under their name and avatar.\n` +
+      "Use `/burg` on them again to turn it off.",
+    flags: MessageFlags.Ephemeral,
+    allowedMentions: { users: [] },
+  });
+}
 
 async function onInteraction(interaction: Interaction) {
   if (!interaction.isChatInputCommand()) return;
@@ -274,6 +454,20 @@ async function onInteraction(interaction: Interaction) {
         else await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
       } catch {
 
+      }
+    }
+    return;
+  }
+  if (interaction.commandName === "burg") {
+    try {
+      await handleBurgCommand(interaction);
+    } catch (e) {
+      log.error("burg command failed", { error: String(e) });
+      try {
+        if (interaction.deferred || interaction.replied) await interaction.editReply("❌ Something went wrong running /burg.");
+        else await interaction.reply({ content: "❌ Something went wrong running /burg.", flags: MessageFlags.Ephemeral });
+      } catch {
+        // interaction already timed out — nothing more to do
       }
     }
     return;
@@ -299,12 +493,14 @@ async function onInteraction(interaction: Interaction) {
       }
       case "status": {
         const jailed = interaction.guildId ? jail.list(interaction.guildId).length : 0;
+        const burged = interaction.guildId ? burg.list(interaction.guildId).length : 0;
         await reply(
           [
             "**Monarch** — Design your Discord.",
             `• Server: ${interaction.guild?.name ?? "—"}`,
             `• Dashboard: ${appUrl}`,
             `• Jailed members: ${jailed}`,
+            `• Burg'd members: ${burged}`,
             "• All design changes are previewed and applied from the dashboard.",
             "• `/monarch help` lists every command.",
           ].join("\n"),
@@ -521,6 +717,10 @@ async function onInteraction(interaction: Interaction) {
         if (!me.permissions.has(PermissionFlagsBits.ManageWebhooks)) {
           log.warn("jail without Manage Webhooks — relaying as plain bot messages", { guildId: interaction.guildId });
         }
+        if (burg.isBurg(interaction.guildId, target.id)) {
+          await reply("❌ That member is already burg'd. Turn /burg off for them first, then use the Galactic jail.");
+          break;
+        }
 
         const durationRaw = interaction.options.getString("duration");
         const reason = interaction.options.getString("reason");
@@ -613,7 +813,7 @@ async function registerCommands(botToken: string) {
     log.warn("DISCORD_CLIENT_ID is not set — slash commands were not registered");
     return;
   }
-  const commands = [monarchCommandJSON(), musicCommandJSON()];
+  const commands = [monarchCommandJSON(), burgCommandJSON(), musicCommandJSON()];
   const route = guildIdForCommands
     ? Routes.applicationGuildCommands(clientId, guildIdForCommands)
     : Routes.applicationCommands(clientId);
@@ -641,7 +841,7 @@ async function start(botToken: string) {
   } catch (e) {
     if (!isDisallowedIntents(e)) throw e;
     log.error(
-      "Message Content intent is not enabled for this application — /monarch jail is disabled. " +
+      "Message Content intent is not enabled for this application — /monarch jail and /burg are disabled. " +
         "Enable it under Bot → Privileged Gateway Intents in the Discord developer portal, then restart.",
       { error: String(e) },
     );

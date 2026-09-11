@@ -167,8 +167,7 @@ Render worker.
 2. Set `DISCORD_BOT_TOKEN` to the **same token** used by the Vercel dashboard
    and set `APP_URL` to the exact Vercel URL, for example
    `https://monarch.vercel.app`. Also set `DISCORD_CLIENT_ID` to the
-   application ID from the Discord developer portal. The worker registers both
-   `/monarch` and `/music` when it starts.
+   application ID from the Discord developer portal. The worker registers `/monarch`, `/burg` and `/music` when it starts.
 3. If you need commands to appear immediately while testing, set
    `DISCORD_GUILD_ID` to the target server ID. Without it, commands are
    registered globally and Discord can take up to an hour to propagate a new
@@ -177,14 +176,14 @@ Render worker.
    `/monarch test`, also set the **same** `INTERNAL_API_TOKEN` on Vercel
    (dashboard) and the bot worker. Generate one with `openssl rand -hex 32`.
    Without it those subcommands reply with setup guidance; `/monarch help`,
-   `dashboard`, `status` and the jail commands still work.
+   `dashboard`, `status`, `/burg` and the jail commands still work.
 5. In the Discord developer portal enable **Message Content** under
-   Bot → Privileged Gateway Intents — `/monarch jail` reads and re-posts
-   messages. If it is off, the worker logs `Message Content intent is not
-   enabled…`, reconnects with Guilds-only intents and the jail command tells
-   users it is disabled. Everything else keeps working.
+   Bot → Privileged Gateway Intents — `/monarch jail` and `/burg` read and
+   re-post messages. If it is off, the worker logs `Message Content intent is not
+   enabled…`, reconnects with Guilds-only intents and the commands tell users
+   they are disabled. Everything else keeps working.
 6. Deploy and check the worker logs for `bot ready` (the log line includes
-   `"jail": true|false`). Keep exactly one worker running; two Gateway
+   `"jail": true|false`). The same flag controls `/burg`. Keep exactly one worker running; two Gateway
    sessions with the same bot token can disconnect each other.
 
 ### Reading the worker logs
@@ -228,8 +227,8 @@ put the bot token in browser-exposed `NEXT_PUBLIC_*` variables.
 In the Discord developer portal add
 `https://<your-app>.vercel.app/api/auth/callback` as an OAuth2 redirect,
 matching `APP_URL` exactly. Then sign in, pick a server (the bot must be
-installed with *Manage Channels*; *Manage Messages* is needed only for the
-jail — servers that installed Monarch before it was added to the invite must
+installed with *Manage Channels*; *Manage Messages* is needed for the jail
+and `/burg` — servers that installed Monarch before it was added to the invite must
 re-run the invite link or grant it manually), and design away.
 
 ## Notes & troubleshooting

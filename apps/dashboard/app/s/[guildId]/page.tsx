@@ -166,6 +166,12 @@ export default async function GuildOverviewPage({
                   Re-post their messages in Galactic
                 </span>
               </li>
+              <li>
+                <Code>/burg @user 10m</Code>
+                <span className="block text-[11px] text-ink-400">
+                  Re-post their messages as cute uwu text
+                </span>
+              </li>
             </ul>
           </div>
         </aside>

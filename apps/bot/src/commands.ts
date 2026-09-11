@@ -11,14 +11,15 @@ import {
   MONARCH_COMMANDS,
   type CommandDoc,
   type CommandGroupId,
-} from "@monarch/shared"
+} from "@monarch/shared";
+import { BURG_STYLES } from "./burg.js";
 
 /**
  Monarch's slash commands — the worker (apps/bot/src/index.ts) registers
  * this at startup; `npm run register-commands` is the one-off variant.
  *
  * The bot stays lightweight: commands give dashboard links, quick actions
- * (backup / export / test-send), the jail moderation gag and the music
+ * (backup / export / test-send), the jail/burg moderation gags and the music
  * player. Any structural change or generated content is executed by the
  * dashboard API layer, never by this process.
  *
@@ -118,8 +119,38 @@ export function monarchCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
     .toJSON();
 }
 
+/**
+ * `/burg` is intentionally a top-level command rather than a `/monarch`
+ * subcommand: it is a quick, memorable toggle for the uwu relay.
+ */
+export function burgCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
+  return new SlashCommandBuilder()
+    .setName("burg")
+    .setDescription("Toggle cute uwu/owo re-posts for a member")
+    .setContexts(0)
+    .addUserOption((o) => o.setName("user").setDescription("Who to burg").setRequired(true))
+    .addStringOption((o) =>
+      o
+        .setName("duration")
+        .setDescription("e.g. 10m, 2h, 1d — empty = until /burg is used again")
+        .setMaxLength(20),
+    )
+    .addStringOption((o) =>
+      o
+        .setName("style")
+        .setDescription("Cute spelling style; random is the default")
+        .addChoices(...BURG_STYLES),
+    )
+    .addStringOption((o) =>
+      o.setName("reason").setDescription("Shown in the confirmation only").setMaxLength(200),
+    )
+    .toJSON();
+}
+
 /** Bits that let a member run the moderation subcommands (jail / unjail / jailed). */
 export const JAIL_PERMISSIONS = [PermissionFlagsBits.Administrator, PermissionFlagsBits.KickMembers] as const;
+/** `/burg` uses the same moderation permission policy as the jail gag. */
+export const BURG_PERMISSIONS = JAIL_PERMISSIONS;
 
 /** Bits that let a member run backup / export / test (mirrors the dashboard's "can design" rule). */
 export const DESIGN_PERMISSIONS = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageGuild] as const;

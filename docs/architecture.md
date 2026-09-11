@@ -13,7 +13,7 @@ with Send Test, **Embed Builder** (Phase 3) and **Message Designer**
 per-guild workspaces, Send Test / Publish through the Target Resolver, audit
 entries — plus **Backups & Restore**, **Templates (Import / Export)**, a
 responsive/mobile dashboard shell, and the bot's `help`, `backup`, `export`,
-`jail`/`unjail`/`jailed` slash commands.
+`jail`/`unjail`/`jailed` and the standalone `/burg` slash command.
 
 Role Designer, Welcome Designer, Branding and Analyzer are represented as
 phase-labelled placeholders in the navigation; their shared infrastructure
@@ -59,6 +59,19 @@ broken or bypassed). Requires the `GuildMessages` + privileged
 the bot falls back to Guilds-only and the command says so. Invokers must hold
 Administrator or Kick Members, and can only jail members below their highest
 role; owners and bots can't be jailed.
+
+### Burg relay
+
+`/burg @user [duration] [style]` uses the same permissions, duration parser,
+role checks, Message Content intent and Manage Messages requirement as the
+jail, but it is a single toggle: invoking it for an active member releases
+them. `BurgRegistry` (apps/bot/src/burg.ts) owns the in-memory timers and the
+uwu/owo transformer. Messages are re-posted through a separate per-channel
+"Monarch Burg" webhook so the member's display name and avatar remain visible.
+The transformer preserves mentions, custom emoji, timestamps, links and code
+spans, then adds readable spelling changes and selectable soft, cat, chaotic or
+random cute flourishes. A member cannot be in both relays at once; the command
+handler rejects that combination so relay precedence cannot surprise anyone.
 
 ## Monorepo layout
 
