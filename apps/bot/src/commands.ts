@@ -148,7 +148,7 @@ export function burgCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
 }
 
 /** Bits that let a member run the moderation subcommands (jail / unjail / jailed). */
-export const JAIL_PERMISSIONS = [PermissionFlagsBits.Administrator, PermissionFlagsBits.KickMembers] as const;
+export const JAIL_PERMISSIONS = [PermissionFlagsBits.KickMembers] as const;
 /** `/burg` uses the same moderation permission policy as the jail gag. */
 export const BURG_PERMISSIONS = JAIL_PERMISSIONS;
 
