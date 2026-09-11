@@ -108,7 +108,9 @@ const NEEDS_VOICE = new Set([
 ]);
 
 const replyEphemeral = (interaction: ChatInputCommandInteraction, content: string) =>
-  interaction.reply({ content, flags: MessageFlags.Ephemeral });
+  interaction.deferred || interaction.replied
+    ? interaction.editReply({ content })
+    : interaction.reply({ content, flags: MessageFlags.Ephemeral });
 
 export async function handleMusicCommand(
   interaction: ChatInputCommandInteraction,
@@ -283,7 +285,7 @@ export async function handleMusicCommand(
     }
   } catch (e) {
     if (e instanceof SourceError) {
-      await interaction.reply({ content: `⚠️ ${e.message}`, flags: MessageFlags.Ephemeral });
+      await replyEphemeral(interaction, `⚠️ ${e.message}`);
       return;
     }
     throw e;
@@ -306,10 +308,9 @@ async function handlePlay(
 
   await interaction.deferReply();
 
-  // Voice first so a bad link doesn't leave the bot in the channel.
-  await manager.connect(interaction.guildId, channel);
-
   const result = await resolveQuery(query, interaction.user.id, interaction.user.displayName, maxPlaylistTracks);
+
+  await manager.connect(interaction.guildId, channel);
 
   const queue = manager.queue(interaction.guildId);
   const wasIdle = queue.nowPlaying() === null;
@@ -318,19 +319,24 @@ async function handlePlay(
   const position = queue.size - added + 1; // 1-based position of the first added track
   const first = result.tracks[0];
 
+  if (added === 0) {
+    await interaction.editReply("❌ Nothing was added — the queue is full or the link contains no tracks.");
+    return;
+  }
+
   if (!first) {
     await interaction.editReply("❌ Nothing from that link could be queued.");
     return;
   }
 
-  const startingNow = wasIdle || manager.isPaused(interaction.guildId);
+  const startingNow = wasIdle;
   if (result.tracks.length === 1) {
     await interaction.editReply(
       `🎶 Added **[${first.title}](${first.url})** by ${first.author} \`${formatDuration(first.durationMs)}\`` +
-        (startingNow ? " — **playing now**." : ` — position **#${queue.size}** in the queue.`),
+        (startingNow ? " — **preparing playback**." : ` — position **#${queue.size}** in the queue.`),
     );
   } else {
-    const capped = result.tracks.length - added;
+    const capped = result.skipped;
     const summary =
       `📚 Added **${added}** track${added === 1 ? "" : "s"} from **${result.origin}**` +
       (dropped + capped > 0 ? ` (${dropped + capped} left out — queue/playlist limit is ${maxQueue}/${maxPlaylistTracks})` : "") +

@@ -41,12 +41,14 @@ export class MusicQueue {
    * - `track` → current track stays current (replay it).
    * - `queue` → current track goes to the back, next up is played.
    *
+   * `skipCurrent` discards a failed track regardless of loop mode.
+   *
    * Returns the new current track, or `null` when the queue ran dry (the
    * player should go idle).
    */
-  next(): Track | null {
-    if (this.loop === "track" && this.current) return this.current;
-    if (this.loop === "queue" && this.current) this.items.push(this.current);
+  next(skipCurrent = false): Track | null {
+    if (!skipCurrent && this.loop === "track" && this.current) return this.current;
+    if (!skipCurrent && this.loop === "queue" && this.current) this.items.push(this.current);
     this.current = this.items.shift() ?? null;
     return this.current;
   }

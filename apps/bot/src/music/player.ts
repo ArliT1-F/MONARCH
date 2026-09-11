@@ -168,55 +168,65 @@ export class MusicManager {
     if (s.advancing || s.stopping) return;
     s.advancing = true;
     try {
-      const track = s.queue.next();
-      s.elector.reset(guildId);
-      if (!track) {
+      let skipFailed = false;
+      while (!s.stopping) {
+        const track = s.queue.next(skipFailed);
+        s.elector.reset(guildId);
+        if (!track) {
+          s.queue.setPaused(false);
+          s.startedAt = null;
+          s.pausedElapsed = 0;
+          this.scheduleIdleLeave(guildId, s);
+          return;
+        }
+        this.cancelLeaveTimer(s);
+
+        let resource: AudioResource;
+        try {
+          const stream = await audioStreamFor(track);
+          if (s.stopping || this.sessions.get(guildId) !== s) {
+            stream.destroy();
+            return;
+          }
+          resource = createAudioResource(stream, { inputType: StreamType.Arbitrary, inlineVolume: true });
+        } catch (e) {
+          if (s.stopping || this.sessions.get(guildId) !== s) return;
+          s.failStreak += 1;
+          log.warn("track resolution failed", { guildId, track: track.title, error: String(e) });
+          const message =
+            e instanceof SourceError
+              ? e.message
+              : `**${track.title}** couldn't be played (stream unavailable).`;
+          this.announceFailure(guildId, message);
+          if (s.failStreak >= MAX_CONSECUTIVE_FAILURES) {
+            this.announce(guildId, {
+              color: 0xed4245,
+              title: "⏹ Giving up",
+              description: `${MAX_CONSECUTIVE_FAILURES} tracks in a row failed. Use \`/music play\` to start again.`,
+            });
+            this.teardown(guildId, false);
+            return;
+          }
+          // Keep the advancement lock, but never loop an unavailable track.
+          skipFailed = true;
+          continue;
+        }
+
+        s.failStreak = 0;
         s.queue.setPaused(false);
         s.startedAt = null;
         s.pausedElapsed = 0;
-        this.scheduleIdleLeave(guildId, s);
+        resource.volume?.setVolume(volumeToGain(s.volume));
+        s.player.play(resource);
+        log.info("now playing", {
+          guildId,
+          track: track.title,
+          spotify: track.sourceKind === "spotify",
+          last: this.isLastTrack(s),
+        });
+        this.announce(guildId, nowPlayingEmbed(track, s, this.isLastTrack(s)));
         return;
       }
-      this.cancelLeaveTimer(s);
-
-      let resource: AudioResource;
-      try {
-        const stream = await audioStreamFor(track);
-        resource = createAudioResource(stream, { inputType: StreamType.Arbitrary, inlineVolume: true });
-      } catch (e) {
-        s.failStreak += 1;
-        log.warn("track resolution failed", { guildId, track: track.title, error: String(e) });
-        const message =
-          e instanceof SourceError
-            ? e.message
-            : `**${track.title}** couldn't be played (stream unavailable).`;
-        this.announceFailure(guildId, message);
-        if (s.failStreak >= MAX_CONSECUTIVE_FAILURES) {
-          this.announce(guildId, {
-            color: 0xed4245,
-            title: "⏹ Giving up",
-            description: `${MAX_CONSECUTIVE_FAILURES} tracks in a row failed. Use \`/music play\` to start again.`,
-          });
-          this.teardown(guildId, false);
-          return;
-        }
-        // Try the next one (recursion is bounded by the fail streak).
-        return void this.playNext(guildId, `${why}→skip-failed`);
-      }
-
-      s.failStreak = 0;
-      s.queue.setPaused(false);
-      s.startedAt = null;
-      s.pausedElapsed = 0;
-      resource.volume?.setVolume(volumeToGain(s.volume));
-      s.player.play(resource);
-      log.info("now playing", {
-        guildId,
-        track: track.title,
-        spotify: track.sourceKind === "spotify",
-        last: this.isLastTrack(s),
-      });
-      this.announce(guildId, nowPlayingEmbed(track, s, this.isLastTrack(s)));
     } finally {
       s.advancing = false;
     }
