@@ -133,8 +133,8 @@ describe("bot startup", () => {
 
     expect(mocks.put).toHaveBeenCalledOnce();
     expect(mocks.login).toHaveBeenCalledWith("test-token");
-    // Two top-level commands: /monarch and /music.
-    expect(find("registered slash commands")).toMatchObject({ level: "info", count: 2 });
+    // Three top-level commands: /monarch, /burg and /music.
+    expect(find("registered slash commands")).toMatchObject({ level: "info", count: 3 });
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -145,7 +145,7 @@ describe("bot startup", () => {
       "/applications/4242/guilds/9876543210/commands",
       expect.objectContaining({ body: expect.any(Array) }),
     );
-    expect(find("registered slash commands")).toMatchObject({ scope: "guild", guildId: "9876543210", count: 2 });
+    expect(find("registered slash commands")).toMatchObject({ scope: "guild", guildId: "9876543210", count: 3 });
   });
 
   it("still logs in when slash command registration fails", async () => {
@@ -165,7 +165,7 @@ describe("bot startup", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(mocks.login).toHaveBeenCalledTimes(2);
-    expect(find("Message Content intent is not enabled for this application — /monarch jail is disabled. Enable it under Bot → Privileged Gateway Intents in the Discord developer portal, then restart.")).toBeDefined();
+    expect(find("Message Content intent is not enabled for this application — /monarch jail and /burg are disabled. Enable it under Bot → Privileged Gateway Intents in the Discord developer portal, then restart.")).toBeDefined();
     expect(exitSpy).not.toHaveBeenCalled();
   });
 

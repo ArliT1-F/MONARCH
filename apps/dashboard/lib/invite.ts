@@ -13,7 +13,7 @@ export const INVITE_PERMISSIONS: PermissionName[] = [
   "ManageChannels",
   "ManageRoles",
   "ManageWebhooks",
-  "ManageMessages", // /monarch jail deletes and re-posts the jailed member's messages
+  "ManageMessages", // /monarch jail and /burg delete and re-post member messages
   "SendMessages",
   "SendMessagesInThreads",
   "EmbedLinks",

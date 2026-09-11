@@ -69,6 +69,7 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   | `/monarch export` | Post the layout as a `.json` template file | Manage Server / Admin |
   | `/monarch embed` · `/monarch test` | Embed Builder link · test/publish the saved design | Manage Server / Admin |
   | `/monarch jail @user [duration] [reason]` | Delete everything the user posts and re-post it in the **Standard Galactic Alphabet** (the Minecraft enchanting script) under their name and avatar. No duration = until `/monarch unjail`; `10m`, `2h`, `1d`, `1h30m` auto-release | Administrator or Kick Members |
+  | `/burg @user [duration] [style] [reason]` | Toggle a cute uwu/owo relay under their name and avatar. Run it again for the same user to turn it off; styles include random, soft, cat and chaotic | Administrator or Kick Members |
   | `/monarch unjail @user` · `/monarch jailed` | Release early · list jailed members | Administrator or Kick Members |
   | `/music play <link or search>` | Play/queue YouTube & Spotify tracks, playlists and albums | everyone in voice |
   | `/music pause` · `/music resume` · `/music stop` | Pause · resume · stop + clear + leave | everyone in the bot's channel |
@@ -76,8 +77,9 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   | `/music queue [page]` · `/music nowplaying` | Show the queue · now playing with progress | everyone |
   | `/music volume [0-150]` · `/music loop [off\|track\|queue]` · `/music shuffle` · `/music remove <#>` · `/music clear` | Playback controls | everyone in the bot's channel |
   `backup`, `export`, `embed` and `test` need `INTERNAL_API_TOKEN` set in
-  both the dashboard and the bot. The jail needs the **Message Content**
-  privileged intent (see below) and the **Manage Messages** permission.
+  both the dashboard and the bot. The jail and `/burg` need the **Message
+  Content** privileged intent (see below) and the **Manage Messages**
+  permission.
   Spotify links need `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` on the
   bot (free app at developer.spotify.com — see `.env.example`); YouTube
   links and search work out of the box. Playback needs **ffmpeg** — the
@@ -117,16 +119,16 @@ actually executes.
    installed before `Manage Messages` was added, re-run the invite link or
    grant it in Server Settings → Roles.
 4. In the developer portal, under **Bot → Privileged Gateway Intents**,
-   enable **Message Content**. The jail relay needs it to read messages; if
-   it is off the bot still starts (Guilds-only) and `/monarch jail` explains
-   what is missing. Free below 100 servers; Discord verification above.
+   enable **Message Content**. The jail and burg relays need it to read
+   messages; if it is off the bot still starts (Guilds-only) and the commands
+   explain what is missing. Free below 100 servers; Discord verification above.
 5. `npm run dev` — then `npm run dev:bot` in another terminal for slash
    commands.
 
    `/monarch backup`, `/monarch export`, `/monarch embed` and `/monarch test`
    call the dashboard's `/api/internal/*` routes — set the same
    `INTERNAL_API_TOKEN` in both environments. `/monarch dashboard`, `help`,
-    `status` and all of `/music` work without it.
+    `status`, `/burg`, the jail commands and all of `/music` work without it.
 
    The bot also needs the **Server Voice States** intent for `/music`
    (not privileged — on by default). For Spotify links set
@@ -145,8 +147,8 @@ Deploying to **Vercel + Postgres (Prisma)** — see
 the Discord Gateway bot must run as a long-lived worker (Render, Railway,
 Fly.io, a VM, or Docker). Set the same `DISCORD_BOT_TOKEN` and `APP_URL` in
 both services so slash commands and dashboard changes stay online together.
-Set `DISCORD_CLIENT_ID` on the worker so it can register `/monarch` and
-`/music`; optionally set `DISCORD_GUILD_ID` while testing for immediate
+Set `DISCORD_CLIENT_ID` on the worker so it can register `/monarch`, `/burg`
+and `/music`; optionally set `DISCORD_GUILD_ID` while testing for immediate
 slash-command updates (global Discord commands can take up to an hour to
 propagate). `render.yaml` is ready for a Render worker. Set `DATABASE_URL`
 (anywhere:
@@ -158,7 +160,7 @@ and apply with `npm run db:migrate`.
 
 ```
 apps/dashboard    Next.js studio (UI + API routes)
-apps/bot          discord.js bot (dashboard links, status, jail, music player)
+apps/bot          discord.js bot (dashboard links, status, jail, burg, music player)
 packages/*        shared · schemas · validation · design-engine · renderer · discord · music
 prisma/           PostgreSQL schema (production persistence target)
 docker/           Compose + Dockerfiles

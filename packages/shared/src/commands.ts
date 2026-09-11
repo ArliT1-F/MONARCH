@@ -55,8 +55,8 @@ export const COMMAND_GROUPS: CommandGroup[] = [
   },
   {
     id: "moderation",
-    label: "Jail (fun moderation)",
-    description: "The Standard Galactic Alphabet gag — everything a jailed member says is re-posted enchanted.",
+    label: "Fun relays",
+    description: "Jail and burg gags — messages are deleted and re-posted with an enchanted or cute style.",
     icon: "🔒",
   },
   {
@@ -92,7 +92,7 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     summary: "Show Monarch's status for this server.",
     who: "everyone",
     details:
-      "Reports which server the bot sees, where the dashboard lives, how many members are currently jailed, and a reminder that all design changes flow through the dashboard.",
+      "Reports which server the bot sees, where the dashboard lives, how many members are currently jailed or burg'd, and a reminder that all design changes flow through the dashboard.",
   },
   {
     name: "/monarch backup",
@@ -176,6 +176,35 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     summary: "List who is currently jailed in this server.",
     who: "Administrator or Kick Members",
     details: "Shows every active sentence: who is jailed, until when (or 'until released') and who jailed them.",
+  },
+];
+
+/** The standalone /burg toggle is documented beside the Monarch moderation gags. */
+export const BURG_COMMANDS: CommandDoc[] = [
+  {
+    name: "/burg",
+    usage: "/burg @user [duration] [style] [reason]",
+    group: "moderation",
+    summary: "Delete a member's messages and re-post them as cute uwu/owo text.",
+    who: "Administrator or Kick Members",
+    details:
+      "Toggles a playful burg relay for the selected member. Their messages are deleted and re-posted through a webhook with their display name and avatar, using readable uwu/owo spelling plus random cute flourishes such as uwu, nya, >w< and cat faces. Run /burg on the same member again to turn it off. The style can be fixed or left random for a different cute variation on every message.",
+    args: [
+      { name: "user", description: "Who to burg.", required: true },
+      { name: "duration", description: "e.g. 10m, 2h, 1d, 1h30m — empty = until toggled off with /burg." },
+      { name: "style", description: "random, soft, cat or chaotic — omitted = random." },
+      { name: "reason", description: "Shown in the confirmation only." },
+    ],
+    examples: [
+      "/burg @icy404 10m",
+      "/burg @icy404 style:cat",
+      "/burg @icy404",
+    ],
+    notes: [
+      "Uses the same duration parsing, role hierarchy checks and moderation permissions as /monarch jail.",
+      "Needs the privileged Message Content gateway intent and the Manage Messages permission.",
+      "A member cannot be burg'd and jailed at the same time; turn one gag off before enabling the other.",
+    ],
   },
 ];
 
@@ -306,7 +335,7 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
 ];
 
 /** Every command, in display order. */
-export const COMMAND_CATALOG: CommandDoc[] = [...MONARCH_COMMANDS, ...MUSIC_COMMANDS];
+export const COMMAND_CATALOG: CommandDoc[] = [...MONARCH_COMMANDS, ...BURG_COMMANDS, ...MUSIC_COMMANDS];
 
 export function commandsByGroup(group: CommandGroupId): CommandDoc[] {
   return COMMAND_CATALOG.filter((c) => c.group === group);

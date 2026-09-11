@@ -16,7 +16,7 @@ import {
  */
 export function HelpPanel({ appUrl }: { appUrl: string }) {
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState<Set<string>>(() => new Set(["/monarch jail", "/music play", "/music skip"]));
+  const [open, setOpen] = useState<Set<string>>(() => new Set(["/monarch jail", "/burg", "/music play", "/music skip"]));
 
   const normalized = query.trim().toLowerCase();
 
@@ -254,9 +254,9 @@ function SetupNotes() {
     },
     {
       id: "setup",
-      title: "Message Content intent (jail)",
+      title: "Message Content intent (jail + burg)",
       body:
-        "/monarch jail relays messages, so it needs the privileged Message Content intent: Discord developer portal → Bot → Privileged Gateway Intents. Without it the bot still starts and the jail command explains what's missing.",
+        "/monarch jail and /burg relay messages, so they need the privileged Message Content intent: Discord developer portal → Bot → Privileged Gateway Intents. Without it the bot still starts and the commands explain what's missing.",
     },
     {
       id: "setup",
