@@ -1,3 +1,4 @@
+import { evaluatePlayer } from "./javascript.js";
 import { Readable } from "node:stream";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@monarch/shared";
@@ -57,14 +58,13 @@ export class SourceError extends Error {}
 let innertubePromise: Promise<Innertube> | null = null;
 
 export function getYoutube(): Promise<Innertube> {
-  innertubePromise ??= import("youtubei.js").then(({ Innertube }) =>
-    Innertube.create({
-      // Caches the player / visitor data between restarts — fewer requests,
-      // less bot-detection friction.
-      cache: undefined,
-      generate_session_locally: true,
-    }),
-  );
+  innertubePromise ??= import("youtubei.js").then(({ Innertube, Platform }) => {
+    Platform.shim.eval = evaluatePlayer;
+    return Innertube.create({ generate_session_locally: true });
+  }).catch((error) => {
+    innertubePromise = null; // A transient initialization failure must not poison every request.
+    throw error;
+  });
   return innertubePromise;
 }
 
@@ -99,8 +99,31 @@ export async function youtubeVideoMeta(videoId: string): Promise<VideoMeta> {
 /** Best-effort audio stream for a YouTube video. */
 export async function youtubeAudioStream(videoId: string): Promise<Readable> {
   const yt = await getYoutube();
-  const stream = await yt.download(videoId, { type: "audio", quality: "best" });
-  return Readable.fromWeb(stream as unknown as import("node:stream/web").ReadableStream);
+  let loginRequired = false;
+  // WEB can return SABR-only formats without URLs. Try a second supported
+  // client, and only select formats the direct-download API can actually use.
+  for (const client of ["ANDROID", "WEB"] as const) {
+    try {
+      const info = await yt.getBasicInfo(videoId, { client });
+      if (info.playability_status?.status === "LOGIN_REQUIRED") {
+        loginRequired = true;
+        continue;
+      }
+      const formats = info.streaming_data?.adaptive_formats ?? [];
+      const format = formats
+        .filter((f) => f.has_audio && !f.has_video && (f.url || f.signature_cipher || f.cipher))
+        .sort((a, b) => b.bitrate - a.bitrate)[0];
+      if (!format) continue;
+      const stream = await info.download({ itag: format.itag, type: "audio", quality: "best", format: "any" });
+      return Readable.fromWeb(stream as unknown as import("node:stream/web").ReadableStream);
+    } catch (error) {
+      if (/login.required/i.test(String(error))) loginRequired = true;
+      log.warn("YouTube audio client failed", { videoId, client, error: String(error) });
+    }
+  }
+  throw new SourceError(loginRequired
+    ? "YouTube requires login for this video or the bot's hosting IP. Try another track; if all tracks fail, the host may be blocked by YouTube."
+    : "YouTube did not provide a usable audio stream. Try another track; if this persists, the extractor or hosting access needs attention.");
 }
 
 /** YouTube search → first reasonable video result. */
