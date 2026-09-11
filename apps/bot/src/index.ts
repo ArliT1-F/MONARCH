@@ -40,6 +40,7 @@ const log = createLogger("bot");
 
 const token = process.env.DISCORD_BOT_TOKEN;
 const clientId = process.env.DISCORD_CLIENT_ID;
+const guildIdForCommands = process.env.DISCORD_GUILD_ID?.trim();
 const appUrl = process.env.APP_URL ?? "http://localhost:3000";
 const internalToken = process.env.INTERNAL_API_TOKEN;
 
@@ -613,11 +614,19 @@ async function registerCommands(botToken: string) {
     return;
   }
   const commands = [monarchCommandJSON(), musicCommandJSON()];
+  const route = guildIdForCommands
+    ? Routes.applicationGuildCommands(clientId, guildIdForCommands)
+    : Routes.applicationCommands(clientId);
   try {
-    await new REST({ version: "10" }).setToken(botToken).put(Routes.applicationCommands(clientId), {
+    await new REST({ version: "10" }).setToken(botToken).put(route, {
       body: commands,
     });
-    log.info("registered slash commands", { count: commands.length });
+    log.info("registered slash commands", {
+      count: commands.length,
+      names: commands.map((command) => command.name),
+      scope: guildIdForCommands ? "guild" : "global",
+      ...(guildIdForCommands ? { guildId: guildIdForCommands } : {}),
+    });
   } catch (e) {
     // Non-fatal: previously registered commands keep working, and crash-looping
     // the worker on a transient Discord REST error would take them offline too.

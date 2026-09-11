@@ -145,7 +145,11 @@ Deploying to **Vercel + Postgres (Prisma)** — see
 the Discord Gateway bot must run as a long-lived worker (Render, Railway,
 Fly.io, a VM, or Docker). Set the same `DISCORD_BOT_TOKEN` and `APP_URL` in
 both services so slash commands and dashboard changes stay online together.
-`render.yaml` is ready for a Render worker. Set `DATABASE_URL` (anywhere:
+Set `DISCORD_CLIENT_ID` on the worker so it can register `/monarch` and
+`/music`; optionally set `DISCORD_GUILD_ID` while testing for immediate
+slash-command updates (global Discord commands can take up to an hour to
+propagate). `render.yaml` is ready for a Render worker. Set `DATABASE_URL`
+(anywhere:
 Vercel, Docker, local) and Monarch swaps its file store for the PostgreSQL-
 backed `PrismaStore` automatically; migrations ship in `prisma/migrations/`
 and apply with `npm run db:migrate`.

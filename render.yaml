@@ -15,3 +15,16 @@ services:
         sync: false
       - key: DISCORD_CLIENT_ID
         sync: false
+      # Optional: set a server ID for immediate slash-command updates while
+      # testing. Leave unset to register globally (global propagation can take
+      # up to an hour in Discord).
+      - key: DISCORD_GUILD_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
+      - key: MUSIC_DJ_ROLE_NAMES
+        value: dj
+      - key: MUSIC_STAFF_ROLE_NAMES
+        value: moderator,moderators,mod,mods,staff,admin,admins,administrator,administrators

@@ -32,7 +32,10 @@ vi.mock("discord.js", () => {
     Partials: { Channel: 1 },
     PermissionFlagsBits: { Administrator: 8n, KickMembers: 2n, ManageGuild: 32n, ManageMessages: 8192n, ManageWebhooks: 536870912n },
     REST: vi.fn(() => ({ setToken: () => ({ put: mocks.put }) })),
-    Routes: { applicationCommands: (id: string) => `/applications/${id}/commands` },
+    Routes: {
+      applicationCommands: (id: string) => `/applications/${id}/commands`,
+      applicationGuildCommands: (id: string, guildId: string) => `/applications/${id}/guilds/${guildId}/commands`,
+    },
     SlashCommandBuilder: vi.fn(() => builder()),
   };
 });
@@ -68,6 +71,7 @@ async function boot(env: Record<string, string | undefined> = {}) {
 
   process.env.DISCORD_BOT_TOKEN = "test-token";
   process.env.DISCORD_CLIENT_ID = "4242";
+  delete process.env.DISCORD_GUILD_ID;
   for (const [k, v] of Object.entries(env)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
@@ -132,6 +136,16 @@ describe("bot startup", () => {
     // Two top-level commands: /monarch and /music.
     expect(find("registered slash commands")).toMatchObject({ level: "info", count: 2 });
     expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it("registers in the configured guild for immediate command updates", async () => {
+    await boot({ DISCORD_GUILD_ID: "9876543210" });
+
+    expect(mocks.put).toHaveBeenCalledWith(
+      "/applications/4242/guilds/9876543210/commands",
+      expect.objectContaining({ body: expect.any(Array) }),
+    );
+    expect(find("registered slash commands")).toMatchObject({ scope: "guild", guildId: "9876543210", count: 2 });
   });
 
   it("still logs in when slash command registration fails", async () => {
