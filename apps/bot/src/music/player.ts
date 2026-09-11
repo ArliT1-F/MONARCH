@@ -1,10 +1,13 @@
 import {
   AudioPlayerStatus,
+  NetworkingStatusCode,
   StreamType,
+  VoiceConnectionDisconnectReason,
   VoiceConnectionStatus,
   createAudioPlayer,
   createAudioResource,
   entersState,
+  generateDependencyReport,
   joinVoiceChannel,
   type AudioPlayer,
   type AudioResource,
@@ -44,6 +47,85 @@ const log = createLogger("bot.music");
 const EMPTY_CHANNEL_LEAVE_MS = 60_000; // alone in voice → leave after this
 const IDLE_LEAVE_MS = 5 * 60_000; // nothing playing → leave after this
 const MAX_CONSECUTIVE_FAILURES = 3;
+/**
+ * How long a voice join may take. A healthy join is 1–3 s; the timeout exists
+ * so a host that can't reach Discord's voice servers fails with an
+ * explanation instead of a command that never answers.
+ */
+const VOICE_READY_TIMEOUT_MS = 20_000;
+
+/**
+ * A voice-join failure whose message is written for humans — `/music play`
+ * shows it as-is. The technical reason (which stage stalled, close codes,
+ * library versions) is logged by MusicManager.connect before this is thrown.
+ */
+export class VoiceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VoiceError";
+  }
+}
+
+/** Plain-language reason for a join attempt that never reached Ready. */
+function describeVoiceFailure(
+  connection: VoiceConnection,
+  error: unknown,
+): { message: string; fields: Record<string, unknown> } {
+  const state = connection.state;
+  // The networking sub-state says *where* the handshake stopped:
+  // OpeningWs/Identifying = voice gateway, UdpHandshaking = UDP to Discord,
+  // SelectingProtocol = encryption negotiation.
+  const networking = "networking" in state ? NetworkingStatusCode[state.networking.state.code] : null;
+  const closeCode =
+    state.status === VoiceConnectionStatus.Disconnected &&
+    state.reason === VoiceConnectionDisconnectReason.WebSocketClose
+      ? state.closeCode
+      : null;
+  const fields = { error: String(error), state: state.status, networking, closeCode };
+
+  if (closeCode !== null) {
+    const known: Record<number, string> = {
+      4006: "the voice session expired",
+      4009: "the voice session timed out",
+      4011: "Discord couldn't find a voice server for that channel",
+      4014: "Discord refused the connection — I need **Connect** and **Speak** in that channel, and it has to have room",
+      4015: "Discord's voice server crashed",
+      4016: "Discord and I couldn't agree on an encryption mode",
+    };
+    return {
+      message: `🔇 I couldn't join voice: ${known[closeCode] ?? `Discord closed the voice connection (code ${closeCode})`}.`,
+      fields,
+    };
+  }
+
+  switch (networking) {
+    case "UdpHandshaking":
+      return {
+        message:
+          "🔇 I couldn't join voice: Discord never answered my **UDP** handshake. Voice is UDP-only, so this host is almost certainly blocking outbound UDP — run the bot where UDP egress is allowed (a VPS, a home machine, or Docker with normal networking) or ask the host to open it.",
+        fields,
+      };
+    case "SelectingProtocol":
+      return {
+        message:
+          "🔇 I couldn't join voice: the connection stalled while negotiating audio encryption. Check the bot log — the voice libraries' versions are listed in the failure line.",
+        fields,
+      };
+    case "OpeningWs":
+    case "Identifying":
+      return {
+        message:
+          "🔇 I couldn't join voice: Discord never finished the voice gateway handshake, which usually means outbound WebSocket traffic to Discord is blocked or badly throttled on this host.",
+        fields,
+      };
+    default:
+      return {
+        message:
+          "🔇 I couldn't join voice in time. The log line above shows how far the connection got — send it along if this keeps happening.",
+        fields,
+      };
+  }
+}
 
 /** Announcements the manager posts to the guild's music text channel. */
 export type Announce = (guildId: string, embed: APIEmbed, content?: string) => void;
@@ -262,12 +344,15 @@ export class MusicManager {
     } catch {
       // already stopped
     }
+    // Drop the session *before* destroying the connection: the Destroyed
+    // handler below would otherwise tear down a second time (it fires
+    // synchronously inside destroy()).
+    this.sessions.delete(guildId);
     try {
       s.connection?.destroy();
     } catch {
       // already destroyed
     }
-    this.sessions.delete(guildId);
     if (announceLeft) {
       this.announce(guildId, {
         color: 0x99aab5,
@@ -279,25 +364,42 @@ export class MusicManager {
 
   // ── voice connection ──────────────────────────────────────────────
 
+  /** Can this connection play audio in `channelId` right now? */
+  private isUsable(connection: VoiceConnection, channelId: string): boolean {
+    return (
+      connection.joinConfig.channelId === channelId &&
+      connection.state.status !== VoiceConnectionStatus.Destroyed &&
+      connection.state.status !== VoiceConnectionStatus.Disconnected
+    );
+  }
+
+  /** Destroy a connection we no longer trust, without tearing the session down. */
+  private dropConnection(s: GuildPlayback): void {
+    // Destroyed fires synchronously inside destroy() — the flag keeps the
+    // Destroyed handler from killing the session while we re-join.
+    s.following = true;
+    try {
+      s.connection?.destroy();
+    } catch {
+      // already destroyed
+    } finally {
+      s.following = false;
+      s.connection = null;
+    }
+  }
+
   /** Join (or stay joined to) the member's voice channel. */
   async connect(guildId: string, channel: VoiceBasedChannel): Promise<void> {
     const s = this.session(guildId);
     this.cancelLeaveTimer(s);
+
+    // Never reuse a connection that is dead, stuck, or pointed at another
+    // channel: the old code returned early for any matching channel id, so a
+    // failed/timed-out join left the session claiming to be in voice — the
+    // next /music play skipped joining and silently played nothing.
+    if (s.connection && !this.isUsable(s.connection, channel.id)) this.dropConnection(s);
     s.voiceChannelId = channel.id;
-
-    if (s.connection && s.connection.joinConfig.channelId === channel.id) return;
-
-    if (s.connection) {
-      // Moving to another channel: destroy quietly first. Destroyed fires
-      // synchronously inside destroy(), so the flag reliably guards it.
-      s.following = true;
-      try {
-        s.connection.destroy();
-      } finally {
-        s.following = false;
-      }
-      s.connection = null;
-    }
+    if (s.connection) return; // already joined (or joining) this channel
 
     const connection = joinVoiceChannel({
       channelId: channel.id,
@@ -307,13 +409,38 @@ export class MusicManager {
     });
     s.connection = connection;
     connection.subscribe(s.player);
+    // VoiceConnection is an EventEmitter that emits 'error' — without a
+    // listener an error event throws and takes the whole worker with it.
+    connection.on("error", (error) => log.error("voice connection error", { guildId, error: String(error) }));
+    connection.on("stateChange", (from, to) =>
+      log.debug("voice connection state", { guildId, from: from.status, to: to.status }),
+    );
     connection.on(VoiceConnectionStatus.Destroyed, () => {
       // Discord kicked the bot or the channel was deleted — unless we're
-      // mid-move (following) or mid-teardown (session already gone).
-      if (s.following) return;
+      // mid-move (following) or mid-teardown (teardown destroys on purpose,
+      // and checks `stopping` before this could run again).
+      if (s.following || s.stopping) return;
       if (this.sessions.get(guildId) === s) this.teardown(guildId, false);
     });
-    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+
+    try {
+      await entersState(connection, VoiceConnectionStatus.Ready, VOICE_READY_TIMEOUT_MS);
+    } catch (error) {
+      // entersState only rejects with a bare AbortError ("The operation was
+      // aborted") once the 20 s are up — that says nothing about *why* the
+      // join failed, so capture the connection's own state before we throw.
+      if (s.stopping || this.sessions.get(guildId) !== s) return; // torn down while joining
+      const { message, fields } = describeVoiceFailure(connection, error);
+      log.error("voice connection failed", {
+        guildId,
+        channelId: channel.id,
+        waitedMs: VOICE_READY_TIMEOUT_MS,
+        ...fields,
+        dependencies: generateDependencyReport(),
+      });
+      this.teardown(guildId, false); // forget the failed session so a retry re-joins
+      throw new VoiceError(message);
+    }
   }
 
   connectedChannelId(guildId: string): string | null {

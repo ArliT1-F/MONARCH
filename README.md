@@ -57,7 +57,9 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   pause / resume / stop / volume / loop / shuffle / remove / clear,
   now-playing progress, and a skip system: **DJ, Moderator/Staff and the
   requester skip instantly; everyone else votes** and a majority of the
-  listeners passes it
+  listeners passes it. Failures explain themselves: a bad link, a blocked
+  YouTube host or a voice join that never came up (permissions, blocked UDP)
+  is reported as its own message instead of a generic error.
 - 🤖 Slash commands (the full manual lives at **Help → Commands & Help** in
   the dashboard; `/monarch help` shows the short version):
 
@@ -133,6 +135,19 @@ actually executes.
    `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`; DJ and staff skip roles
    are tuned with `MUSIC_DJ_ROLE_NAMES` / `MUSIC_STAFF_ROLE_NAMES`. See
    `.env.example` for the full list.
+
+   **Voice needs UDP.** Discord voice is UDP-only — *"your client must be
+   able to receive UDP packets, even through a firewall or NAT"*
+   ([voice connections docs](https://discord.com/developers/docs/topics/voice-connections)) —
+   so the bot's host has to allow outbound UDP to Discord's voice servers.
+   A VPS, a home machine or Docker with normal networking is fine; some
+   container/PaaS sandboxes block UDP, and then the bot joins the channel but
+   never plays. `/music` says what went wrong instead of failing silently: it
+   reports the reason in Discord, and the bot log gets a `voice connection
+   failed` line with the stage that stalled — `networking: "UdpHandshaking"`
+   means the host dropped the UDP handshake — plus the websocket close code
+   and the voice dependency versions (ffmpeg, opus, encryption, DAVE).
+   A healthy join takes 1–3 s; the join gives up after 20 s.
 
 Docker (dashboard + bot + PostgreSQL):
 

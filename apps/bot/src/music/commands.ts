@@ -9,7 +9,7 @@ import {
 import { formatDuration, parseVolume, type LoopMode } from "@monarch/music";
 import { FORCE_SKIP_LABEL } from "@monarch/music";
 import type { MusicManager } from "./player.js";
-import { queueEmbed, nowPlayingDetailed } from "./player.js";
+import { queueEmbed, nowPlayingDetailed, VoiceError } from "./player.js";
 import {
   SourceError,
   musicLimits,
@@ -284,7 +284,8 @@ export async function handleMusicCommand(
         await replyEphemeral(interaction, "Try `/monarch help` for the full command list.");
     }
   } catch (e) {
-    if (e instanceof SourceError) {
+    // SourceError and VoiceError both carry messages written for humans.
+    if (e instanceof SourceError || e instanceof VoiceError) {
       await replyEphemeral(interaction, `⚠️ ${e.message}`);
       return;
     }
@@ -309,6 +310,16 @@ async function handlePlay(
   await interaction.deferReply();
 
   const result = await resolveQuery(query, interaction.user.id, interaction.user.displayName, maxPlaylistTracks);
+  const first = result.tracks[0];
+
+  // Resolving and (especially) joining voice take a few seconds. Say what is
+  // happening instead of leaving the deferred reply blank — the join can take
+  // up to the ready timeout before it reports why it failed.
+  const found =
+    result.tracks.length === 1 && first
+      ? `**[${first.title}](${first.url})**`
+      : `**${result.tracks.length}** tracks from **${result.origin}**`;
+  await interaction.editReply(`🔎 Found ${found} — joining your voice channel…`);
 
   await manager.connect(interaction.guildId, channel);
 
@@ -317,7 +328,6 @@ async function handlePlay(
   const { added, dropped } = await manager.enqueue(interaction.guildId, result.tracks);
 
   const position = queue.size - added + 1; // 1-based position of the first added track
-  const first = result.tracks[0];
 
   if (added === 0) {
     await interaction.editReply("❌ Nothing was added — the queue is full or the link contains no tracks.");
