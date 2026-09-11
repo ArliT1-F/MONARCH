@@ -166,18 +166,24 @@ Render worker.
    `render.yaml` and creates `monarch-bot`.
 2. Set `DISCORD_BOT_TOKEN` to the **same token** used by the Vercel dashboard
    and set `APP_URL` to the exact Vercel URL, for example
-   `https://monarch.vercel.app`.
-3. For `/monarch backup`, `/monarch export`, `/monarch embed` and
+   `https://monarch.vercel.app`. Also set `DISCORD_CLIENT_ID` to the
+   application ID from the Discord developer portal. The worker registers both
+   `/monarch` and `/music` when it starts.
+3. If you need commands to appear immediately while testing, set
+   `DISCORD_GUILD_ID` to the target server ID. Without it, commands are
+   registered globally and Discord can take up to an hour to propagate a new
+   command. Remove it for the normal multi-server/global setup.
+4. For `/monarch backup`, `/monarch export`, `/monarch embed` and
    `/monarch test`, also set the **same** `INTERNAL_API_TOKEN` on Vercel
    (dashboard) and the bot worker. Generate one with `openssl rand -hex 32`.
    Without it those subcommands reply with setup guidance; `/monarch help`,
    `dashboard`, `status` and the jail commands still work.
-4. In the Discord developer portal enable **Message Content** under
+5. In the Discord developer portal enable **Message Content** under
    Bot → Privileged Gateway Intents — `/monarch jail` reads and re-posts
    messages. If it is off, the worker logs `Message Content intent is not
    enabled…`, reconnects with Guilds-only intents and the jail command tells
    users it is disabled. Everything else keeps working.
-5. Deploy and check the worker logs for `bot ready` (the log line includes
+6. Deploy and check the worker logs for `bot ready` (the log line includes
    `"jail": true|false`). Keep exactly one worker running; two Gateway
    sessions with the same bot token can disconnect each other.
 
