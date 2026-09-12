@@ -3,6 +3,7 @@ import { PermissionFlagsBits, PermissionsBitField } from "discord.js";
 import { DEFAULT_COMMAND_PREFIX } from "@monarch/shared";
 import { BurgRegistry } from "../src/burg.js";
 import { MonarchCommands } from "../src/monarch-commands.js";
+import { ConfessionRegistry } from "../src/confession.js";
 import { formatDuration } from "../src/durations.js";
 import type { MusicCommands } from "../src/music/commands.js";
 import { handlePrefixMessage, type PrefixDispatcherDeps } from "../src/prefix/dispatch.js";
@@ -60,11 +61,21 @@ function memberFor(id: string, perms: bigint, extra: Record<string, unknown> = {
 function fakeMessage(options: FakeOptions = {}) {
   const authorId = options.authorId ?? MOD_ID;
   const perms = options.perms ?? ADMIN;
+  // Every message "sent" by the channel is a real object with its own edit
+  // spy, collected in `sentMessages` so tests can read deferred-placeholder
+  // edits (mock.results can't be trusted for async implementations).
+  const sentMessages: { id: string; url: string; edit: ReturnType<typeof vi.fn> }[] = [];
   const channel = {
     id: "500000000000000001",
+    name: "test-channel",
     isThread: () => false,
+    isTextBased: () => true,
     permissionsFor: () => ({ has: () => true }),
-    send: vi.fn(async () => ({ id: "m1", edit: vi.fn(async () => ({})) })),
+    send: vi.fn(async () => {
+      const message = { id: "m1", url: "https://discord.com/channels/x/y/m1", edit: vi.fn(async () => ({})) };
+      sentMessages.push(message);
+      return message;
+    }),
   };
   const target = memberFor(TARGET_ID, NOTHING, {
     roles: { highest: { position: options.targetPosition ?? 0 } },
@@ -85,7 +96,14 @@ function fakeMessage(options: FakeOptions = {}) {
         return target;
       }),
     },
-    channels: { cache: new Map([[channel.id, channel]]) },
+    channels: {
+      cache: new Map([[channel.id, channel]]),
+      fetch: vi.fn(async (id: string) => {
+        if (id === channel.id) return channel;
+        if (id === "400000000000000001") return { ...channel, id, name: "confession-logs" };
+        return null;
+      }),
+    },
   };
   const author = { id: authorId, bot: false, displayName: "Invoker", username: "invoker" };
   const message = {
@@ -114,6 +132,7 @@ function fakeMessage(options: FakeOptions = {}) {
     system: false,
     inGuild: () => true,
     delete: vi.fn(async () => ({})),
+    sentMessages,
   };
   return message as never;
 }
@@ -147,6 +166,7 @@ function setup(options: { internalToken?: string; enabled?: boolean; clientId?: 
       internalToken: options.internalToken,
       burg,
       prefixes,
+      confessions: new ConfessionRegistry(),
       burgEnabled: () => options.enabled ?? true,
       // Omitted by default: `!invite` then falls back to the bot's own user id,
       // which is what a real worker does when DISCORD_CLIENT_ID is unset.
@@ -327,6 +347,7 @@ describe("dispatch: general commands", () => {
       internalToken: "token",
       burg,
       prefixes,
+      confessions: new ConfessionRegistry(),
       burgEnabled: () => true,
       log,
     });
@@ -355,6 +376,7 @@ describe("dispatch: general commands", () => {
       internalToken: "token",
       burg,
       prefixes,
+      confessions: new ConfessionRegistry(),
       burgEnabled: () => true,
       log,
     });
@@ -378,6 +400,7 @@ describe("dispatch: general commands", () => {
       internalToken: "token",
       burg,
       prefixes,
+      confessions: new ConfessionRegistry(),
       burgEnabled: () => true,
       log,
     });
@@ -461,6 +484,7 @@ describe("dispatch: burg runs the moderation checks", () => {
       appUrl: "https://monarch.example",
       burg,
       prefixes,
+      confessions: new ConfessionRegistry(),
       burgEnabled: () => false,
       log,
     });
@@ -475,6 +499,7 @@ describe("dispatch: burg runs the moderation checks", () => {
       appUrl: "https://monarch.example",
       burg,
       prefixes,
+      confessions: new ConfessionRegistry(),
       burgEnabled: () => false,
       log,
     });
@@ -590,6 +615,7 @@ describe("dispatch: the burg toggle and its update path", () => {
       appUrl: "https://monarch.example",
       burg,
       prefixes,
+      confessions: new ConfessionRegistry(),
       burgEnabled: () => true,
       ownerUserId: TARGET_ID,
       log,
@@ -608,6 +634,7 @@ describe("dispatch: the burg toggle and its update path", () => {
       appUrl: "https://monarch.example",
       burg,
       prefixes,
+      confessions: new ConfessionRegistry(),
       burgEnabled: () => true,
       ownerUserId: TARGET_ID,
       log,
@@ -685,5 +712,110 @@ describe("dispatch: the burg relay still gets non-command messages", () => {
     const message = fakeMessage({ content: "!burged", authorId: MOD_ID });
     expect(await handlePrefixMessage(message, deps)).toBe(true);
     expect(text(message)).toContain("Burg'd in Test Guild");
+  });
+});
+
+describe("dispatch: confession commands (prefix surface)", () => {
+  const CURRENT_CHANNEL = "500000000000000001";
+  const LOG_CHANNEL = "400000000000000001";
+  let stored: Record<string, { channelId: string | null; logChannelId: string | null }>;
+  let store: { load: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn> };
+  let confessions: ConfessionRegistry;
+
+  beforeEach(() => {
+    stored = {};
+    store = {
+      load: vi.fn(async (g: string) => stored[g] ?? { channelId: null, logChannelId: null }),
+      save: vi.fn(async (g: string, c: { channelId: string | null; logChannelId: string | null }) => {
+        stored[g] = c;
+      }),
+    };
+    confessions = new ConfessionRegistry({ store });
+    deps.monarch = new MonarchCommands({
+      appUrl: "https://monarch.example",
+      internalToken: "test-token",
+      burg,
+      prefixes,
+      confessions,
+      burgEnabled: () => true,
+      log,
+    });
+  });
+
+  /** The starter embed send (channel.send call carrying the embeds). */
+  function starter(message: ReturnType<typeof fakeMessage>) {
+    const channel = (message as unknown as { channel: { send: ReturnType<typeof vi.fn> } }).channel;
+    const call = channel.send.mock.calls.find((c) => (c[0] as { embeds?: unknown[] }).embeds?.length);
+    return call?.[0] as { embeds?: { title?: string }[]; components?: unknown[] } | undefined;
+  }
+
+  /** The final answer: the deferred placeholder is edited with it. */
+  function finalAnswer(message: ReturnType<typeof fakeMessage>): string {
+    const placeholder = (message as unknown as { sentMessages: { edit: ReturnType<typeof vi.fn> }[] })
+      .sentMessages[0];
+    if (!placeholder) return "";
+    return placeholder.edit.mock.calls
+      .map((c) => (c[0] as { content?: string })?.content ?? "")
+      .join("\n");
+  }
+
+  it("sets up in the current channel and posts the starter confession", async () => {
+    const message = fakeMessage({ content: "!monarch confession setup" });
+    await handlePrefixMessage(message, deps);
+
+    expect(store.save).toHaveBeenCalledOnce();
+    expect(stored[GUILD_ID]).toEqual({ channelId: CURRENT_CHANNEL, logChannelId: null });
+    const post = starter(message);
+    expect(post?.embeds?.[0]?.title).toContain("Confessions");
+    const row = post?.components?.[0] as { components: { label: string }[] } | undefined;
+    expect(row?.components?.[0]?.label).toBe("Confess");
+    expect(finalAnswer(message)).toContain("Confessions are live");
+    expect(finalAnswer(message)).toContain("No log channel");
+  });
+
+  it("reads the channel and log channel from mentions in order", async () => {
+    const message = fakeMessage({
+      content: `!confession setup <#${CURRENT_CHANNEL}> <#${LOG_CHANNEL}>`,
+    });
+    await handlePrefixMessage(message, deps);
+
+    expect(stored[GUILD_ID]).toEqual({ channelId: CURRENT_CHANNEL, logChannelId: LOG_CHANNEL });
+    expect(finalAnswer(message)).toContain("confession-logs");
+  });
+
+  it("refuses the log channel when it is the confession channel", async () => {
+    const message = fakeMessage({
+      content: `!confession setup <#${CURRENT_CHANNEL}> <#${CURRENT_CHANNEL}>`,
+    });
+    await handlePrefixMessage(message, deps);
+
+    expect(store.save).not.toHaveBeenCalled();
+    expect(finalAnswer(message)).toContain("must be different");
+  });
+
+  it("requires Manage Server or Administrator", async () => {
+    const message = fakeMessage({ content: "!confession setup", perms: NOTHING });
+    await handlePrefixMessage(message, deps);
+    expect(text(message)).toContain("Manage Server");
+    expect(store.save).not.toHaveBeenCalled();
+  });
+
+  it("shows usage when the verb is missing or unknown", async () => {
+    const bare = fakeMessage({ content: "!confession" });
+    await handlePrefixMessage(bare, deps);
+    expect(text(bare)).toContain("Confessions usage");
+
+    const typo = fakeMessage({ content: "!monarch confession enable" });
+    await handlePrefixMessage(typo, deps);
+    expect(text(typo)).toContain("Confessions usage");
+  });
+
+  it("disables confessions and clears both channels", async () => {
+    await confessions.configure(GUILD_ID, { channelId: CURRENT_CHANNEL, logChannelId: LOG_CHANNEL });
+    const message = fakeMessage({ content: "!monarch confession disable" });
+    await handlePrefixMessage(message, deps);
+
+    expect(stored[GUILD_ID]).toEqual({ channelId: null, logChannelId: null });
+    expect(text(message)).toContain("Confessions are off");
   });
 });

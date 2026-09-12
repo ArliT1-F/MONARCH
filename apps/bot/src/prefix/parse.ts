@@ -72,6 +72,7 @@ export const MONARCH_PREFIX_ALIASES: Readonly<Record<string, readonly string[]>>
   embed: ["embed"],
   test: ["test"],
   burged: ["burged"],
+  confession: ["confession"],
 };
 
 /** Roots that mean "the next word is a subcommand". */

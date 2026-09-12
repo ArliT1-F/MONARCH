@@ -117,7 +117,7 @@ they live in `prisma.config.ts` (CLI) and `apps/dashboard/lib/prisma.ts`
 | `User` | init | id, username, avatarUrl, createdAt | sessions[], drafts[], auditEntries[] |
 | `Session` | init | id, userId, accessTokenEnc (AES-GCM), createdAt, expiresAt | → User CASCADE |
 | `Guild` | init | id, name, iconUrl, createdAt | settings, workspace, drafts[], versions[], auditEntries[] |
-| `GuildSettings` | init + `…_add_analyzer_dismissed` + `…_add_command_prefix` | guildId, welcomeChannelId, announcementsChannelId, testingChannelId, templateTestingChannelId, analyzerDismissed (Json? — string[] of dismissed analyzer check ids), commandPrefix (String? — the guild's text-command prefix; NULL = the shared default `!`) | → Guild CASCADE |
+| `GuildSettings` | init + `…_add_analyzer_dismissed` + `…_add_command_prefix` + `…_add_confession_channels` | guildId, welcomeChannelId, announcementsChannelId, testingChannelId, templateTestingChannelId, analyzerDismissed (Json? — string[] of dismissed analyzer check ids), commandPrefix (String? — the guild's text-command prefix; NULL = the shared default `!`), confessionChannelId (String? — the anonymous confession channel; NULL = off), confessionLogChannelId (String? — optional staff-only log channel; NULL = no logs) | → Guild CASCADE |
 | `GuildWorkspace` | guild_workspace | guildId, embed (Json?), message (Json?), updatedAt | → Guild CASCADE |
 | `DesignDraft` | init | id (cuid), guildId, userId, design, baseDesign, updatedAt — UNIQUE(guildId, userId) | → Guild, → User CASCADE |
 | `DesignVersion` | init | id (cuid), guildId, name, kind, design, createdAt | → Guild CASCADE; INDEX(guildId, createdAt) |
@@ -453,7 +453,8 @@ This is the cheat sheet for "where do I make change X".
 - `slash-context.ts` — `SlashCommandContext(interaction, prefix)`: ephemeral
   replies, `deferReply` → `editReply`, `AttachmentBuilder` for `/monarch export`.
 - `monarch-commands.ts` — `MonarchCommands` (help, dashboard, **invite**,
-  status, **prefix**, backup, export, embed, test, burged) + `burg(ctx)`
+  status, **prefix**, backup, export, embed, test, burged, **confession**
+  setup/disable) + `burg(ctx)`
   (bare re-run toggles off, re-run with options updates), written once
   against `CommandContext`. Also `parseGagArgs` (mention/id + duration +
   style + reason, order-free except style-before-reason) and `DURATION_ERROR`;
@@ -525,6 +526,8 @@ This is the cheat sheet for "where do I make change X".
 | GET | `/api/internal/guilds/:id/template` | **INTERNAL_API_TOKEN** | – | Export template (bot `/monarch export` returns JSON; the bot attaches it as a file). |
 | GET | `/api/internal/guilds/:id/prefix` | **INTERNAL_API_TOKEN** | – | The guild's command prefix (`{prefix, customized, default, maxLength}`) — bot cache refill for `!help`/`!status`/matching. |
 | PUT | `/api/internal/guilds/:id/prefix` | **INTERNAL_API_TOKEN** | – | `{prefix: "?"}` to change, `{prefix: null}` to reset. Validated with the shared `parseCommandPrefix`; writes `GuildSettings.commandPrefix`. Called by `!prefix set` / `/monarch prefix`. |
+| GET | `/api/internal/guilds/:id/confession` | **INTERNAL_API_TOKEN** | – | `{channelId, logChannelId}` — the guild's confession channels (both null = off). Bot cache refill for Confess buttons / modal submits. |
+| PUT | `/api/internal/guilds/:id/confession` | **INTERNAL_API_TOKEN** | – | `{channelId: snowflake\|null, logChannelId: snowflake\|null}` — full reconfiguration (both null = disabled). Snowflake-checked; refuses logChannelId === channelId (the log names names). Called by `/monarch confession setup` / `disable`. |
 
 **`guild.userCanDesign` requires `userCanDesign` (ManageGuild/Administrator OR owner)**
 at the guild level — `requireGuildAccess` enforces this.
@@ -583,7 +586,7 @@ at the guild level — `requireGuildAccess` enforces this.
 | `DIRECT_DATABASE_URL` | only for migrations | prisma migrate | Set to the same as DATABASE_URL for plain Postgres |
 | `MONARCH_DEMO` | optional | `isDemoMode` | `"1"` forces demo even with creds |
 | `MONARCH_OWNER_USER_ID` | optional but own-protection | bot worker (`apps/bot/src/index.ts` → `MonarchCommands`) | Your Discord user id: targeting it with /burg uno-reverses onto the invoker. Missing = owner burgable like anyone else (worker logs a boot warning). Must be threaded through every deploy path (`render.yaml`, `docker/docker-compose.yml`) — not just `.env.example` |
-| `INTERNAL_API_TOKEN` | optional | bot/dashboard server-to-server | `openssl rand -hex 32`; same value on dashboard + bot. Without it `/monarch backup/export/embed/test`, saving a custom prefix, and `/api/internal/*` reply 503 — everything else (incl. all prefix commands on the default `!`) still works |
+| `INTERNAL_API_TOKEN` | optional | bot/dashboard server-to-server | `openssl rand -hex 32`; same value on dashboard + bot. Without it `/monarch backup/export/embed/test`, saving a custom prefix, confession setup, and `/api/internal/*` reply 503 — everything else (incl. all prefix commands on the default `!`) still works |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | for Spotify links | bot music | Official Web API, client credentials. Without them `/music` says Spotify isn't configured; YouTube/search work |
 | `MUSIC_DJ_ROLE_NAMES` | optional | `/music skip` | Comma-separated role names that force-skip; default `dj` |
 | `MUSIC_STAFF_ROLE_NAMES` | optional | `/music skip` | Default moderator/mod/staff/admin/administrator + plurals; real moderation permissions always count too |
@@ -802,6 +805,7 @@ work — the merge commit already contains the full tree).
 | `20260907000000_add_guild_workspace/` | 2026-09-07 (filename) | `GuildWorkspace` table + FK to Guild | PR #7 |
 | `20260909230000_add_analyzer_dismissed/` | 2026-09-09 (filename) | `GuildSettings.analyzerDismissed JSONB` (Design Analyzer "mark as intentional") | Template Library + Analyzer session |
 | `20260912000000_add_command_prefix/` | 2026-09-12 (filename) | `GuildSettings.commandPrefix TEXT` (per-server prefix for text commands) | Prefix commands session |
+| `20260912120000_add_confession_channels/` | 2026-09-12 (filename) | `GuildSettings.confessionChannelId TEXT` + `GuildSettings.confessionLogChannelId TEXT` (anonymous confession channel + optional staff log channel) | Confessions session |
 
 `migration_lock.toml` provider is `postgresql`.
 
@@ -946,6 +950,7 @@ needed.
 | Add a new prefix command / alias | `apps/bot/src/prefix/parse.ts` (alias tables) + the shared catalog's `prefixAliases` |
 | Change the default prefix or what a legal prefix is | `packages/shared/src/prefix.ts` only |
 | Change how a server's prefix is stored / cached | `apps/bot/src/prefix/registry.ts`, `app/api/internal/guilds/[guildId]/prefix/route.ts`, `GuildSettings.commandPrefix` |
+| Change confession channels, embeds, the button/modal flow | `apps/bot/src/confession.ts` (registry + embeds + flow), `app/api/internal/guilds/[guildId]/confession/route.ts`, `GuildSettings.confession*ChannelId` |
 | Change the uwu transformer (or anything burg-related) | `apps/bot/src/burg.ts`, `apps/bot/src/durations.ts` |
 | Change the diff/apply ordering | `packages/design-engine/src/{diff,apply-plan}.ts` |
 | Add a new variable | `packages/shared/src/variables.ts` (CORE_VARIABLES) |
@@ -1392,3 +1397,75 @@ missing and points at the dashboard's invite button.
   `packages/discord` (the internal-API fetch is the documented exception).
 - BurgRegistry stays in-memory (a restart still releases burgs).
 
+
+---
+
+## Confessions session (2026-09-12)
+
+**Feature:** an anonymous confession channel per guild. `/monarch confession
+setup [channel] [logs]` (Manage Server / Admin) stores the public confession
+channel (default: the channel where the command is run) plus an optional
+**staff-only log channel** through the internal API, then posts a "starter"
+confession. Every confession embed carries a **Confess** button; the button
+opens a modal (paragraph input, 3–2000 chars) and the submission is posted:
+
+1. **publicly** — to the confession channel as a fully anonymous embed
+   (no author/username/avatar/timestamp, `allowedMentions: {parse: []}`), and
+2. **to staff** — to the log channel with everything: who (`<@id>`), when
+   (`<t:…:F>`), the full text, and a link to the public message.
+
+`/monarch confession disable` switches it off (old messages stay; their
+buttons then answer "confessions aren't set up"). The confessor's id is
+otherwise never stored — outside the log channel a confession is
+untraceable by design. The log channel must differ from the confession
+channel (the route and the registry both refuse it).
+
+### Where it lives
+
+- **Bot:** `apps/bot/src/confession.ts` — `ConfessionRegistry` (TTL cache +
+  `ConfessionStore` seam, same pattern as `prefix/registry.ts`; degrades to
+  "off" when the dashboard is unreachable), `internalConfessionStore`,
+  embed builders (`starterEmbed`, `confessionEmbed`, `confessionLogEmbed`),
+  `confessButtonRow` / `confessionModal` (ids: `monarch:confession:*`), and
+  the button→modal→post flow (`handleConfessButton`, `handleConfessSubmit`).
+  `index.ts` routes button/modal interactions to the flow with its own error
+  net; `monarch-commands.ts` holds the setup/disable handlers.
+- **Context:** `CommandContext.getSubcommand()` — new, for subcommand-group
+  commands. Slash reads `options.getSubcommand(true)`; prefix returns the
+  first argument word (`setup` in `!confession setup`). Flat commands never
+  call it.
+- **Manifest/catalog:** `/monarch confession` is a subcommand **group**
+  (setup + disable) in `monarchCommandJSON()`; the shared catalog gained a
+  `community` group (icon 🤫) and the `/monarch confession` doc
+  (`prefixAliases: ["confession"]`, alias table entry in
+  `prefix/parse.ts`).
+- **Dashboard/store:** `GuildSettings.confessionChannelId` /
+  `confessionLogChannelId` (migration `20260912120000_add_confession_channels`),
+  `MonarchStore.getConfessionChannels` / `putConfessionChannels`
+  (FileStore: `confession-channels.json`, deliberately outside
+  `GuildSettingsRecord` like the command prefix), PrismaStore via upsert,
+  internal route `…/guilds/:id/confession` (GET/PUT, snowflake-checked).
+- **Tests:** `apps/bot/test/confession.test.ts` (registry cache/degradation/
+  validation, embed anonymity, flow with fake interactions),
+  `apps/bot/test/prefix-commands.test.ts` "confession commands (prefix
+  surface)" (end-to-end through `handlePrefixMessage`),
+  `apps/bot/test/commands.test.ts` (group manifest),
+  `apps/dashboard/test/confession.test.ts` (store round-trip + routes on
+  FileStore).
+
+### Notes
+
+- **Who may run what:** confessions *setup/disable* need Manage Server /
+  Administrator; **confessing is open to everyone** (button + modal need no
+  permission) — same bucket as playing music.
+- The prefix surface reads channel mentions positionally (first = channel,
+  second = logs); slash uses typed `channel` / `logs` options restricted to
+  GuildText.
+- A broken log channel never eats a confession: the public post goes first,
+  the log is best-effort, and the submitter gets an ephemeral heads-up when
+  the log failed.
+- `fakeMessage` in `prefix-commands.test.ts` now collects its sent messages
+  in `sentMessages` (per-message `edit` spies) — vitest's
+  `mock.results[].value` is unreliable for async implementations in this
+  setup (records `{}`), which is why deferred-placeholder assertions read
+  from `sentMessages` instead.

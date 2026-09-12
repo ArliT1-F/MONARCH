@@ -58,6 +58,18 @@ describe("monarch command manifest", () => {
     for (const name of subcommands) expect(documented.has(name)).toBe(true);
   });
 
+  it("gives confession a setup (with channel options) and a disable", () => {
+    const group = (json.options ?? []).find((o) => o.name === "confession") as {
+      options?: { name: string; options?: { name: string }[] }[];
+    };
+    expect(group).toBeTruthy();
+    expect(group.options?.map((o) => o.name)).toEqual(["setup", "disable"]);
+    const setup = group.options?.find((o) => o.name === "setup");
+    expect(setup?.options?.map((o) => o.name)).toEqual(["channel", "logs"]);
+    expect(setup?.options?.every((o) => o.required === undefined || o.required === false)).toBe(true);
+    expect(group.options?.find((o) => o.name === "disable")?.options ?? []).toHaveLength(0);
+  });
+
   it("is guild-only", () => {
     expect(json.contexts).toEqual([0]);
   });

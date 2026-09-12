@@ -66,6 +66,15 @@ export interface CommandContext {
    */
   readonly args: string[];
 
+  /**
+   * The second-level subcommand of a subcommand-group command — e.g.
+   * `setup` in `/monarch confession setup`. Flat subcommands have none
+   * (null). The slash surface reads it from the interaction; the prefix
+   * surface carries it as the first argument word (the verb after the
+   * command words, e.g. `!confession setup`).
+   */
+  getSubcommand(): string | null;
+
   /** Slash options / prefix arguments, all optional by nature. */
   getStringOption(name: string): string | null;
   getIntegerOption(name: string): number | null;
