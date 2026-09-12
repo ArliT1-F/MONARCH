@@ -395,3 +395,77 @@ function fakePrefixMessage(content: string) {
     delete: vi.fn(async () => ({})),
   };
 }
+
+/**
+ * The prefix adapter's named options: text arguments are positional, so a
+ * command with two channel options has to know which mention is which.
+ * Answering both from "the first channel mentioned" is what made
+ * `!monarch confession setup #confessions #confess-logs` refuse itself with
+ * "the log channel must be different from the confession channel".
+ */
+describe("prefix surface: channel options are positional", () => {
+  const CONFESSIONS = "500000000000000001";
+  const LOGS = "400000000000000001";
+
+  async function prefixContext(content: string) {
+    const { PrefixCommandContext } = await import("../src/prefix/context.js");
+    const { extractPrefixCommand, matchCommand } = await import("../src/prefix/parse.js");
+    const message = fakePrefixMessage(content);
+    const invocation = extractPrefixCommand(message.content, [DEFAULT_COMMAND_PREFIX], CLIENT_ID)!;
+    const match = matchCommand(invocation);
+    expect(match.kind, content).toBe("command");
+    return new PrefixCommandContext(
+      message as never,
+      invocation,
+      DEFAULT_COMMAND_PREFIX,
+      match.kind === "command" ? match.args : [],
+    );
+  }
+
+  it("answers `channel` and `logs` with the first and second mention", async () => {
+    const ctx = await prefixContext(`!monarch confession setup <#${CONFESSIONS}> <#${LOGS}>`);
+    expect(ctx.getSubcommand()).toBe("setup");
+    expect(ctx.getChannelOption("channel")?.id).toBe(CONFESSIONS);
+    expect(ctx.getChannelOption("logs")?.id).toBe(LOGS);
+  });
+
+  it("does the same through the short alias and an @Monarch mention", async () => {
+    for (const content of [
+      `!confession setup <#${CONFESSIONS}> <#${LOGS}>`,
+      `<@${CLIENT_ID}> confession setup <#${CONFESSIONS}> <#${LOGS}>`,
+    ]) {
+      const ctx = await prefixContext(content);
+      expect(ctx.getChannelOption("channel")?.id, content).toBe(CONFESSIONS);
+      expect(ctx.getChannelOption("logs")?.id, content).toBe(LOGS);
+    }
+  });
+
+  it("reads pasted ids, and a mix of ids and mentions, in order", async () => {
+    for (const content of [
+      `!confession setup ${CONFESSIONS} ${LOGS}`,
+      `!confession setup <#${CONFESSIONS}> ${LOGS}`,
+      `!confession setup ${CONFESSIONS} <#${LOGS}>`,
+    ]) {
+      const ctx = await prefixContext(content);
+      expect(ctx.getChannelOption("channel")?.id, content).toBe(CONFESSIONS);
+      expect(ctx.getChannelOption("logs")?.id, content).toBe(LOGS);
+    }
+  });
+
+  it("never mistakes a user or role mention for a channel", async () => {
+    const ctx = await prefixContext(`!confession setup <@${MOD_ID}> <#${LOGS}>`);
+    expect(ctx.getChannelOption("channel")?.id).toBe(LOGS);
+    expect(ctx.getChannelOption("logs")).toBeNull();
+  });
+
+  it("leaves a single-option command on the first mention", async () => {
+    const ctx = await prefixContext(`!monarch test embed publish <#${LOGS}>`);
+    expect(ctx.getChannelOption("channel")?.id).toBe(LOGS);
+  });
+
+  it("is null when no channel was given (handlers fall back to their default)", async () => {
+    const ctx = await prefixContext("!monarch confession setup");
+    expect(ctx.getChannelOption("channel")).toBeNull();
+    expect(ctx.getChannelOption("logs")).toBeNull();
+  });
+});

@@ -22,6 +22,17 @@ const GUILD_ID = "800000000000000001";
 const MOD_ID = "700000000000000001";
 const TARGET_ID = "600000000000000001";
 
+/** The channel every fake command is typed in. */
+const CURRENT_CHANNEL_ID = "500000000000000001";
+/** A second text channel, cached by the client like any normal guild channel. */
+const LOG_CHANNEL_ID = "400000000000000001";
+/**
+ * A channel Monarch can fetch but the client hasn't cached — discord.js's
+ * `message.mentions.channels` drops mentions like this one entirely, so
+ * anything reading channel options through it silently loses an argument.
+ */
+const UNCACHED_CHANNEL_ID = "300000000000000001";
+
 const ADMIN = PermissionFlagsBits.Administrator;
 const KICK = PermissionFlagsBits.KickMembers;
 const NOTHING = 0n;
@@ -66,7 +77,7 @@ function fakeMessage(options: FakeOptions = {}) {
   // edits (mock.results can't be trusted for async implementations).
   const sentMessages: { id: string; url: string; edit: ReturnType<typeof vi.fn> }[] = [];
   const channel = {
-    id: "500000000000000001",
+    id: CURRENT_CHANNEL_ID,
     name: "test-channel",
     isThread: () => false,
     isTextBased: () => true,
@@ -77,12 +88,30 @@ function fakeMessage(options: FakeOptions = {}) {
       return message;
     }),
   };
+  // Channels Monarch can reach in this guild. `staff-room` is only fetchable —
+  // the client hasn't cached it, which is exactly when discord.js's
+  // `message.mentions.channels` drops the mention from its collection.
+  const cachedChannels = new Map<string, unknown>([
+    [CURRENT_CHANNEL_ID, channel],
+    [LOG_CHANNEL_ID, { ...channel, id: LOG_CHANNEL_ID, name: "confession-logs" }],
+  ]);
+  const fetchableChannels = new Map<string, unknown>([
+    ...cachedChannels,
+    [UNCACHED_CHANNEL_ID, { ...channel, id: UNCACHED_CHANNEL_ID, name: "staff-room" }],
+  ]);
   const target = memberFor(TARGET_ID, NOTHING, {
     roles: { highest: { position: options.targetPosition ?? 0 } },
   });
   const mentions = new Map<string, unknown>();
   for (const id of options.content?.match(/<@!?(\d{15,25})>/g)?.map((m) => m.replace(/\D/g, "")) ?? []) {
     mentions.set(id, id === TARGET_ID ? target : memberFor(id, NOTHING));
+  }
+  // `message.mentions.channels`, the way discord.js builds it: parsed from the
+  // content in mention order, keeping only the channels the client has cached.
+  const channelMentions: { id: string }[] = [];
+  for (const match of (options.content ?? "").matchAll(/<#(\d{15,25})>/g)) {
+    const cached = cachedChannels.get(match[1]!) as { id: string } | undefined;
+    if (cached && !channelMentions.some((c) => c.id === cached.id)) channelMentions.push(cached);
   }
   const guild = {
     id: GUILD_ID,
@@ -97,12 +126,8 @@ function fakeMessage(options: FakeOptions = {}) {
       }),
     },
     channels: {
-      cache: new Map([[channel.id, channel]]),
-      fetch: vi.fn(async (id: string) => {
-        if (id === channel.id) return channel;
-        if (id === "400000000000000001") return { ...channel, id, name: "confession-logs" };
-        return null;
-      }),
+      cache: new Map([...cachedChannels]),
+      fetch: vi.fn(async (id: string) => fetchableChannels.get(id) ?? null),
     },
   };
   const author = { id: authorId, bot: false, displayName: "Invoker", username: "invoker" };
@@ -124,7 +149,10 @@ function fakeMessage(options: FakeOptions = {}) {
         first: () => (mentions.size > 0 ? mentions.get([...mentions.keys()][0]!) : null),
         get: (id: string) => mentions.get(id) ?? null,
       },
-      channels: { first: () => null },
+      channels: {
+        first: () => channelMentions[0] ?? null,
+        at: (index: number) => channelMentions[index] ?? null,
+      },
     },
     attachments: [],
     stickers: [],
@@ -716,8 +744,8 @@ describe("dispatch: the burg relay still gets non-command messages", () => {
 });
 
 describe("dispatch: confession commands (prefix surface)", () => {
-  const CURRENT_CHANNEL = "500000000000000001";
-  const LOG_CHANNEL = "400000000000000001";
+  const CURRENT_CHANNEL = CURRENT_CHANNEL_ID;
+  const LOG_CHANNEL = LOG_CHANNEL_ID;
   let stored: Record<string, { channelId: string | null; logChannelId: string | null }>;
   let store: { load: ReturnType<typeof vi.fn>; save: ReturnType<typeof vi.fn> };
   let confessions: ConfessionRegistry;
@@ -781,6 +809,47 @@ describe("dispatch: confession commands (prefix surface)", () => {
 
     expect(stored[GUILD_ID]).toEqual({ channelId: CURRENT_CHANNEL, logChannelId: LOG_CHANNEL });
     expect(finalAnswer(message)).toContain("confession-logs");
+  });
+
+  it("reads two different channels as two different options", async () => {
+    // The reported bug: `mentions.channels.first()` answered *both* options,
+    // so a setup naming two distinct channels was refused with "the log
+    // channel must be different from the confession channel".
+    const message = fakeMessage({
+      content: `!monarch confession setup <#${CURRENT_CHANNEL}> <#${LOG_CHANNEL}>`,
+    });
+    await handlePrefixMessage(message, deps);
+
+    expect(stored[GUILD_ID]).toEqual({ channelId: CURRENT_CHANNEL, logChannelId: LOG_CHANNEL });
+    expect(finalAnswer(message)).toContain("Confessions are live");
+    expect(finalAnswer(message)).not.toContain("must be different");
+  });
+
+  it("reads a log channel the client hasn't cached", async () => {
+    // `message.mentions.channels` drops this mention entirely (discord.js only
+    // collects cached channels), so channel options come from the message text.
+    const message = fakeMessage({
+      content: `!confession setup <#${CURRENT_CHANNEL}> <#${UNCACHED_CHANNEL_ID}>`,
+    });
+    await handlePrefixMessage(message, deps);
+
+    expect(stored[GUILD_ID]).toEqual({ channelId: CURRENT_CHANNEL, logChannelId: UNCACHED_CHANNEL_ID });
+    expect(finalAnswer(message)).toContain("staff-room");
+  });
+
+  it("accepts pasted channel ids and mentions in either mix", async () => {
+    const mentionThenId = fakeMessage({
+      content: `!confession setup <#${CURRENT_CHANNEL}> ${LOG_CHANNEL}`,
+    });
+    await handlePrefixMessage(mentionThenId, deps);
+    expect(stored[GUILD_ID]).toEqual({ channelId: CURRENT_CHANNEL, logChannelId: LOG_CHANNEL });
+
+    stored = {};
+    const idThenMention = fakeMessage({
+      content: `!confession setup ${CURRENT_CHANNEL} <#${LOG_CHANNEL}>`,
+    });
+    await handlePrefixMessage(idThenMention, deps);
+    expect(stored[GUILD_ID]).toEqual({ channelId: CURRENT_CHANNEL, logChannelId: LOG_CHANNEL });
   });
 
   it("refuses the log channel when it is the confession channel", async () => {

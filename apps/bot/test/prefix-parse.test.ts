@@ -9,6 +9,7 @@ import {
 import {
   MUSIC_PREFIX_ALIASES,
   MONARCH_PREFIX_ALIASES,
+  canonicalSubcommand,
   extractPrefixCommand,
   matchCommand,
   parseArgs,
@@ -190,6 +191,37 @@ describe("matchCommand", () => {
     expect(match(`<@${BOT_ID}>`)).toEqual({ kind: "bare", viaMention: true });
     expect(match("!monarch")).toEqual({ kind: "unknown", token: "monarch", viaMention: false });
     expect(match("!music")).toEqual({ kind: "unknown", token: "music", viaMention: false });
+  });
+});
+
+describe("canonicalSubcommand", () => {
+  it("gives the command's own word, alias resolved", () => {
+    expect(canonicalSubcommand(["monarch", "confession"])).toBe("confession");
+    expect(canonicalSubcommand(["confession"])).toBe("confession");
+    expect(canonicalSubcommand(["music", "play"])).toBe("play");
+    expect(canonicalSubcommand(["p"])).toBe("play");
+    expect(canonicalSubcommand(["q"])).toBe("queue");
+    expect(canonicalSubcommand(["burg"])).toBe("burg");
+  });
+
+  it("has nothing to say about a bare group root or no command at all", () => {
+    expect(canonicalSubcommand(["monarch"])).toBe("monarch");
+    expect(canonicalSubcommand([])).toBeNull();
+  });
+
+  it("agrees with the router for the commands that carry channel options", () => {
+    for (const content of [
+      "!monarch confession setup <#111111111111111> <#222222222222222>",
+      "!confession setup <#111111111111111>",
+      "!monarch test embed publish <#111111111111111>",
+      "!test message",
+    ]) {
+      const parsed = invoke(content)!;
+      const match = matchCommand(parsed);
+      expect(canonicalSubcommand(parsed.tokens), content).toBe(
+        match.kind === "command" && "sub" in match ? match.sub : match.kind,
+      );
+    }
   });
 });
 

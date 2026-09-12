@@ -80,6 +80,12 @@ export interface CommandContext {
   getIntegerOption(name: string): number | null;
   getUserOption(name: string): User | null;
   getMemberOption(name: string): GuildMember | null;
+  /**
+   * A channel option by name. On the prefix surface the name picks a position
+   * in the message's channel arguments (first = the command's first channel
+   * option, second = its second), so `!monarch confession setup #a #b` reads
+   * channel=#a and logs=#b — never the same mention twice.
+   */
   getChannelOption(name: string): { id: string } | null;
   /**
    * Resolve a member by snowflake (prefix surface: mentions are rewritten to
