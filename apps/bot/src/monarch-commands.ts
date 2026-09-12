@@ -43,6 +43,8 @@ export interface MonarchCommandDeps {
    * DISCORD_CLIENT_ID, the same variable that registers the commands).
    */
   clientId?: string | null;
+  /** Discord user id of the person who owns the Monarch application. */
+  ownerUserId?: string | null;
   botUserId?: () => string | null;
   log: {
     info: (msg: string, meta?: Record<string, unknown>) => void;
@@ -546,6 +548,21 @@ export class MonarchCommands {
       await ctx.replyHidden("❌ That user isn't in this server.");
       return;
     }
+    // The jail director (the application owner) is immune to the normal hierarchy
+    // rules: trying to jail them is an uno reverse instead.
+    if (this.deps.ownerUserId && target.id === this.deps.ownerUserId) {
+      jail.jail({ guildId: ctx.guildId, userId: ctx.user.id, until: null, jailedBy: target.id });
+      log.info("jail director uno-reversed jail command", {
+        guildId: ctx.guildId,
+        attemptedTarget: target.id,
+        jailedUser: ctx.user.id,
+        surface: ctx.surface,
+      });
+      await ctx.replyHidden(
+        "🔄 You tried to jail the jail director. That's not how it works around here. Now you have been jailed.",
+      );
+      return;
+    }
     if (target.id === ctx.user.id) {
       await ctx.replyHidden("You can't jail yourself — nice try.");
       return;
@@ -674,6 +691,28 @@ export class MonarchCommands {
     if (!existingTarget) {
       await ctx.replyHidden(
         `❓ Say who to burg — \`${ctx.commandPrefix}burg @user [duration] [style] [reason]\` (run it again to turn it off).`,
+      );
+      return;
+    }
+    // Burg cannot target the jail director (the application owner). Reverse the
+    // gag onto the person who tried it instead.
+    if (this.deps.ownerUserId && existingTarget.id === this.deps.ownerUserId) {
+      if (!this.deps.messageGagsEnabled()) {
+        await ctx.replyHidden(
+          "❌ The jail is disabled on this Monarch instance: the **Message Content** intent isn't enabled for the bot application. " +
+            "The host must turn it on under Bot → Privileged Gateway Intents and restart the bot.",
+        );
+        return;
+      }
+      jail.jail({ guildId: ctx.guildId, userId: ctx.user.id, until: null, jailedBy: existingTarget.id });
+      log.info("jail director uno-reversed burg command", {
+        guildId: ctx.guildId,
+        attemptedTarget: existingTarget.id,
+        jailedUser: ctx.user.id,
+        surface: ctx.surface,
+      });
+      await ctx.replyHidden(
+        "🔄 You tried to burg the jail director. That's not how it works around here. Now you have been jailed.",
       );
       return;
     }

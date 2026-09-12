@@ -51,6 +51,8 @@ const clientId = process.env.DISCORD_CLIENT_ID;
 const guildIdForCommands = process.env.DISCORD_GUILD_ID?.trim();
 const appUrl = process.env.APP_URL ?? "http://localhost:3000";
 const internalToken = process.env.INTERNAL_API_TOKEN;
+// User id of the Discord account that owns this application (not the server owner).
+const ownerUserId = process.env.MONARCH_OWNER_USER_ID?.trim() || null;
 
 if (!token) {
   log.warn("DISCORD_BOT_TOKEN is not set — bot not started. (Dashboard demo mode does not need the bot.)");
@@ -327,6 +329,7 @@ const monarchCommands = new MonarchCommands({
   prefixes,
   messageGagsEnabled: () => jailEnabled,
   clientId, // for `!invite` — falls back to the bot's own user id below
+  ownerUserId,
   log,
 });
 // A bot's user id *is* its application id, so a worker without
