@@ -15,7 +15,7 @@ import {
   type CommandFile,
   type ReplyOptions,
 } from "../context.js";
-import type { PrefixInvocation } from "./parse.js";
+import { canonicalSubcommand, type PrefixInvocation } from "./parse.js";
 
 /**
  * Prefix-command surface: adapts a Discord {@link Message} to the same
@@ -30,12 +30,39 @@ import type { PrefixInvocation } from "./parse.js";
  *   Discord's "thinking" state;
  * - **arguments are words** — the tokenized rest of the message is exposed as
  *   `args`, and typed options (`getStringOption("query")`) read from it;
+ * - **options are positional** — a command with two channel options reads them
+ *   in the order they were typed, per {@link CHANNEL_OPTION_ORDER};
  * - the bot needs **Send Messages** where it was invoked; the dispatcher
  *   checks that before constructing this.
  */
 
 /** Option names that mean "the whole rest of the message" (e.g. `!play <query>`). */
 const FREEFORM_OPTIONS = new Set(["query", "name", "raw"]);
+
+/**
+ * Channel options in the order they're typed, for the commands that have more
+ * than one — keyed by the command's own word (alias-resolved, so `!confession
+ * setup` and `!monarch confession setup` agree).
+ *
+ * `!monarch confession setup #confessions #confess-logs` means channel =
+ * #confessions and logs = #confess-logs. Answering *both* options with the
+ * first mention — what "the first channel mentioned" alone can do — reads as
+ * "the log channel is the confession channel" and refuses a setup where the
+ * two channels are perfectly different.
+ *
+ * Commands missing here have at most one channel option (`!monarch test …
+ * #channel`), where the first mention is the whole answer.
+ */
+const CHANNEL_OPTION_ORDER: Readonly<Record<string, readonly string[]>> = {
+  confession: ["channel", "logs"],
+  test: ["channel"],
+};
+
+/** A bare snowflake argument (`parseArgs` already reduced mentions to ids). */
+const SNOWFLAKE = /^\d{15,25}$/;
+
+/** User and role mentions — ids that are *not* channel arguments. */
+const NOT_A_CHANNEL = /<@!?(\d{15,25})>|<@&(\d{15,25})>/g;
 
 export class PrefixCommandContext implements CommandContext {
   readonly surface = "prefix" as const;
@@ -45,6 +72,12 @@ export class PrefixCommandContext implements CommandContext {
   readonly user: User;
   readonly channelId: string;
   readonly args: string[];
+  /**
+   * The command's own word, alias resolved — `confession` for both
+   * `!monarch confession setup` and `!confession setup`. Decides which
+   * positional options the command has.
+   */
+  private readonly commandWord: string | null;
 
   private sent: { edit(payload: { content?: string; embeds?: APIEmbed[] }): Promise<unknown> } | null = null;
   private responded = false;
@@ -64,6 +97,7 @@ export class PrefixCommandContext implements CommandContext {
     this.user = message.author;
     this.channelId = message.channelId;
     this.args = args;
+    this.commandWord = canonicalSubcommand(invocation.tokens);
   }
 
   get answered(): boolean {
@@ -139,9 +173,36 @@ export class PrefixCommandContext implements CommandContext {
     return this.message.mentions.members?.first() ?? null;
   }
 
-  getChannelOption(): { id: string } | null {
-    const channel = this.message.mentions.channels.first();
-    return channel ? { id: channel.id } : null;
+  /**
+   * A channel option by name, resolved positionally from the message text:
+   * the Nth channel argument answers the Nth option in
+   * {@link CHANNEL_OPTION_ORDER} (and the first one answers every command
+   * that only has a single channel option).
+   *
+   * Deliberately *not* `message.mentions.channels`: discord.js fills that
+   * collection only with channels already in its cache, so one uncached
+   * mention would silently shift every option after it. The text is the
+   * ground truth for what the person typed, in the order they typed it.
+   */
+  getChannelOption(name: string): { id: string } | null {
+    const ids = this.channelIds();
+    const index = CHANNEL_OPTION_ORDER[this.commandWord ?? ""]?.indexOf(name) ?? -1;
+    const id = index >= 0 ? ids[index] : ids[0];
+    return id === undefined ? null : { id };
+  }
+
+  /**
+   * Channel arguments in the order typed: `<#id>` mentions (already reduced to
+   * snowflakes by the tokenizer) plus bare snowflakes, since people paste
+   * channel ids and links too. User and role mentions are excluded — they
+   * arrive as snowflakes as well, and are never a channel.
+   */
+  private channelIds(): string[] {
+    const notChannels = new Set<string>();
+    for (const match of (this.message.content ?? "").matchAll(NOT_A_CHANNEL)) {
+      notChannels.add(match[1] ?? match[2] ?? "");
+    }
+    return this.args.filter((arg) => SNOWFLAKE.test(arg) && !notChannels.has(arg));
   }
 
   async resolveMember(userId: string): Promise<GuildMember | null> {

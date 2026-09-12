@@ -894,6 +894,9 @@ are the stand-in identity in `apps/dashboard/lib/workspace.ts`.
    `message.content`. `apps/bot/test/prefix-parse.test.ts` fails if the alias
    table and the catalog disagree, and `prefix-commands.test.ts` is where the
    end-to-end wiring test goes.
+4. If the command has **two or more channel options**, add their order to
+   `CHANNEL_OPTION_ORDER` in `apps/bot/src/prefix/context.ts` — otherwise every
+   one of them resolves to the first mention (see §19 gotchas).
 
 ### Adding a new Discord capability
 
@@ -1365,6 +1368,18 @@ relayed — that's intentional (commands win over the gag), and it's asserted in
   produce that error — slash has a validated duration option.
 - **Text commands are public.** No ephemeral flag; `replyHidden` just calls
   `reply`. Anything that would leak a secret must not be a command output.
+- **Options are positional — resolve them by name, not by "first mention".**
+  `PrefixCommandContext.getChannelOption(name)` indexes the message's channel
+  arguments through `CHANNEL_OPTION_ORDER` (keyed by `canonicalSubcommand()`
+  from `parse.ts`), so `!monarch confession setup #confessions #confess-logs`
+  gives `channel`=#confessions and `logs`=#confess-logs. When it answered both
+  names with `message.mentions.channels.first()` instead, two *different*
+  channels collapsed into one and setup refused with "the log channel must be
+  different from the confession channel" — the exact thing the user had just
+  avoided by typing two channels. Any new command with 2+ channel options needs
+  an entry in that table. Also note discord.js only fills `mentions.channels`
+  with **cached** channels, so the adapter parses the text instead: an uncached
+  mention would otherwise shift every option after it.
 - `defer()` on the text surface posts "⏳ Working on it…" then edits; the
   slash surface defers for real. `/monarch backup` therefore *must* be
   assert-on-the-API-snapshot in tests, not on a fixed filename.
@@ -1459,8 +1474,11 @@ channel (the route and the registry both refuse it).
   Administrator; **confessing is open to everyone** (button + modal need no
   permission) — same bucket as playing music.
 - The prefix surface reads channel mentions positionally (first = channel,
-  second = logs); slash uses typed `channel` / `logs` options restricted to
-  GuildText.
+  second = logs) — `CHANNEL_OPTION_ORDER.confession` in
+  `apps/bot/src/prefix/context.ts`, see §19 gotchas; slash uses typed
+  `channel` / `logs` options restricted to GuildText. The handler asks both
+  surfaces by name (`ctx.getChannelOption("channel" | "logs")`) and no longer
+  carries its own snowflake-scraping fallback.
 - A broken log channel never eats a confession: the public post goes first,
   the log is best-effort, and the submitter gets an ephemeral heads-up when
   the log failed.

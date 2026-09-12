@@ -194,6 +194,25 @@ function build(rest: string, prefix: string, viaMention: boolean): PrefixInvocat
 }
 
 /**
+ * The command's own word, alias resolved: `["monarch", "confession"]` and
+ * `["confession"]` both give `"confession"`, `["music", "play"]` and `["p"]`
+ * both give `"play"`. The prefix surface uses it to know which command it is
+ * running without re-routing the invocation — e.g. to look up that command's
+ * positional option order.
+ */
+export function canonicalSubcommand(tokens: readonly string[]): string | null {
+  const word = tokens.length > 0 ? tokens[tokens.length - 1] : undefined;
+  if (!word) return null;
+  for (const [sub, aliases] of Object.entries(MONARCH_PREFIX_ALIASES)) {
+    if (aliases.includes(word)) return sub;
+  }
+  for (const [sub, aliases] of Object.entries(MUSIC_PREFIX_ALIASES)) {
+    if (aliases.includes(word)) return sub;
+  }
+  return word;
+}
+
+/**
  * Route a parsed invocation to a command.
  *
  * Unknown `!words` are ignored on purpose (`{ kind: "ignore" }`): plenty of

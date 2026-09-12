@@ -795,13 +795,11 @@ export class MonarchCommands {
 
     await ctx.defer({ hidden: true });
 
-    // Slash: typed channel options. Prefix: channel mentions arrive as
-    // snowflakes in argument order (first = channel, second = logs).
-    const snowflakes = (ctx.surface === "prefix" ? ctx.args.slice(1) : []).filter((a) =>
-      /^\d{15,25}$/.test(a),
-    );
-    const channelId = ctx.getChannelOption("channel")?.id ?? snowflakes[0] ?? ctx.channelId;
-    const logChannelId = ctx.getChannelOption("logs")?.id ?? snowflakes[1] ?? null;
+    // Both surfaces answer by name: slash reads the typed channel options, the
+    // prefix surface reads the channel mentions (or bare ids) in argument
+    // order — first = channel, second = logs. No channel = this one, no logs.
+    const channelId = ctx.getChannelOption("channel")?.id ?? ctx.channelId;
+    const logChannelId = ctx.getChannelOption("logs")?.id ?? null;
 
     const fetchedPublic = await ctx.guild.channels.fetch(channelId).catch(() => null);
     const publicChannel = fetchedPublic && fetchedPublic.isTextBased() ? fetchedPublic : null;
