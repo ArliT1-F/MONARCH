@@ -21,9 +21,9 @@ import { BURG_STYLES } from "./burg.js";
  * this at startup; `npm run register-commands` is the one-off variant.
  *
  * The bot stays lightweight: commands give dashboard links, quick actions
- * (backup / export / test-send), the jail/burg moderation gags and the music
- * player. Any structural change or generated content is executed by the
- * dashboard API layer, never by this process.
+ * (backup / export / test-send), the burg gag and the music player. Any
+ * structural change or generated content is executed by the dashboard API
+ * layer, never by this process.
  *
  * `/monarch help` and the dashboard's Help page both render from the shared
  * command catalog (@monarch/shared/commands) so the two can't drift.
@@ -112,28 +112,7 @@ export function monarchCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
           o.setName("channel").setDescription("Send here instead of the designated channel"),
         ),
     )
-    .addSubcommand((s) =>
-      s
-        .setName("jail")
-        .setDescription("Re-post everything a user says in the Standard Galactic Alphabet")
-        .addUserOption((o) => o.setName("user").setDescription("Who to jail").setRequired(true))
-        .addStringOption((o) =>
-          o
-            .setName("duration")
-            .setDescription("e.g. 10m, 2h, 1d — leave empty to jail until /monarch unjail")
-            .setMaxLength(20),
-        )
-        .addStringOption((o) =>
-          o.setName("reason").setDescription("Shown in the confirmation only").setMaxLength(200),
-        ),
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("unjail")
-        .setDescription("Release a jailed user")
-        .addUserOption((o) => o.setName("user").setDescription("Who to release").setRequired(true)),
-    )
-    .addSubcommand((s) => s.setName("jailed").setDescription("List who is currently jailed here"))
+    .addSubcommand((s) => s.setName("burged").setDescription("List who is currently burg'd here"))
     .toJSON();
 }
 
@@ -165,10 +144,8 @@ export function burgCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
     .toJSON();
 }
 
-/** Bits that let a member run the moderation subcommands (jail / unjail / jailed). */
-export const JAIL_PERMISSIONS = [PermissionFlagsBits.KickMembers] as const;
-/** `/burg` uses the same moderation permission policy as the jail gag. */
-export const BURG_PERMISSIONS = JAIL_PERMISSIONS;
+/** Bits that let a member run `/burg` and `/monarch burged`. */
+export const BURG_PERMISSIONS = [PermissionFlagsBits.KickMembers] as const;
 
 /** Bits that let a member run backup / export / test (mirrors the dashboard's "can design" rule). */
 export const DESIGN_PERMISSIONS = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageGuild] as const;
@@ -201,7 +178,7 @@ export function prefixHelpLine(prefix: string = DEFAULT_COMMAND_PREFIX): string 
   const extra = prefix === DEFAULT_COMMAND_PREFIX ? "" : ` (the default \`${DEFAULT_COMMAND_PREFIX}\` still works)`;
   return (
     `-# Prefix commands: every command also works as \`${prefix}help\`, \`${prefix}play <song>\`, ` +
-    `\`${prefix}jail @user\`… or with an @Monarch mention${extra}. Change yours with \`${prefix}prefix set <new>\`; ` +
+    `\`${prefix}burg @user\`… or with an @Monarch mention${extra}. Change yours with \`${prefix}prefix set <new>\`; ` +
     `\`${prefix}invite\` adds Monarch to another server.`
   );
 }

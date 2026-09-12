@@ -73,8 +73,8 @@ export const COMMAND_GROUPS: CommandGroup[] = [
   {
     id: "moderation",
     label: "Fun relays",
-    description: "Jail and burg gags — messages are deleted and re-posted with an enchanted or cute style.",
-    icon: "🔒",
+    description: "Burg gag — messages are deleted and re-posted with a cute style.",
+    icon: "🧁",
   },
   {
     id: "music",
@@ -131,7 +131,7 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     summary: "Show Monarch's status for this server.",
     who: "everyone",
     details:
-      "Reports which server the bot sees, where the dashboard lives, how many members are currently jailed or burg'd, and a reminder that all design changes flow through the dashboard.",
+      "Reports which server the bot sees, where the dashboard lives, how many members are currently burg'd, and a reminder that all design changes flow through the dashboard.",
   },
   {
     name: "/monarch prefix",
@@ -142,7 +142,7 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     summary: "Show or change this server's prefix for text commands.",
     who: "Manage Server or Administrator",
     details:
-      "Every Monarch command also works as a plain text message: `!help`, `!play <song>`, `!jail @user`. Without an argument this shows the prefix your server currently uses; with one it changes it (1–4 punctuation characters, for example `?`, `m!` or `>>`). The default prefix `!` and an @Monarch mention keep working either way, so you can never lock yourself out. Prefix commands are stored per server and need the same privileged Message Content intent as the jail and burg relays.",
+      "Every Monarch command also works as a plain text message: `!help`, `!play <song>`, `!burg @user`. Without an argument this shows the prefix your server currently uses; with one it changes it (1–4 punctuation characters, for example `?`, `m!` or `>>`). The default prefix `!` and an @Monarch mention keep working either way, so you can never lock yourself out. Prefix commands are stored per server and need the same privileged Message Content intent as the burg relay.",
     args: [
       {
         name: "prefix",
@@ -213,46 +213,15 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     notes: ["Needs INTERNAL_API_TOKEN set in both the dashboard and the bot."],
   },
   {
-    name: "/monarch jail",
-    usage: "/monarch jail @user [duration] [reason]",
-  prefixUsage: "!monarch jail @user [duration] [reason]",
-  prefixAliases: ["jail"],
+    name: "/monarch burged",
+    usage: "/monarch burged",
+  prefixUsage: "!monarch burged",
+  prefixAliases: ["burged"],
     group: "moderation",
-    summary: "Delete everything the user posts and re-post it in the Standard Galactic Alphabet.",
+    summary: "List who is currently burg'd in this server.",
     who: "Administrator or Kick Members",
     details:
-      "Monarch's joke gag: everything the jailed member writes is deleted and re-posted in Minecraft enchanting-table script, under their own name and avatar, until released. Omit the duration to jail them until /monarch unjail; give a duration like 10m, 2h, 1d or 1h30m and they are released automatically. You can only jail members below your own highest role, never yourself, never bots, and the owner can only be jailed by nobody.",
-    args: [
-      { name: "user", description: "Who to jail.", required: true },
-      { name: "duration", description: "e.g. 10m, 2h, 1d, 1h30m — empty = until /monarch unjail." },
-      { name: "reason", description: "Shown in the confirmation only." },
-    ],
-    examples: ["/monarch jail @arli 10m enchanting practice", "/monarch jail @arli"],
-    notes: [
-      "Needs the privileged Message Content gateway intent (developer portal → Bot → Privileged Gateway Intents).",
-      "The bot needs the Manage Messages permission to delete and re-post jailed messages.",
-    ],
-  },
-  {
-    name: "/monarch unjail",
-    usage: "/monarch unjail @user",
-  prefixUsage: "!monarch unjail @user",
-  prefixAliases: ["unjail"],
-    group: "moderation",
-    summary: "Release a jailed user early.",
-    who: "Administrator or Kick Members",
-    details: "Ends the gag immediately; the member's messages go through normally again.",
-    args: [{ name: "user", description: "Who to release.", required: true }],
-  },
-  {
-    name: "/monarch jailed",
-    usage: "/monarch jailed",
-  prefixUsage: "!monarch jailed",
-  prefixAliases: ["jailed"],
-    group: "moderation",
-    summary: "List who is currently jailed in this server.",
-    who: "Administrator or Kick Members",
-    details: "Shows every active sentence: who is jailed, until when (or 'until released') and who jailed them.",
+      "Shows every active burg: who, until when (or 'until toggled off'), which cute style, and who burg'd them. Run /burg on them again with no options to turn it off.",
   },
 ];
 
@@ -280,9 +249,9 @@ export const BURG_COMMANDS: CommandDoc[] = [
       "/burg @icy404",
     ],
     notes: [
-      "Uses the same duration parsing, role hierarchy checks and moderation permissions as /monarch jail.",
+      "Uses duration parsing (30s–28d), role hierarchy checks and moderation permissions (Administrator or Kick Members).",
       "Needs the privileged Message Content gateway intent and the Manage Messages permission.",
-      "A member cannot be burg'd and jailed at the same time; turn one gag off before enabling the other.",
+      "Running /burg again with no options turns it off; running it with options updates the timer and style."
     ],
   },
 ];

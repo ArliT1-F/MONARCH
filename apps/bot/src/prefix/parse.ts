@@ -9,8 +9,8 @@
  *    keeps `"double quoted"` arguments together and rewrites
  *    `<@123>` / `<#123>` mentions to bare snowflakes so handlers get ids.
  * 2. {@link matchCommand} — "which command is that?" It knows the full
- *    mirror of the slash tree (`!monarch jail`, `!music play`) plus the
- *    short aliases (`!jail`, `!play`). The alias table is checked against
+ *    mirror of the slash tree (`!monarch burged`, `!music play`) plus the
+ *    short aliases (`!burg`, `!play`). The alias table is checked against
  *    the shared command catalog by a test, so `prefixAliases` in
  *    `@monarch/shared` can't drift from what the bot actually answers to.
  */
@@ -71,9 +71,7 @@ export const MONARCH_PREFIX_ALIASES: Readonly<Record<string, readonly string[]>>
   export: ["export"],
   embed: ["embed"],
   test: ["test"],
-  jail: ["jail"],
-  unjail: ["unjail"],
-  jailed: ["jailed"],
+  burged: ["burged"],
 };
 
 /** Roots that mean "the next word is a subcommand". */
@@ -90,7 +88,7 @@ const ALIAS_WORDS = new Set<string>([
  * How many leading words are the command path — everything after them is
  * arguments. Decided by the known-command tables, not by "looks like a word",
  * so `!play daft punk around the world` keeps its whole search phrase while
- * `!monarch jail @user 10m` still reads as a two-word command.
+ * `!monarch burged` still reads as a two-word command.
  */
 function commandWordCount(tokens: readonly string[]): number {
   const [head, second] = tokens as [string | undefined, string | undefined];
@@ -142,7 +140,7 @@ export function parseArgs(input: string): string[] {
 /**
  * Does this message start with one of the guild's prefixes (or mention the
  * bot first)? Returns null when it isn't a Monarch message — the caller then
- * carries on with whatever else it does for messages (the jail/burg relays).
+ * carries on with whatever else it does for messages (the burg relay).
  *
  * `prefixes` must already be sorted longest-first so a server that configured
  * `!!` gets `!!help` read as `!!` + `help`, not `!` + `!help`.

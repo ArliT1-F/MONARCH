@@ -34,9 +34,7 @@ describe("monarch command manifest", () => {
         "export",
         "embed",
         "test",
-        "jail",
-        "unjail",
-        "jailed",
+        "burged",
       ]),
     );
   });
@@ -67,7 +65,7 @@ describe("monarch command manifest", () => {
   it("renders the plain-text help under Discord's 2000 character limit", () => {
     const help = renderHelp("https://monarch.example");
     expect(help.length).toBeLessThan(2000);
-    expect(help).toContain("/monarch jail @user [duration]");
+    expect(help).toContain("/monarch burged");
     expect(help).toContain("https://monarch.example");
   });
 });
@@ -172,7 +170,8 @@ describe("/monarch help embed", () => {
   it("lists the short prefix aliases next to the commands that have them", () => {
     const text = (embed.fields ?? []).map((f) => f.value).join("\n");
     expect(text).toContain("`!play`");
-    expect(text).toContain("`!jail`");
+    expect(text).toContain("`!burg`");
+    expect(text).toContain("`!burged`");
     expect(text).toContain("`!np`");
   });
 

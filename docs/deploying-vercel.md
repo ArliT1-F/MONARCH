@@ -168,6 +168,10 @@ Render worker.
    and set `APP_URL` to the exact Vercel URL, for example
    `https://monarch.vercel.app`. Also set `DISCORD_CLIENT_ID` to the
    application ID from the Discord developer portal. The worker registers `/monarch`, `/burg` and `/music` when it starts.
+   Also set `MONARCH_OWNER_USER_ID` to your own Discord user id (Developer
+   Mode → right-click your name → Copy User ID): anyone who targets it with
+   `/burg` gets uno-reversed instead. Without it you can be burg'd like
+   anyone else — the worker logs a warning at boot when it is missing.
 3. If you need commands to appear immediately while testing, set
    `DISCORD_GUILD_ID` to the target server ID. Without it, commands are
    registered globally and Discord can take up to an hour to propagate a new
@@ -177,18 +181,23 @@ Render worker.
    set the **same** `INTERNAL_API_TOKEN` on Vercel (dashboard) and the bot
    worker. Generate one with `openssl rand -hex 32`.
    Without it those subcommands reply with setup guidance; `/monarch help`,
-   `dashboard`, `status`, `/burg`, the jail commands and every prefix command
+   `dashboard`, `status`, `/burg`, `/monarch burged` and every prefix command
    on the default `!` still work.
 5. In the Discord developer portal enable **Message Content** under
-   Bot → Privileged Gateway Intents — `/monarch jail` and `/burg` read and
-   re-post messages, and **all prefix (text) commands** are message events. If
+   Bot → Privileged Gateway Intents — `/burg` reads and
+   re-posts messages, and **all prefix (text) commands** are message events. If
    it is off, the worker logs `Message Content intent is not enabled…`,
    reconnects with Guilds-only intents, the commands tell users they are
    disabled and text commands simply never fire. Slash commands keep working.
 6. Deploy and check the worker logs for `bot ready` (the log line includes
-   `"jail": true|false`). The same flag controls `/burg` and the prefix
+   `"burg": true|false`). The same flag controls `/burg` and the prefix
    command surface. Keep exactly one worker running; two Gateway
-   sessions with the same bot token can disconnect each other.
+   sessions with the same bot token can disconnect each other — and a
+   second worker answers every command too, so a stale Render service (or a
+   local dev bot on the same token) looks exactly like the bot "replying
+   twice". The ready line carries an `"instance"` hostname so you can tell
+   workers apart, and a worker without `MONARCH_OWNER_USER_ID` logs a
+   warning at boot.
 
 ### Reading the worker logs
 
@@ -231,8 +240,8 @@ put the bot token in browser-exposed `NEXT_PUBLIC_*` variables.
 In the Discord developer portal add
 `https://<your-app>.vercel.app/api/auth/callback` as an OAuth2 redirect,
 matching `APP_URL` exactly. Then sign in, pick a server (the bot must be
-installed with *Manage Channels*; *Manage Messages* is needed for the jail
-and `/burg` — servers that installed Monarch before it was added to the invite must
+installed with *Manage Channels*; *Manage Messages* is needed for
+`/burg` — servers that installed Monarch before it was added to the invite must
 re-run the invite link or grant it manually), and design away.
 
 ## Notes & troubleshooting

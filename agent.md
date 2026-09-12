@@ -15,7 +15,7 @@ connect Discord, pick a server, redesign it, preview the exact diff, and apply.
 `Draft → Preview → Validate → Diff → Confirm → Apply`. The dashboard (Next.js)
 is the product; the bot (discord.js) is the integration layer. **Monarch is
 not a moderation bot and will not become one.** The only "moderation" surface
-is `/monarch jail` — a joke gag feature, not a real moderation system.
+is `/burg` — a joke gag feature, not a real moderation system.
 
 **Repo:** `ArliT1-F/MONARCH` (GitHub). **Local path:** `/home/user/MONARCH`.
 **Session branch:** `arena/01a08380-monarch` (fixed for this Arena session —
@@ -26,7 +26,7 @@ push/PR/commit only here).
 ```
 apps/
   dashboard/    Next.js 15 app — UI + API route handlers
-  bot/          discord.js bot — links, status, /monarch *, jail relay
+  bot/          discord.js bot — links, status, /monarch *, burg relay
 packages/
   shared/       Result, MonarchError, logger, permissions, variables, ids
   schemas/      zod — ServerDesign, content, targets, template envelope
@@ -422,10 +422,10 @@ This is the cheat sheet for "where do I make change X".
 ### `apps/bot/src`
 - `index.ts` — **Lightweight bot.** Guilds + GuildMessages + MessageContent
   intents, with Guilds-only fallback if MessageContent isn't enabled in the
-  developer portal (logs warning, disables `/monarch jail`, `/burg` **and
+  developer portal (logs warning, disables `/burg` **and
   every prefix command** — slash commands keep working).
   Owns only what needs the live gateway: the relay webhooks, the lazy
-  `MusicManager`, `onMessage` (1. prefix dispatch → 2. jail/burg relay) and
+  `MusicManager`, `onMessage` (1. prefix dispatch → 2. burg relay) and
   `onInteraction`. All command bodies live in `monarch-commands.ts` /
   `music/commands.ts` and are shared by both surfaces.
   **Graceful shutdown:** SIGTERM/SIGINT → log → `client.destroy()` → `exit(0)`.
@@ -439,7 +439,7 @@ This is the cheat sheet for "where do I make change X".
   (worker + `register-commands` script). `COMMAND_HELP` manifest rendered
   for `/monarch help`; **a test enforces the help is in sync with
   registered subcommands and under Discord's 2000-char limit.**
-  - `JAIL_PERMISSIONS` = Administrator OR KickMembers.
+  - `BURG_PERMISSIONS` = Administrator OR KickMembers.
   - `DESIGN_PERMISSIONS` = Administrator OR ManageGuild.
   - **All subcommands are `InteractionContextType.Guild`.**
   - `renderHelpEmbeds(appUrl, guildId?, prefix?)` + `prefixHelpLine(prefix)`
@@ -453,11 +453,12 @@ This is the cheat sheet for "where do I make change X".
 - `slash-context.ts` — `SlashCommandContext(interaction, prefix)`: ephemeral
   replies, `deferReply` → `editReply`, `AttachmentBuilder` for `/monarch export`.
 - `monarch-commands.ts` — `MonarchCommands` (help, dashboard, **invite**,
-  status, **prefix**, backup, export, embed, test, jail, unjail, jailed) + `burg(ctx)`,
-  written once against `CommandContext`. Also `parseGagArgs` (mention/id +
-  duration + style + reason, order-free) and `DURATION_ERROR`; a
-  duration-*shaped* word it can't parse (`10 minutes`, `0m`) refuses the
-  command rather than silently jailing forever.
+  status, **prefix**, backup, export, embed, test, burged) + `burg(ctx)`
+  (bare re-run toggles off, re-run with options updates), written once
+  against `CommandContext`. Also `parseGagArgs` (mention/id + duration +
+  style + reason, order-free except style-before-reason) and `DURATION_ERROR`;
+  a duration-*shaped* word it can't parse (`10 minutes`, `0m`) refuses the
+  command rather than silently burging forever.
 - `prefix/parse.ts` — **pure** prefix tokenizer + router: `parseArgs`
   (quotes, mention→snowflake), `extractPrefixCommand(content, prefixes,
   botUserId)`, `matchCommand`, and the alias tables
@@ -477,13 +478,13 @@ This is the cheat sheet for "where do I make change X".
   read, `get`, `candidates`, `set(guildId, prefix|null)`) + `PrefixStore`
   seam + `internalPrefixStore(appUrl, token)`. **A dead dashboard degrades to
   the default prefix, never to a per-message fetch.**
-- `jail.ts` — `JailRegistry` in-memory on purpose. `setTimeout` tops out at
+- `burg.ts` — `BurgRegistry` in-memory on purpose. `setTimeout` tops out at
   ~24.8 days, so durations >2B ms are chunked. **A bot restart releases
-  everyone by design.**
-- `galactic.ts` — Standard Galactic Alphabet transliteration. `PRESERVE`
+  everyone by design.** `toBurg` rewrites text as uwu/owo; the `PRESERVE`
   regex keeps code blocks, inline code, mentions, custom emoji, timestamps,
-  URLs intact so a jailed user can't bypass or break formatting.
-  `parseDuration` accepts `30s 10m 2h 1d 1h30m`, capped at 28d.
+  URLs intact so a burg'd user can't bypass or break formatting.
+- `durations.ts` — `parseDuration` accepts `30s 10m 2h 1d 1h30m`, capped at
+  28d (`MAX_DURATION_MS`); `formatDuration` renders confirmations.
 
 ### `apps/dashboard/app/api/*` — full route table
 
@@ -581,6 +582,7 @@ at the guild level — `requireGuildAccess` enforces this.
 | `DATABASE_URL` | required on Vercel | PrismaStore (pooled URL on serverless) | The file store throws on serverless if this is missing |
 | `DIRECT_DATABASE_URL` | only for migrations | prisma migrate | Set to the same as DATABASE_URL for plain Postgres |
 | `MONARCH_DEMO` | optional | `isDemoMode` | `"1"` forces demo even with creds |
+| `MONARCH_OWNER_USER_ID` | optional but own-protection | bot worker (`apps/bot/src/index.ts` → `MonarchCommands`) | Your Discord user id: targeting it with /burg uno-reverses onto the invoker. Missing = owner burgable like anyone else (worker logs a boot warning). Must be threaded through every deploy path (`render.yaml`, `docker/docker-compose.yml`) — not just `.env.example` |
 | `INTERNAL_API_TOKEN` | optional | bot/dashboard server-to-server | `openssl rand -hex 32`; same value on dashboard + bot. Without it `/monarch backup/export/embed/test`, saving a custom prefix, and `/api/internal/*` reply 503 — everything else (incl. all prefix commands on the default `!`) still works |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | for Spotify links | bot music | Official Web API, client credentials. Without them `/music` says Spotify isn't configured; YouTube/search work |
 | `MUSIC_DJ_ROLE_NAMES` | optional | `/music skip` | Comma-separated role names that force-skip; default `dj` |
@@ -648,7 +650,7 @@ at the guild level — `requireGuildAccess` enforces this.
     internal store HTTP shape), `prefix-commands.test.ts` (fake gateway
     messages through the real dispatcher + real handlers/registries),
     `slash-context.test.ts` (the slash adapter: ephemeral, defer→edit, same
-    registries as prefix), `galactic.test.ts`, `jail.test.ts`, `burg.test.ts`,
+    registries as prefix), `durations.test.ts`, `burg.test.ts`,
     `music-*.test.ts`, `shutdown.test.ts` (drives the real entry point with
     discord.js stubbed; mutation-checked).
   - `packages/shared` — `prefix.test.ts` (prefix legality rules).
@@ -725,7 +727,7 @@ at the guild level — `requireGuildAccess` enforces this.
    mappers update automatically via the field types. The integration test
    re-applies all migrations against PGlite.
 
-**Out of scope:** moderation features (spec §32). `/monarch jail` is a gag,
+**Out of scope:** moderation features (spec §32). `/burg` is a gag,
 not a moderation product; the README is explicit on this.
 
 ---
@@ -875,7 +877,7 @@ are the stand-in identity in `apps/dashboard/lib/workspace.ts`.
    `apps/bot/src/monarch-commands.ts`, written against `CommandContext`
    (never against the interaction — that's what keeps both surfaces equal).
 4. (If it needs API access) call `this.internalHeaders()` and the
-   `/api/internal/...` route; if not, do it locally (e.g. jail relay).
+   `/api/internal/...` route; if not, do it locally (e.g. burg relay).
 5. `apps/bot/test/commands.test.ts` enforces help-sync and Discord's limits.
 
 ### Adding a new prefix command (or alias)
@@ -944,7 +946,7 @@ needed.
 | Add a new prefix command / alias | `apps/bot/src/prefix/parse.ts` (alias tables) + the shared catalog's `prefixAliases` |
 | Change the default prefix or what a legal prefix is | `packages/shared/src/prefix.ts` only |
 | Change how a server's prefix is stored / cached | `apps/bot/src/prefix/registry.ts`, `app/api/internal/guilds/[guildId]/prefix/route.ts`, `GuildSettings.commandPrefix` |
-| Add a new SGA glyph (or anything jail-related) | `apps/bot/src/galactic.ts`, `apps/bot/src/jail.ts` |
+| Change the uwu transformer (or anything burg-related) | `apps/bot/src/burg.ts`, `apps/bot/src/durations.ts` |
 | Change the diff/apply ordering | `packages/design-engine/src/{diff,apply-plan}.ts` |
 | Add a new variable | `packages/shared/src/variables.ts` (CORE_VARIABLES) |
 | Change a Discord limit | `packages/validation/src/limits.ts` only |
@@ -968,8 +970,8 @@ needed.
 
 ## 14. What I (the agent) should not do
 
-- Don't add **moderation features**. The spec explicitly says no. `/monarch
-  jail` is a gag and stays a gag.
+- Don't add **moderation features**. The spec explicitly says no. `/burg`
+  is a gag and stays a gag.
 - Don't introduce a **second bot worker** — two Gateway sessions with the
   same token can disconnect each other.
 - Don't put `DISCORD_BOT_TOKEN` in a `NEXT_PUBLIC_*` variable — it would
@@ -989,8 +991,8 @@ needed.
   deploy is order-sensitive.
 - Don't add `Administrator` to the invite permissions. The invite is
   least-privilege by design.
-- Don't make the bot persist `JailRegistry` to the database. In-memory is
-  the design choice (see `apps/bot/src/jail.ts` header).
+- Don't make the bot persist `BurgRegistry` to the database. In-memory is
+  the design choice (see `apps/bot/src/burg.ts` header).
 - Don't make the file store work on serverless. The error in `getStore()`
   is the right behaviour.
 
@@ -1267,7 +1269,7 @@ a parallel implementation — `PrefixCommandContext` implements the same
 `CommandContext` that `SlashCommandContext` does, and `MonarchCommands.run` /
 `MusicCommands.run` / `burg` never learn which one they got. Anything that
 makes them diverge is a bug: `apps/bot/test/slash-context.test.ts` exists to
-catch exactly that (same jail registry instance, same moderation checks,
+catch exactly that (same burg registry instance, same moderation checks,
 ephemeral ⇒ flag 64 on slash and absent on text, `/monarch backup` defers and
 edits *once*).
 
@@ -1301,7 +1303,7 @@ Then `matchCommand` decides the response policy:
 | Message | Result | Why |
 |---|---|---|
 | `!play despacito` | runs `music play` | |
-| `!monarch jail @u 10m` / `!music play x` | runs the full path | mirrors the slash tree |
+| `!monarch burged` / `!music play x` | runs the full path | mirrors the slash tree |
 | `!monarch` (bare group root) | help reply | ambiguous *our* prefix ⇒ teach |
 | `!frobnicate` | **silence** | another bot's prefix is not our business |
 | `!` (bare) | silence | |
@@ -1329,14 +1331,14 @@ cache entry.
 const prefixes = new PrefixRegistry(internalPrefixStore(appUrl, token));
 const monarch = new MonarchCommands(...);   // shared with the slash surface
 const prefixDeps: PrefixDeps = {
-  client, jail, burg, monarch, music, prefixes,
-  enabled: () => jailEnabled,   // MessageContent intent gates text commands
+  client, burg, monarch, music, prefixes,
+  enabled: () => messageContentEnabled,   // MessageContent intent gates text commands
 };
 ```
 
-`onMessage` order matters: **prefix dispatch first, then the jail/burg
-relay.** A jailed user's `!help` becomes galactic text instead of a reply —
-that's intentional (the gag wins), and it's asserted in
+`onMessage` order matters: **prefix dispatch first, then the burg
+relay.** A burg'd user's `!burged` still runs as a command instead of being
+relayed — that's intentional (commands win over the gag), and it's asserted in
 `prefix-commands.test.ts`.
 
 ### Gotchas learned the hard way
@@ -1348,9 +1350,9 @@ that's intentional (the gag wins), and it's asserted in
   directly — never re-query the registry inside a handler (that double lookup
   made slash `/monarch help` quote the guild prefix... correctly by accident,
   and wrongly on the text surface).
-- **`allowedMentions`.** Prefix replies default to `{parse: []}` so a
-  `!jail <@someone>` reply can't ping the room; the slash surface omits it
-  (Discord's own ephemeral behaviour).
+- **`allowedMentions`.** Both surfaces always send an explicit policy
+  (default `{parse: []}`), so a `!burg <@someone>` reply — or an `@everyone`
+  inside a burg reason — can't ping the room.
 - **Durations.** `parseDuration` needs digits+unit (`10m`, `1h30m`).
   `parseGagArgs` classifies a *duration-shaped* word it can't parse
   (`ten minutes`, `0m`) as an error ⇒ `DURATION_ERROR`; a non-time word
@@ -1372,7 +1374,7 @@ Text commands put a bot in every member's reach, so the split is explicit:
 
 | Open to every member | Needs Manage Server / Administrator | Needs Administrator / Kick Members |
 |---|---|---|
-| `help` · `dashboard` · `status` · `invite` (`add`) · `prefix` **show** · all read-only music (`queue`, `nowplaying`, `play`, `skip` by vote) | `prefix set`/`reset` · `backup` · `export` · `embed` preview · `test` | `jail` · `unjail` · `jailed` · `burg` |
+| `help` · `dashboard` · `status` · `invite` (`add`) · `prefix` **show** · all read-only music (`queue`, `nowplaying`, `play`, `skip` by vote) | `prefix set`/`reset` · `backup` · `export` · `embed` preview · `test` | `burg` · `burged` |
 
 None of the open ones read or change server data — they are links and status.
 `!invite` deliberately hands the install link to *anybody*: Discord's install
@@ -1388,5 +1390,5 @@ missing and points at the dashboard's invite button.
 - No per-channel or per-role prefixes, no prefix in DMs (guild-only commands).
 - No second bot worker, no new permissions, no raw REST outside
   `packages/discord` (the internal-API fetch is the documented exception).
-- JailRegistry stays in-memory (a restart still releases jails).
+- BurgRegistry stays in-memory (a restart still releases burgs).
 

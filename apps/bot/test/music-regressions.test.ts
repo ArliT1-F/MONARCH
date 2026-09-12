@@ -41,7 +41,11 @@ describe("music failure regressions", () => {
     );
     await new MusicCommands(manager as unknown as MusicManager).run(ctx, "play");
     expect(interaction.reply).not.toHaveBeenCalled();
-    expect(interaction.editReply).toHaveBeenCalledWith({ content: "⚠️ Spotify links are not configured" });
+    expect(interaction.editReply).toHaveBeenCalledWith({
+      content: "⚠️ Spotify links are not configured",
+      embeds: undefined,
+      allowedMentions: { parse: [] },
+    });
     expect(manager.connect).not.toHaveBeenCalled();
   });
 

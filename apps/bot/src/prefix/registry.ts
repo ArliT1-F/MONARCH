@@ -6,7 +6,7 @@ import { DEFAULT_COMMAND_PREFIX, parseCommandPrefix } from "@monarch/shared";
  * The value lives in the dashboard's store (`GuildSettings.commandPrefix`)
  * and is reached through the internal API with `INTERNAL_API_TOKEN`, exactly
  * like backups and exports — the bot process deliberately holds no database
- * credentials (see apps/bot/src/jail.ts for the same reasoning).
+ * credentials (see apps/bot/src/burg.ts for the same reasoning).
  *
  * Reading it on every message would mean one HTTP call per message, so the
  * registry keeps an in-memory cache with a short TTL:
