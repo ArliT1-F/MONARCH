@@ -1,61 +1,39 @@
-import { Permission, type PermissionName } from "@monarch/shared";
+import {
+  INVITE_PERMISSIONS,
+  INVITE_SCOPES,
+  buildBotInviteUrl as buildInviteUrl,
+  invitePermissionBits,
+  invitePermissionNames,
+  isValidGuildId,
+  type BotInviteUrlOptions,
+} from "@monarch/shared";
 import { env, isDemoMode } from "./env";
 
 /**
  * Bot invite (OAuth2 "add to server") link building.
  *
- * Monarch asks for exactly the permissions it uses — nothing more. Anything
- * Monarch can't do without a permission is surfaced in the UI rather than
- * silently requesting Administrator.
+ * The link itself — scopes, and the exact least-privilege permission set,
+ * never Administrator — lives in `@monarch/shared/invite` because the bot
+ * posts the very same URL in chat (`!invite` / `/monarch invite`). This
+ * module only adds what the dashboard knows: which client id to use, and
+ * whether an invite is possible at all in demo mode.
  */
-export const INVITE_PERMISSIONS: PermissionName[] = [
-  "ViewChannel",
-  "ManageChannels",
-  "ManageRoles",
-  "ManageWebhooks",
-  "ManageMessages", // /monarch jail and /burg delete and re-post member messages
-  "SendMessages",
-  "SendMessagesInThreads",
-  "EmbedLinks",
-  "AttachFiles",
-];
+export {
+  INVITE_PERMISSIONS,
+  INVITE_SCOPES,
+  invitePermissionBits,
+  invitePermissionNames,
+  isValidGuildId,
+};
 
-/** Decimal permission bitfield Discord expects in the invite URL. */
-export function invitePermissionBits(): string {
-  return INVITE_PERMISSIONS.reduce((bits, name) => bits | Permission[name], 0n).toString();
-}
-
-/** Scopes: the bot itself plus its slash commands (`/monarch …`). */
-const INVITE_SCOPES = ["bot", "applications.commands"];
-
-/** Discord snowflakes are 17-20 digits; be permissive but strictly numeric. */
-export function isValidGuildId(value: string | null | undefined): value is string {
-  return typeof value === "string" && /^\d{5,25}$/.test(value);
-}
-
-export interface BotInviteOptions {
-  /** Pre-select a server in Discord's install dialog. */
-  guildId?: string | null;
-}
+export type BotInviteOptions = Omit<BotInviteUrlOptions, "clientId">;
 
 /**
  * Build the Discord authorize URL that installs the Monarch bot.
  * Returns null when no Discord application is configured (demo mode).
  */
 export function buildBotInviteUrl({ guildId }: BotInviteOptions = {}): string | null {
-  if (!env.discordClientId) return null;
-  const params = new URLSearchParams({
-    client_id: env.discordClientId,
-    scope: INVITE_SCOPES.join(" "),
-    permissions: invitePermissionBits(),
-    // 0 = install to a guild (as opposed to a user-install).
-    integration_type: "0",
-  });
-  if (isValidGuildId(guildId)) {
-    params.set("guild_id", guildId);
-    params.set("disable_guild_select", "true");
-  }
-  return `https://discord.com/oauth2/authorize?${params}`;
+  return buildInviteUrl({ clientId: env.discordClientId, guildId });
 }
 
 /**

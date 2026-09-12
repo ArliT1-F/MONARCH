@@ -13,7 +13,9 @@ with Send Test, **Embed Builder** (Phase 3) and **Message Designer**
 per-guild workspaces, Send Test / Publish through the Target Resolver, audit
 entries — plus **Backups & Restore**, **Templates (Import / Export)**, a
 responsive/mobile dashboard shell, and the bot's `help`, `backup`, `export`,
-`jail`/`unjail`/`jailed` and the standalone `/burg` slash command.
+`jail`/`unjail`/`jailed` and the standalone `/burg` slash command — every one
+of which also answers as a **prefix (text) command** (`!help`, `!play`,
+`@Monarch status`) with a per-server prefix set by `!prefix set ?`.
 
 Role Designer, Welcome Designer, Branding and Analyzer are represented as
 phase-labelled placeholders in the navigation; their shared infrastructure
@@ -72,6 +74,56 @@ The transformer preserves mentions, custom emoji, timestamps, links and code
 spans, then adds readable spelling changes and selectable soft, cat, chaotic or
 random cute flourishes. A member cannot be in both relays at once; the command
 handler rejects that combination so relay precedence cannot surprise anyone.
+
+## Command surface: slash + prefix (two ways to type one command)
+
+Every bot command exists twice, and the second time is not a copy. Handlers
+are written against one surface-neutral interface, `CommandContext`
+(apps/bot/src/context.ts): `SlashCommandContext` (apps/bot/src/slash-context.ts)
+implements it for `/monarch`, `/burg`, `/music`; `PrefixCommandContext`
+(apps/bot/src/prefix/context.ts) implements it for text messages. The handler
+layer (apps/bot/src/monarch-commands.ts, apps/bot/src/music/commands.ts) never
+learns which one it is talking to, so permissions, wording and registry state
+cannot drift between surfaces — apps/bot/test/slash-context.test.ts asserts the
+parity.
+
+**Prefix resolution.** Per server, stored as `GuildSettings.commandPrefix`
+(`NULL` = the shared default `!`) and read/written through
+`GET|PUT /api/internal/guilds/:id/prefix` with the same `INTERNAL_API_TOKEN`
+as the other bot routes — the bot keeps no database of its own. The gateway
+side caches it for 60 s per guild, including *negative* entries (no custom
+prefix), and a `peek()` sync read decides whether a message could be a command
+before anything is awaited; if the dashboard is unreachable the default prefix
+and @Monarch mentions keep working. Legality is decided in exactly one place,
+`packages/shared/src/prefix.ts` (`parseCommandPrefix`): ≤4 characters, no
+whitespace, must end in punctuation — so `!`, `?`, `m!`, `>>` are valid and
+`hey` is not.
+
+**Matching.** `@Monarch` first (zero configuration, and the escape hatch when
+nobody knows the prefix), then text prefixes longest-first and
+case-insensitively; the rest of the message is tokenized by `prefix/parse.ts`
+(quotes keep arguments together, mentions become snowflakes, URLs stay whole).
+The router mirrors the slash tree (`!monarch jail @user 10m`, `!music play x`)
+plus short aliases (`!play`, `!p`, `!np`, `!q`, `!jail`, `!burg`, `!help`,
+`!invite`) that the shared command catalog documents and tests keep in sync.
+
+**Nothing harmless is gated.** `help`, `dashboard`, `status`, `prefix` (show)
+and `invite` run for any member; only commands that read or change server data
+ask for Manage Server / Administrator (`backup`, `export`, `embed`, `test`,
+`prefix set`) or Administrator / Kick Members (the jail and burg gags).
+`!invite` builds its link with `packages/shared/src/invite.ts` — the same
+builder behind the dashboard's `GET /api/invite` and "Add Monarch to Discord"
+button — so a member who finds Monarch in somebody else's server can install it
+on their own with the identical least-privilege permission set.
+
+**Response policy.** A jail/burg relay entry outranks a command reply (a jailed
+user's `!help` becomes galactic text — asserted in the tests). Unknown `!words`
+are answered with **silence** so servers with several bots don't collect a pile
+of "unknown command" replies; only an explicit `@Monarch <typo>` or a bare
+`!monarch` / `!music` group root gets a helpful reply, and a bare `@Monarch`
+gets a greeting. Prefix replies are public (there is no ephemeral text message)
+and always send an explicit `allowedMentions`, so a `!jail <@someone>` reply
+can't ping the room.
 
 ## Monorepo layout
 
@@ -183,9 +235,13 @@ audit entries, demo mock state. Two implementations sit behind it:
   `DATABASE_URL` is configured. Development/demo only.
 
 Session cookies already carry only an HMAC-signed opaque id — tokens never
-reach the browser. The initial migration lives in `prisma/migrations/`
-(`npm run db:migrate`); the store contract is covered by tests that run
-against real PostgreSQL (apps/dashboard/test/prisma-store.integration.test.ts).
+reach the browser. Migrations live in `prisma/migrations/` (`npm run db:migrate`);
+the store contract is covered by tests that run against real PostgreSQL
+(apps/dashboard/test/prisma-store.integration.test.ts). Adding a column to
+`GuildSettings` (as `commandPrefix` did) means touching the schema + a
+migration, the `MonarchStore` interface, both store implementations' mappers,
+and the internal route the bot uses — the dashboard's own settings form must
+not clobber it, which apps/dashboard/test/command-prefix.test.ts pins.
 
 ## Security model
 
@@ -217,6 +273,7 @@ against real PostgreSQL (apps/dashboard/test/prisma-store.integration.test.ts).
 | `POST /api/guilds/:id/workspace/send` | Test/Publish a content design (validate → Target Resolver → render → send → audit) |
 | `GET/POST /api/internal/guilds/:id/workspace(+/send)` | Bot-facing counterparts, guarded by `INTERNAL_API_TOKEN` (Bearer) |
 | `GET/POST /api/internal/guilds/:id/backup` · `GET …/template` | Bot-facing backup list/create and template export (`/monarch backup`, `/monarch export`) |
+| `GET/PUT /api/internal/guilds/:id/prefix` | Bot-facing per-server command prefix (`!prefix` / `/monarch prefix`); `PUT {prefix: null}` resets to `!` |
 
 The API currently lives in Next.js route handlers; all business logic is in
 packages, so extracting a standalone `apps/api` service later is mechanical
@@ -239,6 +296,10 @@ clears the draft and rebases the editor onto fresh live state.
 - discord: target resolver rules; full apply-loop integration against the
   mock gateway (including local-id parent resolution and re-diff = empty)
 - schemas: template envelope versioning; variable system
+- shared: command-prefix legality; command catalog ⇄ manifest sync
+- bot: prefix tokenizer/router + alias tables ⇄ catalog, prefix registry
+  caching/degradation/validation, end-to-end prefix dispatch against real
+  handlers and registries, and slash/text parity of the same handlers
 
 ## Adding the next features (guidance)
 

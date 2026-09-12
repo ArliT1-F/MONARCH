@@ -67,6 +67,7 @@ export type GuildSettingsRow = {
   announcementsChannelId: string | null;
   testingChannelId: string | null;
   templateTestingChannelId: string | null;
+  commandPrefix?: string | null;
 };
 
 export type AuditRow = {
@@ -410,6 +411,31 @@ export class PrismaStore implements MonarchStore {
       where: { guildId },
       create: { guildId, analyzerDismissed },
       update: { analyzerDismissed },
+    });
+  }
+
+  // ── Prefix commands ────────────────────────────────────────────────
+  // Stored on GuildSettings.commandPrefix; deliberately NOT part of
+  // GuildSettingsRecord/designatedChannels so the settings form and the
+  // bot's `!prefix set` can't clobber each other (same rule as the analyzer
+  // dismissals above).
+
+  async getCommandPrefix(guildId: string): Promise<string | null> {
+    const row = await this.db.guildSettings.findUnique({
+      where: { guildId },
+      select: { commandPrefix: true },
+    });
+    const value = row?.commandPrefix;
+    return typeof value === "string" && value.length > 0 ? value : null;
+  }
+
+  async putCommandPrefix(guildId: string, prefix: string | null): Promise<void> {
+    await this.ensureGuild(guildId);
+    const commandPrefix = prefix ?? null;
+    await this.db.guildSettings.upsert({
+      where: { guildId },
+      create: { guildId, commandPrefix },
+      update: { commandPrefix },
     });
   }
 

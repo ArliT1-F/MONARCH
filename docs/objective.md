@@ -2077,7 +2077,7 @@ A short legend:
 | §28 | UI tests | ⏳ | No component tests yet. |
 | §31 | "Unsupported by Discord" surfaced, never faked | ✅ | Diff engine `unsupported` op + Review modal renders it explicitly |
 | §32 | No moderation features | ✅ | Only feature with even a moderation veneer is `/monarch jail` (a gag). See Appendix B.5. |
-| §33 | Bot stays lightweight; commands are links/tests/config shortcuts | ✅ | `apps/bot/src/index.ts` is ~600 lines; no structural mutations happen in the bot |
+| §33 | Bot stays lightweight; commands are links/tests/config shortcuts | ✅ | `apps/bot/src/index.ts` is ~460 lines (gateway wiring only — the commands live in `monarch-commands.ts`, `music/commands.ts` and `prefix/`); no structural mutations happen in the bot |
 | §34 | TypeScript strict; modular; no giant files; no duplicated business logic | ✅ | `tsconfig.base.json` has `strict` + `noUncheckedIndexedAccess`; `lib/api.ts`, `lib/workspace.ts`, `lib/backups.ts` are the cross-cutting services used by both user and bot routes |
 | §35 | Agent development rules | 🟡 | Followed during PRs 1–9, but not yet formalized into a process document beyond the existing PR descriptions |
 | §36 | Definition of done | ✅ | Each shipped feature meets it (UI + persistence + validation + permissions + preview + error handling + destructive confirmation + tests + docs) |
@@ -2132,7 +2132,9 @@ delivered more than the spec's command list. The full surface is:
 |---|---|---|
 | `/monarch help` | new | Rendered from a single `COMMAND_HELP` manifest. A unit test enforces it stays in sync with the registered subcommands and under Discord's 2000-char limit. |
 | `/monarch dashboard` | implicit | Link to the studio for the current guild. |
-| `/monarch status` | new | Bot presence, jailed count, dashboard URL. |
+| `/monarch invite` (`!invite`) | new; see B.10 | The same "Add to Server" link as the dashboard's invite button (`packages/shared/src/invite.ts`), but with no guild pre-selected — the point is installing Monarch somewhere else. Open to every member. |
+| `/monarch status` | new | Bot presence, jailed count, dashboard URL, this server's prefix. |
+| `/monarch prefix [prefix]` | new; see B.10 | Show or change this server's text-command prefix (Manage Server / Administrator). Persisted on `GuildSettings.commandPrefix` through `GET` / `PUT /api/internal/guilds/:id/prefix`. |
 | `/monarch backup [name]` | new (related to FEATURE 8) | Calls `/api/internal/guilds/:id/backup` with the invoking member's `userId` so the audit trail is correct. |
 | `/monarch export` | new (related to FEATURE 10) | Returns the live structure as a `monarch-template` JSON file via Discord's attachment mechanism. |
 | `/monarch embed` | new (related to FEATURE 2) | Opens the Embed Builder; if `INTERNAL_API_TOKEN` is set, also previews the saved embed. |
@@ -2149,8 +2151,51 @@ commands surface the same in chat.
 
 Intents: `Guilds + GuildMessages + MessageContent` with an automatic
 Guilds-only fallback if `MessageContent` is not enabled in the
-developer portal. The fallback logs a warning and disables only
-`/monarch jail`; everything else keeps working.
+developer portal. The fallback logs a warning and disables
+`/monarch jail`, `/burg` and the whole prefix (text) command surface;
+slash commands keep working.
+
+## B.10 Prefix (text) commands — every slash command twice
+
+Added 2026-09-12 on the user's request ("i want to also have prefix
+commands"), with four shape decisions taken by the user: per-server prefix
+set **from the bot only** (no dashboard UI), the text surface **mirrors the
+slash tree plus short aliases**, **all** command groups covered, and a full
+documentation pass.
+
+Not in the spec (§33 describes slash-style quick actions), and deliberately
+built so it cannot fork the bot:
+
+- **One handler, two surfaces.** Handlers are written against
+  `CommandContext` (`apps/bot/src/context.ts`); `SlashCommandContext` and
+  `PrefixCommandContext` are the two adapters. `apps/bot/test/slash-context.test.ts`
+  asserts parity (same registries, same permission checks, ephemeral only on
+  slash, defer→edit exactly once).
+- **Resolution order:** `@Monarch` mention → text prefixes longest-first
+  (default `!` + the guild's own), case-insensitive. `packages/shared/src/prefix.ts`
+  is the single definition of a legal prefix (≤4 chars, ends in punctuation).
+- **Caching:** 60 s TTL per guild with negative caching and a sync `peek()`
+  fast path; a dead dashboard degrades to the default prefix instead of a
+  per-message fetch.
+- **Politeness:** unknown `!words` are answered with silence (other bots own
+  their prefixes); only mentions and bare group roots get a reply. Prefix
+  replies are public (no ephemeral text message exists) and always carry an
+  explicit `allowedMentions`.
+- **Storage:** `GuildSettings.commandPrefix` (migration
+  `20260912000000_add_command_prefix`), reached through dedicated
+  `getCommandPrefix`/`putCommandPrefix` store methods so the designated-channels
+  form can never clobber it — the same rule as the analyzer dismissals.
+- **Spec §32 still holds:** no moderation was added; the prefix surface only
+  exposes the existing gag commands.
+- **Open by default, gated by consequence.** Because a text command is
+  reachable by any member, the split is explicit: `help`, `dashboard`,
+  `status`, `prefix` (show) and `invite` need nothing; commands that read or
+  change server data keep Manage Server / Administrator; the gags keep
+  Administrator / Kick Members. `!invite` (added in the same iteration) posts
+  the dashboard's own install link — built by the shared
+  `packages/shared/src/invite.ts` so the two can't drift — which is safe for
+  everyone because Discord only lets you install into servers you can manage
+  and the link never requests Administrator.
 
 ## B.2 OAuth state hardening (PR #3)
 

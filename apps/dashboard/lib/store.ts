@@ -126,6 +126,15 @@ export interface MonarchStore {
   putAnalyzerDismissals(guildId: string, checkIds: string[]): Promise<void>;
 
   /**
+   * Prefix commands: this guild's text-command prefix, or null for the
+   * shared default (DEFAULT_COMMAND_PREFIX in @monarch/shared). Written by
+   * the bot (`!prefix set …`) through the internal API — kept out of
+   * GuildSettingsRecord so the designated-channels form can't clobber it.
+   */
+  getCommandPrefix(guildId: string): Promise<string | null>;
+  putCommandPrefix(guildId: string, prefix: string | null): Promise<void>;
+
+  /**
    * Template library (FEATURE 7). Every read is scoped by ownerId so one
    * user can never list, fetch, overwrite or delete another user's files.
    */
@@ -276,6 +285,17 @@ class FileStore implements MonarchStore {
     if (checkIds.length === 0) delete all[guildId];
     else all[guildId] = [...new Set(checkIds)];
     await writeJson("analyzer-dismissals.json", all);
+  }
+
+  async getCommandPrefix(guildId: string) {
+    const all = (await readJson<Record<string, string>>("command-prefixes.json")) ?? {};
+    return all[guildId] ?? null;
+  }
+  async putCommandPrefix(guildId: string, prefix: string | null) {
+    const all = (await readJson<Record<string, string>>("command-prefixes.json")) ?? {};
+    if (prefix === null) delete all[guildId];
+    else all[guildId] = prefix;
+    await writeJson("command-prefixes.json", all);
   }
 
   async listTemplates(ownerId: string) {

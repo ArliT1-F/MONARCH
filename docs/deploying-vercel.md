@@ -172,18 +172,22 @@ Render worker.
    `DISCORD_GUILD_ID` to the target server ID. Without it, commands are
    registered globally and Discord can take up to an hour to propagate a new
    command. Remove it for the normal multi-server/global setup.
-4. For `/monarch backup`, `/monarch export`, `/monarch embed` and
-   `/monarch test`, also set the **same** `INTERNAL_API_TOKEN` on Vercel
-   (dashboard) and the bot worker. Generate one with `openssl rand -hex 32`.
+4. For `/monarch backup`, `/monarch export`, `/monarch embed`,
+   `/monarch test` and saving a custom command prefix (`!prefix set ?`), also
+   set the **same** `INTERNAL_API_TOKEN` on Vercel (dashboard) and the bot
+   worker. Generate one with `openssl rand -hex 32`.
    Without it those subcommands reply with setup guidance; `/monarch help`,
-   `dashboard`, `status`, `/burg` and the jail commands still work.
+   `dashboard`, `status`, `/burg`, the jail commands and every prefix command
+   on the default `!` still work.
 5. In the Discord developer portal enable **Message Content** under
    Bot → Privileged Gateway Intents — `/monarch jail` and `/burg` read and
-   re-post messages. If it is off, the worker logs `Message Content intent is not
-   enabled…`, reconnects with Guilds-only intents and the commands tell users
-   they are disabled. Everything else keeps working.
+   re-post messages, and **all prefix (text) commands** are message events. If
+   it is off, the worker logs `Message Content intent is not enabled…`,
+   reconnects with Guilds-only intents, the commands tell users they are
+   disabled and text commands simply never fire. Slash commands keep working.
 6. Deploy and check the worker logs for `bot ready` (the log line includes
-   `"jail": true|false`). The same flag controls `/burg`. Keep exactly one worker running; two Gateway
+   `"jail": true|false`). The same flag controls `/burg` and the prefix
+   command surface. Keep exactly one worker running; two Gateway
    sessions with the same bot token can disconnect each other.
 
 ### Reading the worker logs

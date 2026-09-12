@@ -10,8 +10,9 @@ vi.mock("../src/music/sources.js", async (original) => ({
 }));
 vi.mock("../src/music/ffmpeg.js", () => ({ resolveFfmpeg: vi.fn() }));
 import { audioStreamFor, resolveQuery, SourceError } from "../src/music/sources.js";
-import { handleMusicCommand } from "../src/music/commands.js";
+import { MusicCommands } from "../src/music/commands.js";
 import { MusicManager } from "../src/music/player.js";
+import { SlashCommandContext } from "../src/slash-context.js";
 import type { Client, ChatInputCommandInteraction } from "discord.js";
 
 const track = (id: string) => ({ id, title: id, videoId: id, requestedBy: "user" }) as Track;
@@ -32,7 +33,13 @@ describe("music failure regressions", () => {
     };
     const manager = { connectedChannelId: () => null, setAnnouncementChannel: vi.fn(), connect: vi.fn() };
     vi.mocked(resolveQuery).mockRejectedValue(new SourceError("Spotify links are not configured"));
-    await handleMusicCommand(interaction as unknown as ChatInputCommandInteraction, manager as unknown as MusicManager);
+    // The same handler serves /music play and !play — the test drives the
+    // slash surface through its CommandContext adapter.
+    const ctx = new SlashCommandContext(
+      interaction as unknown as ChatInputCommandInteraction<"cached">,
+      "!",
+    );
+    await new MusicCommands(manager as unknown as MusicManager).run(ctx, "play");
     expect(interaction.reply).not.toHaveBeenCalled();
     expect(interaction.editReply).toHaveBeenCalledWith({ content: "⚠️ Spotify links are not configured" });
     expect(manager.connect).not.toHaveBeenCalled();
