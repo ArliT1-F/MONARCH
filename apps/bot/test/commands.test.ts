@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { MUSIC_COMMANDS, MONARCH_COMMANDS } from "@monarch/shared";
+import {
+  COMMAND_CATALOG,
+  DEFAULT_COMMAND_PREFIX,
+  MAX_COMMAND_PREFIX_LENGTH,
+  MUSIC_COMMANDS,
+  MONARCH_COMMANDS,
+} from "@monarch/shared";
 import {
   COMMAND_HELP,
   burgCommandJSON,
   monarchCommandJSON,
+  prefixHelpLine,
   renderHelp,
   renderHelpEmbeds,
 } from "../src/commands.js";
@@ -17,8 +24,35 @@ describe("monarch command manifest", () => {
     const documented = COMMAND_HELP.map((c) => c.usage.split(" ")[1]!);
     for (const name of documented) expect(subcommands).toContain(name);
     expect(subcommands).toEqual(
-      expect.arrayContaining(["help", "dashboard", "status", "backup", "export", "embed", "test", "jail", "unjail", "jailed"]),
+      expect.arrayContaining([
+        "help",
+        "dashboard",
+        "invite",
+        "status",
+        "prefix",
+        "backup",
+        "export",
+        "embed",
+        "test",
+        "jail",
+        "unjail",
+        "jailed",
+      ]),
     );
+  });
+
+  it("registers invite with no options — it is a link, not a form", () => {
+    const invite = (json.options ?? []).find((o) => o.name === "invite") as { options?: unknown[] };
+    expect(invite).toBeTruthy();
+    expect(invite.options ?? []).toHaveLength(0);
+  });
+
+  it("gives the prefix subcommand a bounded prefix option", () => {
+    const prefix = (json.options ?? []).find((o) => o.name === "prefix") as {
+      options?: { name: string; max_length?: number }[];
+    };
+    expect(prefix.options?.[0]?.name).toBe("prefix");
+    expect(prefix.options?.[0]?.max_length).toBe(MAX_COMMAND_PREFIX_LENGTH);
   });
 
   it("documents every registered subcommand in the shared catalog", () => {
@@ -124,5 +158,44 @@ describe("/monarch help embed", () => {
 
   it("links to the dashboard help page for this guild", () => {
     expect(embed.description).toContain("https://monarch.example/s/1234567890/help");
+  });
+
+  it("advertises the prefix surface with the guild's own prefix", () => {
+    expect(embed.description).toContain(`${DEFAULT_COMMAND_PREFIX}help`);
+    expect(embed.description).toContain(`${DEFAULT_COMMAND_PREFIX}prefix set <new>`);
+
+    const custom = renderHelpEmbeds("https://monarch.example", "1234567890", "m!")[0]!;
+    expect(custom.description).toContain("m!help");
+    expect(custom.description).toContain("the default `!` still works");
+  });
+
+  it("lists the short prefix aliases next to the commands that have them", () => {
+    const text = (embed.fields ?? []).map((f) => f.value).join("\n");
+    expect(text).toContain("`!play`");
+    expect(text).toContain("`!jail`");
+    expect(text).toContain("`!np`");
+  });
+
+  it("keeps every cataloged command's prefix form in sync with the docs", () => {
+    for (const doc of COMMAND_CATALOG) {
+      expect(doc.prefixUsage, doc.name).toBeTruthy();
+      expect(doc.prefixUsage!.startsWith(DEFAULT_COMMAND_PREFIX), doc.name).toBe(true);
+    }
+  });
+});
+
+describe("prefix help line", () => {
+  it("names the default prefix, the mention escape hatch and the way to change it", () => {
+    const line = prefixHelpLine();
+    expect(line).toContain(`${DEFAULT_COMMAND_PREFIX}help`);
+    expect(line).toContain("@Monarch");
+    expect(line).toContain(`${DEFAULT_COMMAND_PREFIX}prefix set <new>`);
+    expect(line.length).toBeLessThanOrEqual(1024);
+  });
+
+  it("reminds you the default still works once a server has its own prefix", () => {
+    const line = prefixHelpLine("?");
+    expect(line).toContain("?play");
+    expect(line).toContain("`!`");
   });
 });

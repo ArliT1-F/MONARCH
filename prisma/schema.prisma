@@ -77,6 +77,10 @@ model GuildSettings {
   // JSON array of stable analyzer check ids; managed by
   // getAnalyzerDismissals/putAnalyzerDismissals (NOT by the settings form).
   analyzerDismissed Json?
+  // Prefix commands: the guild's text-command prefix (null = the shared
+  // default "!"). Managed by getCommandPrefix/putCommandPrefix through the
+  // bot's internal API (NOT by the designated-channels settings form).
+  commandPrefix    String?
 }
 
 model DesignDraft {

@@ -1,14 +1,22 @@
+import {
+  COMMAND_PREFIX_CHARS,
+  DEFAULT_COMMAND_PREFIX,
+  MAX_COMMAND_PREFIX_LENGTH,
+} from "./prefix.js";
+
 /**
- * Monarch's command catalog — the single source of truth for every slash
- * command, used by:
+ * Monarch's command catalog — the single source of truth for every command
+ * (slash **and** prefix), used by:
  *
- * - the bot, to render `/monarch help` (so Discord help can never drift
- *   from what's registered), and
+ * - the bot, to render `/monarch help` and `!help` (so Discord help can never
+ *   drift from what's registered), and
  * - the dashboard's **Help & Commands** page, which renders the same
  *   entries with full usage details.
  *
  * Keep `usage` identical to the SlashCommandBuilder options in
- * apps/bot/src/commands.ts — a test asserts they match.
+ * apps/bot/src/commands.ts — a test asserts they match. Keep `prefixUsage`
+ * and `prefixAliases` identical to the prefix router in
+ * apps/bot/src/prefix/commands.ts — a test asserts that too.
  */
 
 export type CommandGroupId = "general" | "design" | "moderation" | "music";
@@ -32,6 +40,15 @@ export interface CommandDoc {
   name: string;
   /** Full usage line including optional options in [brackets]. */
   usage: string;
+  /**
+   * Same command in prefix form, written with the default prefix (`!`) —
+   * e.g. "!monarch backup [name]". Servers can change their prefix with
+   * `!prefix set`, so docs and help always show the *shape*, not a promise
+   * about the exact character.
+   */
+  prefixUsage?: string;
+  /** Short prefix aliases, e.g. ["backup"] for `!backup`. Never includes the prefix character itself. */
+  prefixAliases?: string[];
   group: CommandGroupId;
   /** One-line summary. */
   summary: string;
@@ -71,6 +88,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch help",
     usage: "/monarch help",
+  prefixUsage: "!monarch help",
+  prefixAliases: ["help", "commands"],
     group: "general",
     summary: "List every Monarch command.",
     who: "everyone",
@@ -80,14 +99,34 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch dashboard",
     usage: "/monarch dashboard",
+  prefixUsage: "!monarch dashboard",
+  prefixAliases: ["dashboard"],
     group: "general",
     summary: "Open this server in the Monarch design studio.",
     who: "everyone",
     details: "Replies with a direct link to this server's dashboard so you don't have to dig through the server picker.",
   },
   {
+    name: "/monarch invite",
+    usage: "/monarch invite",
+    prefixUsage: "!monarch invite",
+    prefixAliases: ["invite", "add"],
+    group: "general",
+    summary: "Get the link to add Monarch to another server.",
+    who: "everyone",
+    details:
+      "Posts Discord's \u201cAdd to Server\u201d link for Monarch — the same least-privilege link the dashboard's **Add Monarch to Discord** button uses, but without a server pre-selected, so the dialog lets you choose any server you manage. Anyone can run it: no Manage Server needed, because installing a bot is something Discord only allows on servers you can manage, and the link never requests Administrator.",
+    examples: ["!invite", "!add", "/monarch invite", "@Monarch invite"],
+    notes: [
+      "Needs the bot's application id: DISCORD_CLIENT_ID on the worker, or simply being online — the bot's own user id is its application id.",
+      "The permission list lives in `packages/shared/src/invite.ts` and is shared with the dashboard's invite button, so the two can never drift.",
+    ],
+  },
+  {
     name: "/monarch status",
     usage: "/monarch status",
+  prefixUsage: "!monarch status",
+  prefixAliases: ["status"],
     group: "general",
     summary: "Show Monarch's status for this server.",
     who: "everyone",
@@ -95,8 +134,34 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
       "Reports which server the bot sees, where the dashboard lives, how many members are currently jailed or burg'd, and a reminder that all design changes flow through the dashboard.",
   },
   {
+    name: "/monarch prefix",
+    usage: "/monarch prefix [prefix]",
+    prefixUsage: "!monarch prefix [prefix]",
+    prefixAliases: ["prefix"],
+    group: "general",
+    summary: "Show or change this server's prefix for text commands.",
+    who: "Manage Server or Administrator",
+    details:
+      "Every Monarch command also works as a plain text message: `!help`, `!play <song>`, `!jail @user`. Without an argument this shows the prefix your server currently uses; with one it changes it (1–4 punctuation characters, for example `?`, `m!` or `>>`). The default prefix `!` and an @Monarch mention keep working either way, so you can never lock yourself out. Prefix commands are stored per server and need the same privileged Message Content intent as the jail and burg relays.",
+    args: [
+      {
+        name: "prefix",
+        description: `New prefix for this server — 1–${MAX_COMMAND_PREFIX_LENGTH} characters from ${COMMAND_PREFIX_CHARS}. Omit to show the current one.`,
+      },
+    ],
+    examples: ["!prefix", "!prefix set ?", "!prefix set m!", "!prefix reset", "@Monarch prefix >>"],
+    notes: [
+      `Default prefix: ${DEFAULT_COMMAND_PREFIX} — mentioning the bot always works as a prefix too.`,
+      "Needs the privileged Message Content gateway intent (developer portal → Bot → Privileged Gateway Intents). Without it only slash commands are available.",
+      "Saving a custom prefix calls the dashboard's internal API, so it needs INTERNAL_API_TOKEN set in the dashboard and the bot.",
+      "Matching is case-insensitive and only the shortest unambiguous reading is used: unknown `!words` are ignored so other bots' prefixes keep working.",
+    ],
+  },
+  {
     name: "/monarch backup",
     usage: "/monarch backup [name]",
+  prefixUsage: "!monarch backup [name]",
+  prefixAliases: ["backup"],
     group: "design",
     summary: "Save a snapshot of the server's categories and channels.",
     who: "Manage Server or Administrator",
@@ -109,6 +174,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch export",
     usage: "/monarch export",
+  prefixUsage: "!monarch export",
+  prefixAliases: ["export"],
     group: "design",
     summary: "Download the server layout as a portable Monarch template (.json).",
     who: "Manage Server or Administrator",
@@ -119,6 +186,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch embed",
     usage: "/monarch embed",
+  prefixUsage: "!monarch embed",
+  prefixAliases: ["embed"],
     group: "design",
     summary: "Open the Embed Builder (and show the saved embed).",
     who: "everyone",
@@ -128,6 +197,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch test",
     usage: "/monarch test kind:<embed|message> [mode] [channel]",
+  prefixUsage: "!monarch test <embed|message> [test|publish] [#channel]",
+  prefixAliases: ["test"],
     group: "design",
     summary: "Test-send or publish the saved embed/message design.",
     who: "Manage Server or Administrator",
@@ -144,6 +215,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch jail",
     usage: "/monarch jail @user [duration] [reason]",
+  prefixUsage: "!monarch jail @user [duration] [reason]",
+  prefixAliases: ["jail"],
     group: "moderation",
     summary: "Delete everything the user posts and re-post it in the Standard Galactic Alphabet.",
     who: "Administrator or Kick Members",
@@ -163,6 +236,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch unjail",
     usage: "/monarch unjail @user",
+  prefixUsage: "!monarch unjail @user",
+  prefixAliases: ["unjail"],
     group: "moderation",
     summary: "Release a jailed user early.",
     who: "Administrator or Kick Members",
@@ -172,6 +247,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch jailed",
     usage: "/monarch jailed",
+  prefixUsage: "!monarch jailed",
+  prefixAliases: ["jailed"],
     group: "moderation",
     summary: "List who is currently jailed in this server.",
     who: "Administrator or Kick Members",
@@ -184,6 +261,8 @@ export const BURG_COMMANDS: CommandDoc[] = [
   {
     name: "/burg",
     usage: "/burg @user [duration] [style] [reason]",
+  prefixUsage: "!burg @user [duration] [style] [reason]",
+  prefixAliases: ["burg"],
     group: "moderation",
     summary: "Delete a member's messages and re-post them as cute uwu/owo text.",
     who: "Administrator or Kick Members",
@@ -212,6 +291,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music play",
     usage: "/music play <link or search>",
+  prefixUsage: "!music play <link or search>",
+  prefixAliases: ["play", "p"],
     group: "music",
     summary: "Play or queue a song, playlist or album.",
     who: "everyone in a voice channel",
@@ -231,6 +312,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music pause",
     usage: "/music pause",
+  prefixUsage: "!music pause",
+  prefixAliases: ["pause"],
     group: "music",
     summary: "Pause the current song.",
     who: "everyone in the bot's voice channel",
@@ -239,6 +322,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music resume",
     usage: "/music resume",
+  prefixUsage: "!music resume",
+  prefixAliases: ["resume"],
     group: "music",
     summary: "Resume after a pause.",
     who: "everyone in the bot's voice channel",
@@ -247,6 +332,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music skip",
     usage: "/music skip",
+  prefixUsage: "!music skip",
+  prefixAliases: ["skip", "voteskip"],
     group: "music",
     summary: "Skip the current song — instantly with a DJ/staff role, otherwise by vote.",
     who: "everyone (voting) · DJ, Moderator/Staff and the requester (instant)",
@@ -260,6 +347,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music queue",
     usage: "/music queue [page]",
+  prefixUsage: "!music queue [page]",
+  prefixAliases: ["queue", "q"],
     group: "music",
     summary: "Show the queue and what's playing.",
     who: "everyone",
@@ -271,6 +360,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music nowplaying",
     usage: "/music nowplaying",
+  prefixUsage: "!music nowplaying",
+  prefixAliases: ["nowplaying", "np"],
     group: "music",
     summary: "Show the current track with a progress bar and skip status.",
     who: "everyone",
@@ -280,6 +371,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music volume",
     usage: "/music volume [0-150]",
+  prefixUsage: "!music volume [0-150]",
+  prefixAliases: ["volume", "vol"],
     group: "music",
     summary: "Show or set the playback volume.",
     who: "everyone in the bot's voice channel",
@@ -290,6 +383,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music loop",
     usage: "/music loop [off|track|queue]",
+  prefixUsage: "!music loop [off|track|queue]",
+  prefixAliases: ["loop"],
     group: "music",
     summary: "Loop the current track, the whole queue, or nothing.",
     who: "everyone in the bot's voice channel",
@@ -301,6 +396,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music shuffle",
     usage: "/music shuffle",
+  prefixUsage: "!music shuffle",
+  prefixAliases: ["shuffle"],
     group: "music",
     summary: "Shuffle the upcoming tracks.",
     who: "everyone in the bot's voice channel",
@@ -309,6 +406,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music remove",
     usage: "/music remove <position>",
+  prefixUsage: "!music remove <position>",
+  prefixAliases: ["remove"],
     group: "music",
     summary: "Remove one track from the queue.",
     who: "everyone in the bot's voice channel",
@@ -319,6 +418,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music clear",
     usage: "/music clear",
+  prefixUsage: "!music clear",
+  prefixAliases: ["clear"],
     group: "music",
     summary: "Empty the queue but keep playing.",
     who: "everyone in the bot's voice channel",
@@ -327,6 +428,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music stop",
     usage: "/music stop",
+  prefixUsage: "!music stop",
+  prefixAliases: ["stop", "leave"],
     group: "music",
     summary: "Stop playback, clear the queue and leave the voice channel.",
     who: "everyone in the bot's voice channel",

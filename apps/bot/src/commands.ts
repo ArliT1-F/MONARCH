@@ -8,6 +8,8 @@ import {
 import {
   COMMAND_CATALOG,
   COMMAND_GROUPS,
+  DEFAULT_COMMAND_PREFIX,
+  MAX_COMMAND_PREFIX_LENGTH,
   MONARCH_COMMANDS,
   type CommandDoc,
   type CommandGroupId,
@@ -52,6 +54,22 @@ export function monarchCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
     )
     .addSubcommand((s) =>
       s.setName("status").setDescription("Show Monarch's status for this server"),
+    )
+    .addSubcommand((s) =>
+      s.setName("invite").setDescription("Get the link to add Monarch to another server"),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("prefix")
+        .setDescription("Show or change this server's prefix for text commands (default !)")
+        .addStringOption((o) =>
+          o
+            .setName("prefix")
+            .setDescription(
+              `1-${MAX_COMMAND_PREFIX_LENGTH} punctuation characters, e.g. ? or m! — omit to show the current prefix`,
+            )
+            .setMaxLength(MAX_COMMAND_PREFIX_LENGTH),
+        ),
     )
     .addSubcommand((s) =>
       s
@@ -161,11 +179,31 @@ const GOLD = 0xf5c542;
 const GROUP_ORDER: CommandGroupId[] = ["general", "design", "moderation", "music"];
 const FIELD_VALUE_LIMIT = 1024;
 
+/** `also !play, !p` — the short prefix forms of a command, if it has any. */
+function aliasSuffix(doc: CommandDoc): string {
+  const aliases = doc.prefixAliases ?? [];
+  return aliases.length === 0 ? "" : ` · also ${aliases.map((a) => `\`${DEFAULT_COMMAND_PREFIX}${a}\``).join(", ")}`;
+}
+
 function groupLines(docs: CommandDoc[]): string[] {
   return docs.map((c) => {
     const who = c.who.toLowerCase() === "everyone" ? "" : ` · *${c.who}*`;
-    return `**\`${c.usage}\`** — ${c.summary}${who}`;
+    return `**\`${c.usage}\`**${aliasSuffix(c)} — ${c.summary}${who}`;
   });
+}
+
+/**
+ * The prefix line for help footers: every command also answers to the
+ * server's text prefix (or an @Monarch mention). `prefix` is the guild's
+ * configured prefix when the caller knows it — the default is used otherwise.
+ */
+export function prefixHelpLine(prefix: string = DEFAULT_COMMAND_PREFIX): string {
+  const extra = prefix === DEFAULT_COMMAND_PREFIX ? "" : ` (the default \`${DEFAULT_COMMAND_PREFIX}\` still works)`;
+  return (
+    `-# Prefix commands: every command also works as \`${prefix}help\`, \`${prefix}play <song>\`, ` +
+    `\`${prefix}jail @user\`… or with an @Monarch mention${extra}. Change yours with \`${prefix}prefix set <new>\`; ` +
+    `\`${prefix}invite\` adds Monarch to another server.`
+  );
 }
 
 function chunkLines(lines: string[], prefix: string, suffix: string): string[][] {
@@ -191,7 +229,7 @@ function chunkLines(lines: string[], prefix: string, suffix: string): string[][]
  * `/monarch help` → an embed with every command, grouped like the
  * dashboard's Help page. The shared catalog is the single source of truth.
  */
-export function renderHelpEmbeds(appUrl: string, guildId?: string): APIEmbed[] {
+export function renderHelpEmbeds(appUrl: string, guildId?: string, prefix: string = DEFAULT_COMMAND_PREFIX): APIEmbed[] {
   const helpUrl = guildId ? `${appUrl}/s/${guildId}/help` : appUrl;
 
   const fields: { name: string; value: string }[] = [];
@@ -226,7 +264,8 @@ export function renderHelpEmbeds(appUrl: string, guildId?: string): APIEmbed[] {
       title: "👑 Monarch — commands",
       description:
         `**Monarch — Design your Discord.** Full usage guide: ${helpUrl}\n` +
-        `-# Music player: /music play · pause · resume · skip · queue · nowplaying · volume · loop · shuffle · remove · clear · stop`,
+        `-# Music player: /music play · pause · resume · skip · queue · nowplaying · volume · loop · shuffle · remove · clear · stop\n` +
+        prefixHelpLine(prefix),
       fields,
       footer: { text: "Preview first → validate → diff → confirm → apply. Never blind writes." },
     },
@@ -238,7 +277,7 @@ export function renderHelpEmbeds(appUrl: string, guildId?: string): APIEmbed[] {
  * Discord's 2000-character message limit.
  */
 
-export function renderHelp(appUrl: string): string {
+export function renderHelp(appUrl: string, prefix: string = DEFAULT_COMMAND_PREFIX): string {
   const lines = COMMAND_HELP.map((c) => {
     const who = c.who ? ` — *${c.who}*` : "";
     return `**${c.usage}**${who}\n${c.description}`;
@@ -248,6 +287,7 @@ export function renderHelp(appUrl: string): string {
     "",
     ...lines,
     "",
+    `Prefix: every command also answers to \`${prefix}\` (\`${prefix}help\`) or an @Monarch mention — \`${prefix}prefix set <new>\` to change it.`,
     `Dashboard: ${appUrl}`,
   ].join("\n");
 }

@@ -15,7 +15,8 @@ Draft → Preview → Validate → Diff → Confirm → Apply
 
 - 🔐 Discord OAuth2 sign-in (or zero-config **demo mode** with mock servers)
 - 🏰 Server selection with install/permission awareness
-- ➕ One-click **bot invite** from the web UI (per-server, least-privilege)
+- ➕ One-click **bot invite** from the web UI — or `!invite` in any server
+  the bot is already in (same least-privilege link, anyone can run it)
 - 🎨 **Server Designer** — categories & channels, drag-and-drop, inline
   properties, duplicate/delete, undo/redo (Ctrl+Z / Ctrl+Shift+Z)
 - 💾 Per-user drafts with autosave; Discord is never touched while editing
@@ -58,6 +59,11 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   now-playing progress, and a skip system: **DJ, Moderator/Staff and the
   requester skip instantly; everyone else votes** and a majority of the
   listeners passes it
+- ⌨️ **Prefix commands** — every command also works as a plain message:
+  `!help`, `!play <song>`, `!jail @user`, `!backup`, or `@Monarch help`.
+  Each server picks its own prefix with `!prefix set ?` (stored per server,
+  the default `!` and an @Monarch mention always keep working), and unknown
+  `!words` are ignored so other bots' prefixes stay theirs
 - 🤖 Slash commands (the full manual lives at **Help → Commands & Help** in
   the dashboard; `/monarch help` shows the short version):
 
@@ -65,6 +71,8 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   | --- | --- | --- |
   | `/monarch help` | List every command | everyone |
   | `/monarch dashboard` · `/monarch status` | Dashboard link / status | everyone |
+  | `/monarch prefix [prefix]` · `!prefix set ?` | Show or change this server's text-command prefix | Manage Server / Admin |
+  | `/monarch invite` · `!invite` | The link to add Monarch to a server of your own (least-privilege, never Administrator) | everyone |
   | `/monarch backup [name]` | Snapshot the server structure | Manage Server / Admin |
   | `/monarch export` | Post the layout as a `.json` template file | Manage Server / Admin |
   | `/monarch embed` · `/monarch test` | Embed Builder link · test/publish the saved design | Manage Server / Admin |
@@ -76,10 +84,44 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   | `/music skip` | Skip — instantly with a **DJ** or **Moderator/Staff** role (or if it's your song), otherwise by listener vote | everyone |
   | `/music queue [page]` · `/music nowplaying` | Show the queue · now playing with progress | everyone |
   | `/music volume [0-150]` · `/music loop [off\|track\|queue]` · `/music shuffle` · `/music remove <#>` · `/music clear` | Playback controls | everyone in the bot's channel |
+  **Every one of those commands has a prefix form.** The slash tree mirrors
+  one-to-one (`!monarch jail @user 10m`, `!music play <song>`) and the things
+  people type often have short aliases:
+
+  | Prefix | Slash |
+  | --- | --- |
+  | `!help` · `!commands` | `/monarch help` |
+  | `!dashboard` · `!status` · `!prefix [set <new>\|reset]` · `!invite` (`!add`) | `/monarch dashboard` · `status` · `prefix` · `invite` |
+  | `!backup [name]` · `!export` · `!embed` · `!test embed [publish] [#channel]` | `/monarch backup` · `export` · `embed` · `test` |
+  | `!jail @user [duration] [reason]` · `!unjail @user` · `!jailed` | `/monarch jail` · `unjail` · `jailed` |
+  | `!burg @user [duration] [style] [reason]` | `/burg` |
+  | `!play <link or search>` (`!p`) · `!skip` · `!queue [page]` (`!q`) · `!np` | `/music play` · `skip` · `queue` · `nowplaying` |
+  | `!pause` · `!resume` · `!stop` (`!leave`) · `!volume [0-150]` · `!loop [off\|track\|queue]` | `/music pause` · `resume` · `stop` · `volume` · `loop` |
+  | `!shuffle` · `!remove <#>` · `!clear` | `/music shuffle` · `remove` · `clear` |
+
+  Quoted arguments stay in one piece (`!backup "before summer cleanup"`),
+  durations can be written as `10m`, `2h`, `1d` or `1h30m`, and mentioning the
+  bot works as a prefix anywhere (`@Monarch help`). Text commands are public —
+  there is no ephemeral reply for a message everybody can see — and they are
+  the *same handlers* as the slash commands, so permissions and wording never
+  differ between the two ways of typing a command.
+
+  **Nothing that can't hurt anybody asks for a permission.** `help`,
+  `dashboard`, `status`, `prefix` (showing it) and `invite` are open to every
+  member — including `!invite`, which hands out the same "Add Monarch to
+  Discord" link the dashboard's invite button uses, so somebody who finds the
+  bot in a friend's server can put it on their own. Discord's install dialog
+  only offers servers the person clicking can manage, and the link requests
+  just the permissions Monarch uses (never Administrator), so the open door
+  isn't a hole. Everything that reads or changes server data — `backup`,
+  `export`, `embed`, `test`, `prefix set`, the jail/burg gags — still requires
+  Manage Server / Administrator, or Administrator / Kick Members.
+
   `backup`, `export`, `embed` and `test` need `INTERNAL_API_TOKEN` set in
-  both the dashboard and the bot. The jail and `/burg` need the **Message
-  Content** privileged intent (see below) and the **Manage Messages**
-  permission.
+  both the dashboard and the bot — as does saving a custom prefix, since the
+  bot has no database of its own. The jail, `/burg` and **all prefix
+  commands** need the **Message Content** privileged intent (see below); the
+  jail and burg relays also need the **Manage Messages** permission.
   Spotify links need `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` on the
   bot (free app at developer.spotify.com — see `.env.example`); YouTube
   links and search work out of the box. Playback needs **ffmpeg** — the
@@ -120,15 +162,18 @@ actually executes.
    grant it in Server Settings → Roles.
 4. In the developer portal, under **Bot → Privileged Gateway Intents**,
    enable **Message Content**. The jail and burg relays need it to read
-   messages; if it is off the bot still starts (Guilds-only) and the commands
-   explain what is missing. Free below 100 servers; Discord verification above.
+   messages, and so does every prefix (text) command — without it only slash
+   commands work. If it is off the bot still starts (Guilds-only), the
+   commands explain what is missing and text commands simply never fire. Free
+   below 100 servers; Discord verification above.
 5. `npm run dev` — then `npm run dev:bot` in another terminal for slash
    commands.
 
-   `/monarch backup`, `/monarch export`, `/monarch embed` and `/monarch test`
-   call the dashboard's `/api/internal/*` routes — set the same
-   `INTERNAL_API_TOKEN` in both environments. `/monarch dashboard`, `help`,
-    `status`, `/burg`, the jail commands and all of `/music` work without it.
+   `/monarch backup`, `/monarch export`, `/monarch embed`, `/monarch test`
+   and `!prefix set` call the dashboard's `/api/internal/*` routes — set the
+   same `INTERNAL_API_TOKEN` in both environments. `/monarch dashboard`,
+   `help`, `status`, `/burg`, the jail commands, all of `/music` and every
+   other prefix command work without it.
 
    The bot also needs the **Server Voice States** intent for `/music`
    (not privileged — on by default). For Spotify links set
@@ -161,6 +206,7 @@ and apply with `npm run db:migrate`.
 ```
 apps/dashboard    Next.js studio (UI + API routes)
 apps/bot          discord.js bot (dashboard links, status, jail, burg, music player)
+                  — every command on two surfaces: slash + prefix (apps/bot/src/prefix/)
 packages/*        shared · schemas · validation · design-engine · renderer · discord · music
 prisma/           PostgreSQL schema (production persistence target)
 docker/           Compose + Dockerfiles

@@ -149,7 +149,8 @@ export default async function GuildOverviewPage({
           <div className="rounded-2xl border border-ink-700 bg-ink-900 p-4">
             <p className="mb-3 text-[11px] leading-relaxed text-ink-400">
               Everything here has a slash command too. Type <Code>/monarch help</Code> in your
-              server for the full list.
+              server for the full list — or use prefix commands (<Code>!help</Code>,{" "}
+              <Code>!play &lt;song&gt;</Code>, <Code>!prefix set ?</Code>).
             </p>
             <ul className="space-y-2 text-xs text-ink-200">
               <li>
@@ -170,6 +171,12 @@ export default async function GuildOverviewPage({
                 <Code>/burg @user 10m</Code>
                 <span className="block text-[11px] text-ink-400">
                   Re-post their messages as cute uwu text
+                </span>
+              </li>
+              <li>
+                <Code>!prefix set ?</Code>
+                <span className="block text-[11px] text-ink-400">
+                  Your own prefix for every text command
                 </span>
               </li>
             </ul>

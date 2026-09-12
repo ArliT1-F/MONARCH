@@ -4,15 +4,19 @@ import { useMemo, useState } from "react";
 import {
   COMMAND_CATALOG,
   COMMAND_GROUPS,
+  COMMAND_PREFIX_CHARS,
+  DEFAULT_COMMAND_PREFIX,
+  MAX_COMMAND_PREFIX_LENGTH,
   type CommandDoc,
   type CommandGroupId,
 } from "@monarch/shared";
 
 /**
  * The dashboard's Help section — every Monarch and music command, rendered
- * from the shared command catalog (the same data `/monarch help` shows in
- * Discord, so the two can't drift). Client-side because of search + the
- * collapsible command cards.
+ * from the shared command catalog (the same data `/monarch help` and `!help`
+ * show in Discord, so the three can't drift). Each command lists its slash
+ * form *and* its prefix form, because both are real ways to run it.
+ * Client-side because of search + the collapsible command cards.
  */
 export function HelpPanel({ appUrl }: { appUrl: string }) {
   const [query, setQuery] = useState("");
@@ -28,6 +32,8 @@ export function HelpPanel({ appUrl }: { appUrl: string }) {
         if (!normalized) return true;
         return (
           c.usage.toLowerCase().includes(normalized) ||
+          (c.prefixUsage ?? "").toLowerCase().includes(normalized) ||
+          (c.prefixAliases ?? []).some((a) => a.toLowerCase().includes(normalized)) ||
           c.summary.toLowerCase().includes(normalized) ||
           (c.details ?? "").toLowerCase().includes(normalized) ||
           c.who.toLowerCase().includes(normalized) ||
@@ -178,6 +184,33 @@ function CommandCard({
             </div>
           )}
 
+          {(doc.prefixUsage || (doc.prefixAliases ?? []).length > 0) && (
+            <div>
+              <p className="mb-2 text-[11px] font-semibold tracking-[0.18em] text-ink-400 uppercase">
+                Prefix version
+              </p>
+              <p className="flex flex-wrap items-center gap-2 text-sm">
+                <code className="rounded-lg border border-ink-800 bg-ink-950 px-3 py-1.5 text-xs text-gold-300">
+                  {doc.prefixUsage ?? doc.usage.replace("/", `${DEFAULT_COMMAND_PREFIX}`)}
+                </code>
+                {(doc.prefixAliases ?? []).length > 0 && (
+                  <span className="text-xs text-ink-400">
+                    short:{" "}
+                    {(doc.prefixAliases ?? []).map((alias, i) => (
+                      <span key={alias}>
+                        {i > 0 && ", "}
+                        <code className="text-ink-300">
+                          {DEFAULT_COMMAND_PREFIX}
+                          {alias}
+                        </code>
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
+
           {doc.examples && doc.examples.length > 0 && (
             <div>
               <p className="mb-2 text-[11px] font-semibold tracking-[0.18em] text-ink-400 uppercase">Examples</p>
@@ -208,7 +241,8 @@ function CommandCard({
 
           <p className="text-[11px] text-ink-400">
             Run it in Discord: type <code className="text-ink-300">{doc.name}</code> and Discord autocompletes the
-            options. Full guide: {appUrl}/s/&lt;server&gt;/help
+            options — or send it as a plain message with your server&apos;s prefix. Full guide:{" "}
+            {appUrl}/s/&lt;server&gt;/help
           </p>
         </div>
       )}
@@ -253,16 +287,22 @@ function SetupNotes() {
         "Monarch joins the voice channel of whoever runs /music play, leaves when everyone's gone (60s) or when nothing has played for 5 minutes, and needs Connect + Speak in that channel. Queue, volume (per session), loop and shuffle are per server.",
     },
     {
-      id: "setup",
-      title: "Message Content intent (jail + burg)",
+      id: "general",
+      title: "Prefix (text) commands",
       body:
-        "/monarch jail and /burg relay messages, so they need the privileged Message Content intent: Discord developer portal → Bot → Privileged Gateway Intents. Without it the bot still starts and the commands explain what's missing.",
+        `Every command also works as a normal message: ${DEFAULT_COMMAND_PREFIX}help, ${DEFAULT_COMMAND_PREFIX}play <song>, ${DEFAULT_COMMAND_PREFIX}jail @user, or "@Monarch help" — mentioning the bot always works as a prefix. Each server picks its own with ${DEFAULT_COMMAND_PREFIX}prefix set <new> (1–${MAX_COMMAND_PREFIX_LENGTH} characters from ${COMMAND_PREFIX_CHARS}), and ${DEFAULT_COMMAND_PREFIX}prefix reset restores the default; the default prefix keeps working either way, so nobody gets locked out. Unknown ${DEFAULT_COMMAND_PREFIX}words are ignored so other bots' prefixes are untouched.`,
+    },
+    {
+      id: "setup",
+      title: "Message Content intent (prefix commands, jail + burg)",
+      body:
+        "Prefix commands, /monarch jail and /burg all read ordinary messages, so they need the privileged Message Content intent: Discord developer portal → Bot → Privileged Gateway Intents. Without it the bot still starts, slash commands keep working, and the text commands simply don't fire.",
     },
     {
       id: "setup",
       title: "INTERNAL_API_TOKEN (backups, export, publish)",
       body:
-        "/monarch backup, /monarch export, /monarch embed previews and /monarch test call the dashboard's internal API. Set the same INTERNAL_API_TOKEN in the dashboard and the bot environments. /monarch help, dashboard, status and all music commands work without it.",
+        `/monarch backup, /monarch export, /monarch embed previews, /monarch test — and saving a custom prefix with ${DEFAULT_COMMAND_PREFIX}prefix set — call the dashboard's internal API. Set the same INTERNAL_API_TOKEN in the dashboard and the bot environments. /monarch help, dashboard, status, all music commands and the default ${DEFAULT_COMMAND_PREFIX} prefix work without it.`,
     },
   ];
 

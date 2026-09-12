@@ -165,7 +165,11 @@ describe("bot startup", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(mocks.login).toHaveBeenCalledTimes(2);
-    expect(find("Message Content intent is not enabled for this application — /monarch jail and /burg are disabled. Enable it under Bot → Privileged Gateway Intents in the Discord developer portal, then restart.")).toBeDefined();
+    expect(
+      find(
+        "Message Content intent is not enabled for this application — /monarch jail, /burg and all prefix (text) commands are disabled; slash commands keep working. Enable it under Bot → Privileged Gateway Intents in the Discord developer portal, then restart.",
+      ),
+    ).toBeDefined();
     expect(exitSpy).not.toHaveBeenCalled();
   });
 

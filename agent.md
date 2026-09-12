@@ -117,7 +117,7 @@ they live in `prisma.config.ts` (CLI) and `apps/dashboard/lib/prisma.ts`
 | `User` | init | id, username, avatarUrl, createdAt | sessions[], drafts[], auditEntries[] |
 | `Session` | init | id, userId, accessTokenEnc (AES-GCM), createdAt, expiresAt | → User CASCADE |
 | `Guild` | init | id, name, iconUrl, createdAt | settings, workspace, drafts[], versions[], auditEntries[] |
-| `GuildSettings` | init + `…_add_analyzer_dismissed` | guildId, welcomeChannelId, announcementsChannelId, testingChannelId, templateTestingChannelId, analyzerDismissed (Json? — string[] of dismissed analyzer check ids) | → Guild CASCADE |
+| `GuildSettings` | init + `…_add_analyzer_dismissed` + `…_add_command_prefix` | guildId, welcomeChannelId, announcementsChannelId, testingChannelId, templateTestingChannelId, analyzerDismissed (Json? — string[] of dismissed analyzer check ids), commandPrefix (String? — the guild's text-command prefix; NULL = the shared default `!`) | → Guild CASCADE |
 | `GuildWorkspace` | guild_workspace | guildId, embed (Json?), message (Json?), updatedAt | → Guild CASCADE |
 | `DesignDraft` | init | id (cuid), guildId, userId, design, baseDesign, updatedAt — UNIQUE(guildId, userId) | → Guild, → User CASCADE |
 | `DesignVersion` | init | id (cuid), guildId, name, kind, design, createdAt | → Guild CASCADE; INDEX(guildId, createdAt) |
@@ -176,6 +176,19 @@ This is the cheat sheet for "where do I make change X".
   `display_name`, `server`, `member_count`, `channel`. Pattern: `\{([a-z_]+)\}`.
 - `permissions.ts` — `Permission` (bigint bitflags for Discord v10), `hasPermission`,
   `canDesignGuild` (ManageGuild OR Administrator), `missingPermissions`
+- `invite.ts` — `INVITE_PERMISSIONS`, `INVITE_SCOPES`, `invitePermissionBits()`,
+  `isValidGuildId`, `buildBotInviteUrl({clientId, guildId})`. **The one place the
+  "Add to Server" link is built** — the dashboard's `lib/invite.ts` wraps it with
+  env/demo-mode awareness and `GET /api/invite` redirects to it, while the bot's
+  `!invite` / `/monarch invite` posts the identical URL in chat. Never
+  Administrator (spec §32); tests on both sides assert the bitfield.
+- `prefix.ts` — `DEFAULT_COMMAND_PREFIX = "!"`, `MAX_COMMAND_PREFIX_LENGTH = 4`,
+  `COMMAND_PREFIX_CHARS` (punctuation a prefix may end with),
+  `parseCommandPrefix(input)` → `{ok:true,prefix} | {ok:false,message}` and
+  `isCommandPrefix`. **The one place prefix legality is decided** — the bot's
+  `!prefix set` and the dashboard's internal route both call it, so they can't
+  disagree. Rule: ≤4 chars, no whitespace, never `@` `/` quotes/brackets, and
+  it must *end* in punctuation (so `m!` and `>>` are fine, `hey` is not).
 
 ### `packages/schemas` (zod)
 - `server-design.ts` — `DESIGN_SCHEMA_VERSION = 1`; `CategoryDesign`, `ChannelDesign`
@@ -409,7 +422,12 @@ This is the cheat sheet for "where do I make change X".
 ### `apps/bot/src`
 - `index.ts` — **Lightweight bot.** Guilds + GuildMessages + MessageContent
   intents, with Guilds-only fallback if MessageContent isn't enabled in the
-  developer portal (logs warning, disables `/monarch jail`).
+  developer portal (logs warning, disables `/monarch jail`, `/burg` **and
+  every prefix command** — slash commands keep working).
+  Owns only what needs the live gateway: the relay webhooks, the lazy
+  `MusicManager`, `onMessage` (1. prefix dispatch → 2. jail/burg relay) and
+  `onInteraction`. All command bodies live in `monarch-commands.ts` /
+  `music/commands.ts` and are shared by both surfaces.
   **Graceful shutdown:** SIGTERM/SIGINT → log → `client.destroy()` → `exit(0)`.
   **Idempotent, never throws on `destroy()`.** `unhandledRejection` logged
   not fatal. Slash-command registration is non-fatal (transient Discord
@@ -424,6 +442,41 @@ This is the cheat sheet for "where do I make change X".
   - `JAIL_PERMISSIONS` = Administrator OR KickMembers.
   - `DESIGN_PERMISSIONS` = Administrator OR ManageGuild.
   - **All subcommands are `InteractionContextType.Guild`.**
+  - `renderHelpEmbeds(appUrl, guildId?, prefix?)` + `prefixHelpLine(prefix)`
+    add the prefix line and per-command `also !play, !p` aliases.
+- `context.ts` — **`CommandContext`: the surface-neutral command API**
+  (`reply`/`replyHidden`/`replyEmbeds`/`defer`/`edit`/`attach`, option
+  readers, `args`, `resolveMember`, `memberHasAny`, `myPermissions`) plus
+  `hasAnyPermission` (uses `PermissionsBitField.has`, so **Administrator
+  implies everything** — never hand-roll a bitwise AND) and
+  `allowedMentionsFor`.
+- `slash-context.ts` — `SlashCommandContext(interaction, prefix)`: ephemeral
+  replies, `deferReply` → `editReply`, `AttachmentBuilder` for `/monarch export`.
+- `monarch-commands.ts` — `MonarchCommands` (help, dashboard, **invite**,
+  status, **prefix**, backup, export, embed, test, jail, unjail, jailed) + `burg(ctx)`,
+  written once against `CommandContext`. Also `parseGagArgs` (mention/id +
+  duration + style + reason, order-free) and `DURATION_ERROR`; a
+  duration-*shaped* word it can't parse (`10 minutes`, `0m`) refuses the
+  command rather than silently jailing forever.
+- `prefix/parse.ts` — **pure** prefix tokenizer + router: `parseArgs`
+  (quotes, mention→snowflake), `extractPrefixCommand(content, prefixes,
+  botUserId)`, `matchCommand`, and the alias tables
+  `MONARCH_PREFIX_ALIASES` / `MUSIC_PREFIX_ALIASES` (tested against the
+  shared catalog's `prefixAliases`).
+- `prefix/context.ts` — `PrefixCommandContext(message, invocation, prefix,
+  args)`: no ephemeral (text commands are public), `defer()` posts a
+  placeholder it edits later, **always sends an explicit `allowedMentions`**,
+  `resolveMember(id)` = mentions → cache → `guild.members.fetch`.
+  `canReplyIn(message)` gates on View Channel + Send Messages.
+- `prefix/dispatch.ts` — `handlePrefixMessage(message, deps)` → `boolean`
+  ("was this one of mine?"). Fast path matches cached prefixes with no I/O;
+  slow path resolves the guild's prefix (one internal-API call per guild per
+  TTL) only for plausible messages. Silent on unknown `!words` (other bots'
+  prefixes), helpful on `@Monarch <typo>`.
+- `prefix/registry.ts` — `PrefixRegistry` (TTL cache, `peek` = sync cache
+  read, `get`, `candidates`, `set(guildId, prefix|null)`) + `PrefixStore`
+  seam + `internalPrefixStore(appUrl, token)`. **A dead dashboard degrades to
+  the default prefix, never to a per-message fetch.**
 - `jail.ts` — `JailRegistry` in-memory on purpose. `setTimeout` tops out at
   ~24.8 days, so durations >2B ms are chunked. **A bot restart releases
   everyone by design.**
@@ -469,6 +522,8 @@ This is the cheat sheet for "where do I make change X".
 | GET | `/api/internal/guilds/:id/backup` | **INTERNAL_API_TOKEN** | – | Top-10 snapshots metadata (bot `/monarch backup` list). |
 | POST | `/api/internal/guilds/:id/backup` | **INTERNAL_API_TOKEN** | – | Take a backup now (bot `/monarch backup`). |
 | GET | `/api/internal/guilds/:id/template` | **INTERNAL_API_TOKEN** | – | Export template (bot `/monarch export` returns JSON; the bot attaches it as a file). |
+| GET | `/api/internal/guilds/:id/prefix` | **INTERNAL_API_TOKEN** | – | The guild's command prefix (`{prefix, customized, default, maxLength}`) — bot cache refill for `!help`/`!status`/matching. |
+| PUT | `/api/internal/guilds/:id/prefix` | **INTERNAL_API_TOKEN** | – | `{prefix: "?"}` to change, `{prefix: null}` to reset. Validated with the shared `parseCommandPrefix`; writes `GuildSettings.commandPrefix`. Called by `!prefix set` / `/monarch prefix`. |
 
 **`guild.userCanDesign` requires `userCanDesign` (ManageGuild/Administrator OR owner)**
 at the guild level — `requireGuildAccess` enforces this.
@@ -507,12 +562,12 @@ at the guild level — `requireGuildAccess` enforces this.
 `apps/bot/src/music/` (adapter):
 - `sources.ts` — YouTube via **youtubei.js** (search / getBasicInfo / playlists with continuations / `download()` audio); Spotify via the **official Web API** (client-credentials token cached in process, metadata only). Spotify tracks carry `youtubeSearch: "Artist - Title"` and are matched to a YouTube video **lazily at play time** (queuing a 200-track playlist stays instant). Live streams refused. `SourceError` → human-readable replies.
 - `player.ts` — `MusicManager`: per-guild AudioPlayer + VoiceConnection driven by the pure queue. Idle handler advances (loop modes decide); `skipping`/`stopping` flags distinguish manual stop from natural end; 3 consecutive failures -> give up + teardown; empty channel -> leave after 60s; idle -> leave after 5min. Announcements post to the last music command's text channel. Volume 0-150 via `resource.volume` (**needs ffmpeg** — `ffmpeg.ts` resolves FFMPEG_PATH -> @ffmpeg-installer/ffmpeg -> system; Docker image ships the apk).
-- `commands.ts` — `musicCommandJSON()` (/music: play/pause/resume/skip/queue/nowplaying/volume/loop/shuffle/remove/clear/stop) + `handleMusicCommand`. Skip: `canForceSkip` -> instant, else vote; controls require being in the bot's voice channel, queue/nowplaying viewable anywhere.
+- `commands.ts` — `musicCommandJSON()` (/music: play/pause/resume/skip/queue/nowplaying/volume/loop/shuffle/remove/clear/stop) + `MusicCommands(manager).run(ctx, sub)` — surface-neutral, so `/music play` and `!play` are one code path. Skip: `canForceSkip` -> instant, else vote; controls require being in the bot's voice channel, queue/nowplaying viewable anywhere. Prefix arguments are read positionally (`!queue 2`, `!volume 80`, `!loop track`); `!play` takes the whole rest of the message as the query.
 - **Intents:** `GuildVoiceStates` is in BOTH intent sets (not privileged).
 
 ### Command catalog (single source of truth)
 
-`packages/shared/src/commands.ts` — `CommandDoc` {name, usage, group (general|design|moderation|music), summary, who, details?, args?, examples?, notes?} + `COMMAND_GROUPS` / `MONARCH_COMMANDS` / `MUSIC_COMMANDS` / `COMMAND_CATALOG`. **The bot's `/monarch help` embed (`renderHelpEmbeds` in apps/bot/src/commands.ts) and the dashboard Help page (`app/s/[guildId]/help` + `components/help/HelpPanel.tsx`) both render from it** — tests keep catalogs and registered manifests in sync. Adding a command: update the SlashCommandBuilder, add the catalog entry, run the tests.
+`packages/shared/src/commands.ts` — `CommandDoc` {name, usage, **prefixUsage, prefixAliases**, group (general|design|moderation|music), summary, who, details?, args?, examples?, notes?} + `COMMAND_GROUPS` / `MONARCH_COMMANDS` / `BURG_COMMANDS` / `MUSIC_COMMANDS` / `COMMAND_CATALOG`. **The bot's `/monarch help` + `!help` embed (`renderHelpEmbeds` in apps/bot/src/commands.ts) and the dashboard Help page (`app/s/[guildId]/help` + `components/help/HelpPanel.tsx`) both render from it** — tests keep catalogs, registered manifests *and* the prefix alias tables in sync (`apps/bot/test/prefix-parse.test.ts`). Adding a command: update the SlashCommandBuilder, add the catalog entry **with its prefix form and aliases**, add the alias + handler case, run the tests (see §12 "Adding a new prefix command").
 
 ## 5. Environment variables (`.env.example`)
 
@@ -526,7 +581,7 @@ at the guild level — `requireGuildAccess` enforces this.
 | `DATABASE_URL` | required on Vercel | PrismaStore (pooled URL on serverless) | The file store throws on serverless if this is missing |
 | `DIRECT_DATABASE_URL` | only for migrations | prisma migrate | Set to the same as DATABASE_URL for plain Postgres |
 | `MONARCH_DEMO` | optional | `isDemoMode` | `"1"` forces demo even with creds |
-| `INTERNAL_API_TOKEN` | optional | bot/dashboard server-to-server | `openssl rand -hex 32`; same value on dashboard + bot. Without it `/monarch backup/export/embed/test` and `/api/internal/*` reply 503 |
+| `INTERNAL_API_TOKEN` | optional | bot/dashboard server-to-server | `openssl rand -hex 32`; same value on dashboard + bot. Without it `/monarch backup/export/embed/test`, saving a custom prefix, and `/api/internal/*` reply 503 — everything else (incl. all prefix commands on the default `!`) still works |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | for Spotify links | bot music | Official Web API, client credentials. Without them `/music` says Spotify isn't configured; YouTube/search work |
 | `MUSIC_DJ_ROLE_NAMES` | optional | `/music skip` | Comma-separated role names that force-skip; default `dj` |
 | `MUSIC_STAFF_ROLE_NAMES` | optional | `/music skip` | Default moderator/mod/staff/admin/administrator + plurals; real moderation permissions always count too |
@@ -574,7 +629,9 @@ at the guild level — `requireGuildAccess` enforces this.
     capitalization, duplicates, palette focus, color coverage curve, hoist
     discipline, branding weights, palette alignment), dismissal exclusion
     math, @everyone/managed exemptions.
-  - `apps/dashboard` — `backups.test.ts` (createBackup/stageRestore/
+  - `apps/dashboard` — `command-prefix.test.ts` (store round-trip, settings
+    form can't clobber it, the internal GET/PUT route incl. auth + validation),
+    `backups.test.ts` (createBackup/stageRestore/
     export/stageImport against FileStore + stubbed Discord),
     `library.test.ts` (library store round-trips, owner scoping + hijack
     rejection, save-from-guild/upload, rename/duplicate/delete, envelope
@@ -584,9 +641,17 @@ at the guild level — `requireGuildAccess` enforces this.
     `prisma-store.integration.test.ts` (PGlite + applied migrations;
     needs Prisma client — fails in this sandbox),
     `fetch-json.test.ts`, `invite.test.ts`, `workspace-parse.test.ts`.
-  - `apps/bot` — `commands.test.ts` (help stays in sync + under 2000 chars),
-    `galactic.test.ts`, `jail.test.ts`, `shutdown.test.ts` (drives the
-    real entry point with discord.js stubbed; mutation-checked).
+  - `apps/bot` — `commands.test.ts` (help stays in sync + under 2000 chars,
+    prefix line + aliases), `prefix-parse.test.ts` (tokenizer, mention
+    prefix, routing, silence rule, **alias tables ⇄ shared catalog**),
+    `prefix-registry.test.ts` (TTL cache, peek, degradation, validation,
+    internal store HTTP shape), `prefix-commands.test.ts` (fake gateway
+    messages through the real dispatcher + real handlers/registries),
+    `slash-context.test.ts` (the slash adapter: ephemeral, defer→edit, same
+    registries as prefix), `galactic.test.ts`, `jail.test.ts`, `burg.test.ts`,
+    `music-*.test.ts`, `shutdown.test.ts` (drives the real entry point with
+    discord.js stubbed; mutation-checked).
+  - `packages/shared` — `prefix.test.ts` (prefix legality rules).
 
 - **Test count (most recent reported):** 198 passed, 8 failing in this
   sandbox (the PGlite Prisma integration suite — needs the generated
@@ -734,6 +799,7 @@ work — the merge commit already contains the full tree).
 | `20260902000000_init/` | 2026-09-02 (filename) | All 9 base tables (User, Session, Guild, GuildSettings, DesignDraft, DesignVersion, Template, AuditEntry, MockDiscordState) + FKs + indexes | PR #2 |
 | `20260907000000_add_guild_workspace/` | 2026-09-07 (filename) | `GuildWorkspace` table + FK to Guild | PR #7 |
 | `20260909230000_add_analyzer_dismissed/` | 2026-09-09 (filename) | `GuildSettings.analyzerDismissed JSONB` (Design Analyzer "mark as intentional") | Template Library + Analyzer session |
+| `20260912000000_add_command_prefix/` | 2026-09-12 (filename) | `GuildSettings.commandPrefix TEXT` (per-server prefix for text commands) | Prefix commands session |
 
 `migration_lock.toml` provider is `postgresql`.
 
@@ -802,13 +868,26 @@ are the stand-in identity in `apps/dashboard/lib/workspace.ts`.
 
 ### Adding a new slash command
 
-1. Add a `CommandHelp` entry to `COMMAND_HELP` in
-   `apps/bot/src/commands.ts`.
+1. Add the catalog entry (`CommandDoc`) in `packages/shared/src/commands.ts`
+   — `COMMAND_HELP` in `apps/bot/src/commands.ts` derives from it.
 2. Add an `.addSubcommand(...)` to `monarchCommandJSON()`.
-3. Add the case in `onInteraction()` in `apps/bot/src/index.ts`. The
-   `commands.test.ts` enforces help-sync and length.
-4. (If it needs API access) call `internalHeaders()` and the
+3. Add the case to `MonarchCommands.run()` in
+   `apps/bot/src/monarch-commands.ts`, written against `CommandContext`
+   (never against the interaction — that's what keeps both surfaces equal).
+4. (If it needs API access) call `this.internalHeaders()` and the
    `/api/internal/...` route; if not, do it locally (e.g. jail relay).
+5. `apps/bot/test/commands.test.ts` enforces help-sync and Discord's limits.
+
+### Adding a new prefix command (or alias)
+
+1. Add `prefixUsage` + `prefixAliases` to the command's catalog entry.
+2. Add the alias to `MONARCH_PREFIX_ALIASES` / `MUSIC_PREFIX_ALIASES` in
+   `apps/bot/src/prefix/parse.ts` (a new top-level surface needs a case in
+   `matchCommand` + `runCommand`).
+3. Read arguments through `ctx.args` / the option readers — never through
+   `message.content`. `apps/bot/test/prefix-parse.test.ts` fails if the alias
+   table and the catalog disagree, and `prefix-commands.test.ts` is where the
+   end-to-end wiring test goes.
 
 ### Adding a new Discord capability
 
@@ -861,7 +940,10 @@ needed.
 | Change the OAuth scopes or callback behaviour | `apps/dashboard/lib/auth.ts`, `app/api/auth/*` |
 | Change the session cookie TTL | `apps/dashboard/lib/session.ts` (also update `SESSION_TTL_MS` in `prisma-store.ts`) |
 | Change invite permissions or scope | `apps/dashboard/lib/invite.ts` |
-| Add a new bot slash command | `apps/bot/src/commands.ts` + `index.ts` (`onInteraction` switch) |
+| Add a new bot slash command | `apps/bot/src/commands.ts` (builder) + `monarch-commands.ts` (handler) |
+| Add a new prefix command / alias | `apps/bot/src/prefix/parse.ts` (alias tables) + the shared catalog's `prefixAliases` |
+| Change the default prefix or what a legal prefix is | `packages/shared/src/prefix.ts` only |
+| Change how a server's prefix is stored / cached | `apps/bot/src/prefix/registry.ts`, `app/api/internal/guilds/[guildId]/prefix/route.ts`, `GuildSettings.commandPrefix` |
 | Add a new SGA glyph (or anything jail-related) | `apps/bot/src/galactic.ts`, `apps/bot/src/jail.ts` |
 | Change the diff/apply ordering | `packages/design-engine/src/{diff,apply-plan}.ts` |
 | Add a new variable | `packages/shared/src/variables.ts` (CORE_VARIABLES) |
@@ -1170,3 +1252,141 @@ palette) render an "advisory" pill with the nudge.
 - "Not much to analyze yet" empty-state messaging beyond the
   `org.has-structure` suggestion.
 - Public/shared templates and the curated starter gallery (Appendix F 9).
+
+---
+
+## 19. Prefix (text) commands — implemented 2026-09-12
+
+**Ask:** "i want to also have prefix commands." Chosen shape (the user picked
+all four): **per-server prefix set from the bot only** (`per_guild_bot_only`),
+surface **mirrors the slash tree plus short aliases** (`mirror_plus_short`),
+**every** command group covered (`all`), **full docs pass** (`full`).
+
+**Rule of the feature: one handler, two surfaces.** Prefix commands are *not*
+a parallel implementation — `PrefixCommandContext` implements the same
+`CommandContext` that `SlashCommandContext` does, and `MonarchCommands.run` /
+`MusicCommands.run` / `burg` never learn which one they got. Anything that
+makes them diverge is a bug: `apps/bot/test/slash-context.test.ts` exists to
+catch exactly that (same jail registry instance, same moderation checks,
+ephemeral ⇒ flag 64 on slash and absent on text, `/monarch backup` defers and
+edits *once*).
+
+### Files
+
+| Path | What it is |
+|---|---|
+| `packages/shared/src/prefix.ts` | Prefix legality + defaults (see §4). Only place that decides "is this a valid prefix". |
+| `apps/bot/src/prefix/parse.ts` | Pure tokenizer/router: `parseArgs`, `extractPrefixCommand`, `matchCommand`, `commandWordCount`, alias tables. No I/O, no discord.js beyond types. |
+| `apps/bot/src/prefix/context.ts` | `PrefixCommandContext` + `PrefixInvocation` + `canReplyIn`. |
+| `apps/bot/src/prefix/registry.ts` | `PrefixRegistry` (60 s TTL, negative caching, `peek`/`get`/`candidates`/`set`), `PrefixStore` seam, `internalPrefixStore`. |
+| `apps/bot/src/prefix/dispatch.ts` | `handlePrefixMessage(message, deps)` — the gateway side; returns whether Monarch answered. |
+| `apps/bot/src/context.ts` | `CommandContext` interface (was slash-only; now the contract both surfaces implement). |
+| `apps/bot/src/monarch-commands.ts` | Handlers + the new `prefix` subcommand (`show`/`set`). |
+| `apps/dashboard/app/api/internal/guilds/[guildId]/prefix/route.ts` | `GET`/`PUT` — Bearer `INTERNAL_API_TOKEN`, snowflake-checked, `parseCommandPrefix`-validated, `GuildSettings.commandPrefix` NULL = default. |
+| `prisma/migrations/20260912000000_add_command_prefix/` | Adds that column (Postgres; Prisma auto-maps it on SQLite for the file store). |
+| `apps/dashboard/components/help/HelpPanel.tsx` | Renders `prefixUsage` + aliases per group + a "Prefix commands" block (the dashboard has **no** prefix UI, per the chosen scope — this is read-only documentation). |
+| `packages/shared/src/invite.ts` | The invite link both surfaces hand out (`!invite` ⇄ the dashboard's invite button). |
+
+### Matching order (and why)
+
+1. **`@Monarch` mention** — always works, zero API calls, and it is the only
+   way to run a command when somebody set a prefix you don't know.
+2. **Text prefixes, longest first** — `candidates` = `[default, guild prefix]`;
+   longest-first so `m!!` wins over `m!`, and case-insensitive (`!HELP`).
+3. Whatever follows is tokenized by `parseArgs` — **no punctuation guard**:
+   `hey` is rejected by the *prefix* rules, not by the matcher.
+
+Then `matchCommand` decides the response policy:
+
+| Message | Result | Why |
+|---|---|---|
+| `!play despacito` | runs `music play` | |
+| `!monarch jail @u 10m` / `!music play x` | runs the full path | mirrors the slash tree |
+| `!monarch` (bare group root) | help reply | ambiguous *our* prefix ⇒ teach |
+| `!frobnicate` | **silence** | another bot's prefix is not our business |
+| `!` (bare) | silence | |
+| `@Monarch` (bare) | greeting | an explicit mention deserves an answer |
+| `@Monarch frobnicate` | "I don't have that command" | a mention is unambiguous |
+
+Silence on unknown `!words` is the deliberate design decision — a server with
+three bots would otherwise get three "unknown command" replies per typo.
+
+### Caching / degradation
+
+`PrefixRegistry.peek(guildId)` is the **sync** cache read used to decide "could
+this message possibly be mine" *before* any `await`. Careful: a cached `null`
+means "this server has no custom prefix" — an answer, not a miss (that bug
+cost a full-suite pass once; `prefix-registry.test.ts` now pins it).
+`resolve()` validates whatever comes back from the store with
+`parseCommandPrefix` and falls back to the default + a warn log, so a corrupt
+row can never break matching. Store failure ⇒ default prefix still works
+(`get()` returns null, never throws). `set()` writes through and refreshes the
+cache entry.
+
+### Wiring in `index.ts`
+
+```ts
+const prefixes = new PrefixRegistry(internalPrefixStore(appUrl, token));
+const monarch = new MonarchCommands(...);   // shared with the slash surface
+const prefixDeps: PrefixDeps = {
+  client, jail, burg, monarch, music, prefixes,
+  enabled: () => jailEnabled,   // MessageContent intent gates text commands
+};
+```
+
+`onMessage` order matters: **prefix dispatch first, then the jail/burg
+relay.** A jailed user's `!help` becomes galactic text instead of a reply —
+that's intentional (the gag wins), and it's asserted in
+`prefix-commands.test.ts`.
+
+### Gotchas learned the hard way
+
+- **Display prefix ≠ invocation prefix.** Replies must quote something the
+  reader can type. `ctx.commandPrefix` is resolved by the dispatcher as
+  `await deps.prefixes.get(guildId)` even for mention invocations (a raw
+  `<@123>` in a help embed is useless). Help/status read `ctx.commandPrefix`
+  directly — never re-query the registry inside a handler (that double lookup
+  made slash `/monarch help` quote the guild prefix... correctly by accident,
+  and wrongly on the text surface).
+- **`allowedMentions`.** Prefix replies default to `{parse: []}` so a
+  `!jail <@someone>` reply can't ping the room; the slash surface omits it
+  (Discord's own ephemeral behaviour).
+- **Durations.** `parseDuration` needs digits+unit (`10m`, `1h30m`).
+  `parseGagArgs` classifies a *duration-shaped* word it can't parse
+  (`ten minutes`, `0m`) as an error ⇒ `DURATION_ERROR`; a non-time word
+  (`forever`, `because reasons`) is a reason. Only the text surface can
+  produce that error — slash has a validated duration option.
+- **Text commands are public.** No ephemeral flag; `replyHidden` just calls
+  `reply`. Anything that would leak a secret must not be a command output.
+- `defer()` on the text surface posts "⏳ Working on it…" then edits; the
+  slash surface defers for real. `/monarch backup` therefore *must* be
+  assert-on-the-API-snapshot in tests, not on a fixed filename.
+- The file store round-trips through SQLite, so `commandPrefix` there is a
+  plain string column; `lib/store.ts` + `lib/prisma-store.ts` both map it and
+  `updateGuildSettings` must not drop it when a settings form is saved
+  (regression-tested in `apps/dashboard/test/command-prefix.test.ts`).
+
+### Who may run what (follow-up, same session)
+
+Text commands put a bot in every member's reach, so the split is explicit:
+
+| Open to every member | Needs Manage Server / Administrator | Needs Administrator / Kick Members |
+|---|---|---|
+| `help` · `dashboard` · `status` · `invite` (`add`) · `prefix` **show** · all read-only music (`queue`, `nowplaying`, `play`, `skip` by vote) | `prefix set`/`reset` · `backup` · `export` · `embed` preview · `test` | `jail` · `unjail` · `jailed` · `burg` |
+
+None of the open ones read or change server data — they are links and status.
+`!invite` deliberately hands the install link to *anybody*: Discord's install
+dialog only offers servers the clicker can manage, and the link carries exactly
+`INVITE_PERMISSIONS` (never Administrator), so it grants nothing. It needs an
+application id: `DISCORD_CLIENT_ID` on the worker, else the bot's own user id
+(the dispatcher late-binds `MonarchCommands.botUserId`), else it says what's
+missing and points at the dashboard's invite button.
+
+### Deliberately **not** done (out of the chosen scope)
+
+- No dashboard UI for the prefix (bot command only) — the Help page documents it.
+- No per-channel or per-role prefixes, no prefix in DMs (guild-only commands).
+- No second bot worker, no new permissions, no raw REST outside
+  `packages/discord` (the internal-API fetch is the documented exception).
+- JailRegistry stays in-memory (a restart still releases jails).
+
