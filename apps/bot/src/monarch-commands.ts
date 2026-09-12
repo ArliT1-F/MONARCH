@@ -1,4 +1,4 @@
-import { PermissionFlagsBits, type GuildMember } from "discord.js";
+import { PermissionFlagsBits, type GuildBasedChannel, type GuildMember } from "discord.js";
 import {
   COMMAND_PREFIX_CHARS,
   DEFAULT_COMMAND_PREFIX,
@@ -10,6 +10,7 @@ import { BURG_PERMISSIONS, DESIGN_PERMISSIONS, renderHelpEmbeds } from "./comman
 import type { BurgRegistry, BurgStyle } from "./burg.js";
 import { toBurg } from "./burg.js";
 import type { CommandContext } from "./context.js";
+import { confessButtonRow, starterEmbed, type ConfessionRegistry } from "./confession.js";
 import { formatDuration, parseDuration } from "./durations.js";
 import type { PrefixRegistry } from "./prefix/registry.js";
 
@@ -32,6 +33,8 @@ export interface MonarchCommandDeps {
   internalToken?: string;
   burg: BurgRegistry;
   prefixes: PrefixRegistry;
+  /** Per-guild confession channels (persisted through the internal API). */
+  confessions: ConfessionRegistry;
   /** True when the Message Content intent is enabled (the burg relay needs it). */
   burgEnabled: () => boolean;
   /**
@@ -64,6 +67,7 @@ export const MONARCH_SUBCOMMANDS = [
   "embed",
   "test",
   "burged",
+  "confession",
 ] as const;
 
 export type MonarchSubcommand = (typeof MONARCH_SUBCOMMANDS)[number];
@@ -220,6 +224,8 @@ export class MonarchCommands {
         return this.test(ctx);
       case "burged":
         return this.burged(ctx);
+      case "confession":
+        return this.confession(ctx);
       default:
         await ctx.replyHidden(
           `❓ I don't know \`${sub}\`. Try \`${ctx.commandPrefix}help\` or \`/monarch help\` for the full list.`,
@@ -745,6 +751,152 @@ export class MonarchCommands {
         `Their messages will be re-posted as ${styleLabel}, e.g. ${toBurg("hello there", style)} under their name and avatar.\n` +
         `Use \`${ctx.commandPrefix}burg\` on them again to turn it off.`,
     );
+  }
+
+  // ── confessions ────────────────────────────────────────────────────
+
+  /**
+   * `/monarch confession setup [channel] [logs]` / `disable` (and the prefix
+   * forms `!monarch confession …`, `!confession …`).
+   *
+   * Setup fully reconfigures the feature in one call: the public confession
+   * channel (the channel where the command was run, by default) plus an
+   * optional staff-only log channel. On success the starter confession is
+   * posted to the public channel — from then on every confession carries the
+   * Confess button that opens the anonymous form (see ./confession.ts).
+   */
+  private async confession(ctx: CommandContext): Promise<void> {
+    // Slash: the group's leaf. Prefix: the first argument word (`setup` in
+    // `!confession setup`, `!monarch confession setup`).
+    const verb = (ctx.getSubcommand() ?? "").toLowerCase();
+    if (verb === "disable") return this.confessionDisable(ctx);
+    if (verb !== "setup") {
+      await ctx.replyHidden(
+        [
+          `❓ Confessions usage:`,
+          `• \`${ctx.commandPrefix}monarch confession setup [#channel] [#logs]\` — point confessions at a channel (this one by default) and an optional staff log channel, then post the starter confession`,
+          `• \`${ctx.commandPrefix}monarch confession disable\` — switch confessions off`,
+          `• Also try \`/monarch confession setup\` with the channel picker.`,
+        ].join("\n"),
+      );
+      return;
+    }
+    if (!ctx.memberHasAny(DESIGN_PERMISSIONS)) {
+      await ctx.replyHidden("❌ You need **Manage Server** or **Administrator** to set up confessions.");
+      return;
+    }
+    const confessions = this.deps.confessions;
+    if (!confessions.persistent) {
+      await ctx.replyHidden(
+        "❌ Confession setup is saved through the Monarch dashboard — set `INTERNAL_API_TOKEN` in the dashboard and bot environments first.",
+      );
+      return;
+    }
+
+    await ctx.defer({ hidden: true });
+
+    // Slash: typed channel options. Prefix: channel mentions arrive as
+    // snowflakes in argument order (first = channel, second = logs).
+    const snowflakes = (ctx.surface === "prefix" ? ctx.args.slice(1) : []).filter((a) =>
+      /^\d{15,25}$/.test(a),
+    );
+    const channelId = ctx.getChannelOption("channel")?.id ?? snowflakes[0] ?? ctx.channelId;
+    const logChannelId = ctx.getChannelOption("logs")?.id ?? snowflakes[1] ?? null;
+
+    const fetchedPublic = await ctx.guild.channels.fetch(channelId).catch(() => null);
+    const publicChannel = fetchedPublic && fetchedPublic.isTextBased() ? fetchedPublic : null;
+    if (!publicChannel || !this.canConfessIn(publicChannel, ctx)) {
+      await ctx.edit(
+        "❌ I can't read and write in that channel (or it isn't a text channel in this server). " +
+          "Pick one Monarch can see and post in, then try again.",
+      );
+      return;
+    }
+
+    let logChannel: GuildBasedChannel | null = null;
+    if (logChannelId) {
+      if (logChannelId === channelId) {
+        await ctx.edit(
+          "❌ The log channel must be different from the confession channel — the log entries say who " +
+            "confessed, so keep them in a staff-only channel.",
+        );
+        return;
+      }
+      logChannel = await ctx.guild.channels.fetch(logChannelId).catch(() => null);
+      if (!logChannel || !this.canConfessIn(logChannel, ctx)) {
+        await ctx.edit(
+          "❌ I can't read and write in the log channel (or it isn't a text channel in this server). " +
+            "Pick one Monarch can see and post in — ideally a staff-only channel.",
+        );
+        return;
+      }
+    }
+
+    const outcome = await confessions.configure(ctx.guildId, { channelId, logChannelId });
+    if (!outcome.ok) {
+      await ctx.edit(outcome.message);
+      return;
+    }
+
+    try {
+      await publicChannel.send({
+        embeds: [starterEmbed()],
+        components: [confessButtonRow()],
+        allowedMentions: { parse: [] },
+      });
+    } catch (e) {
+      this.deps.log.warn("couldn't post the starter confession", { guildId: ctx.guildId, error: String(e) });
+      await ctx.edit(
+        "✅ Confessions are set up, but I couldn't post the starter confession — check my permissions " +
+          "in that channel and run the command again.",
+      );
+      return;
+    }
+
+    await ctx.edit(
+      [
+        `🤫 **Confessions are live in ${publicChannel.name}** — the starter confession is posted.`,
+        "• Anyone can press **Confess** on any confession and tell us their secret — it goes up as an embed with no name, no avatar, no id.",
+        logChannel
+          ? `• Staff log: **${logChannel.name}** receives who, when, and a link to every confession — keep it staff-only.`
+          : "• No log channel — confessions are fully untraceable. Add one with the `logs` option if staff should be able to see who confesses.",
+        `• Re-run \`${ctx.commandPrefix}monarch confession setup\` to change the channels, or \`${ctx.commandPrefix}monarch confession disable\` to switch off.`,
+      ].join("\n"),
+    );
+  }
+
+  private async confessionDisable(ctx: CommandContext): Promise<void> {
+    if (!ctx.memberHasAny(DESIGN_PERMISSIONS)) {
+      await ctx.replyHidden("❌ You need **Manage Server** or **Administrator** to disable confessions.");
+      return;
+    }
+    const confessions = this.deps.confessions;
+    if (!confessions.persistent) {
+      await ctx.replyHidden(
+        "❌ Confession setup is saved through the Monarch dashboard — set `INTERNAL_API_TOKEN` in the dashboard and bot environments first.",
+      );
+      return;
+    }
+    const outcome = await confessions.configure(ctx.guildId, { channelId: null, logChannelId: null });
+    if (!outcome.ok) {
+      await ctx.replyHidden(outcome.message);
+      return;
+    }
+    this.deps.log.info("confessions disabled", { guildId: ctx.guildId });
+    await ctx.replyHidden(
+      "🤫 Confessions are off in this server. The old confession messages stay in the channel " +
+        "(delete them manually if you want a clean slate) — the Confess buttons on them will just say " +
+        "confessions are off.",
+    );
+  }
+
+  /** A guild text channel Monarch can view and post in. */
+  private canConfessIn(channel: GuildBasedChannel | null, ctx: CommandContext): boolean {
+    if (!channel || !channel.isTextBased()) return false;
+    const me = ctx.guild.members.me;
+    if (!me) return false;
+    const perms = channel.permissionsFor(me);
+    return Boolean(perms?.has(PermissionFlagsBits.ViewChannel) && perms?.has(PermissionFlagsBits.SendMessages));
   }
 
   // ── shared argument plumbing ───────────────────────────────────────

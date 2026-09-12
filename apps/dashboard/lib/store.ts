@@ -52,6 +52,18 @@ export interface GuildSettingsRecord {
   designatedChannels: Record<string, string | undefined>;
 }
 
+/**
+ * Confession channels for a guild. `channelId` = where anonymous confession
+ * embeds are posted (null = confessions off); `logChannelId` = the optional
+ * staff-only channel that receives a full "who/when/link" entry for every
+ * confession (null = fully anonymous, no logs).
+ */
+export interface ConfessionChannelRecord {
+  guildId: string;
+  channelId: string | null;
+  logChannelId: string | null;
+}
+
 export interface AuditRecord {
   id: string;
   guildId: string;
@@ -133,6 +145,16 @@ export interface MonarchStore {
    */
   getCommandPrefix(guildId: string): Promise<string | null>;
   putCommandPrefix(guildId: string, prefix: string | null): Promise<void>;
+
+  /**
+   * Confessions: this guild's anonymous confession channel (null = the
+   * feature is off) and its optional staff-only log channel (null = no
+   * logs). Written by the bot (`/monarch confession setup`) through the
+   * internal API — kept out of GuildSettingsRecord so the designated-
+   * channels form can't clobber it (same rule as the command prefix).
+   */
+  getConfessionChannels(guildId: string): Promise<ConfessionChannelRecord>;
+  putConfessionChannels(guildId: string, channels: ConfessionChannelRecord): Promise<void>;
 
   /**
    * Template library (FEATURE 7). Every read is scoped by ownerId so one
@@ -296,6 +318,32 @@ class FileStore implements MonarchStore {
     if (prefix === null) delete all[guildId];
     else all[guildId] = prefix;
     await writeJson("command-prefixes.json", all);
+  }
+
+  async getConfessionChannels(guildId: string): Promise<ConfessionChannelRecord> {
+    const all = (await readJson<Record<string, { channelId?: string; logChannelId?: string }>>(
+      "confession-channels.json",
+    )) ?? {};
+    const row = all[guildId];
+    return {
+      guildId,
+      channelId: typeof row?.channelId === "string" ? row.channelId : null,
+      logChannelId: typeof row?.logChannelId === "string" ? row.logChannelId : null,
+    };
+  }
+  async putConfessionChannels(guildId: string, channels: ConfessionChannelRecord): Promise<void> {
+    const all = (await readJson<Record<string, { channelId?: string; logChannelId?: string }>>(
+      "confession-channels.json",
+    )) ?? {};
+    if (channels.channelId === null && channels.logChannelId === null) {
+      delete all[guildId];
+    } else {
+      all[guildId] = {
+        channelId: channels.channelId ?? undefined,
+        logChannelId: channels.logChannelId ?? undefined,
+      };
+    }
+    await writeJson("confession-channels.json", all);
   }
 
   async listTemplates(ownerId: string) {

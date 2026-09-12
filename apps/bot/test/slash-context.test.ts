@@ -3,6 +3,7 @@ import { PermissionFlagsBits, PermissionsBitField } from "discord.js";
 import { DEFAULT_COMMAND_PREFIX, buildBotInviteUrl } from "@monarch/shared";
 import { BurgRegistry } from "../src/burg.js";
 import { MonarchCommands } from "../src/monarch-commands.js";
+import { ConfessionRegistry } from "../src/confession.js";
 import { PrefixRegistry } from "../src/prefix/registry.js";
 import { SlashCommandContext } from "../src/slash-context.js";
 import type { ChatInputCommandInteraction } from "discord.js";
@@ -105,6 +106,7 @@ beforeEach(() => {
     appUrl: "https://monarch.example",
     burg,
     prefixes,
+    confessions: new ConfessionRegistry(),
     burgEnabled: () => true,
     clientId: CLIENT_ID,
     log,
@@ -207,6 +209,7 @@ describe("slash surface", () => {
       internalToken: "token",
       burg,
       prefixes,
+      confessions: new ConfessionRegistry(),
       burgEnabled: () => true,
       log,
     });
@@ -246,6 +249,7 @@ describe("slash surface", () => {
       internalToken: "token",
       burg,
       prefixes,
+      confessions: new ConfessionRegistry(),
       burgEnabled: () => true,
       log,
     });
@@ -338,6 +342,7 @@ describe("the no-danger commands are open to everybody", () => {
       appUrl: "https://monarch.example",
       burg,
       prefixes,
+      confessions: new ConfessionRegistry(),
       burgEnabled: () => true,
       clientId: null,
       log,

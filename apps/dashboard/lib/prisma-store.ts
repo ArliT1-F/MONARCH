@@ -5,6 +5,7 @@ import { getPrisma } from "./prisma";
 import { decryptSecret, encryptSecret } from "./secure-token";
 import type {
   AuditRecord,
+  ConfessionChannelRecord,
   DraftRecord,
   GuildSettingsRecord,
   GuildWorkspaceRecord,
@@ -436,6 +437,35 @@ export class PrismaStore implements MonarchStore {
       where: { guildId },
       create: { guildId, commandPrefix },
       update: { commandPrefix },
+    });
+  }
+
+  // ── Confessions ────────────────────────────────────────────────────
+  // Stored on GuildSettings.confessionChannelId / confessionLogChannelId;
+  // deliberately NOT part of GuildSettingsRecord/designatedChannels so the
+  // settings form and the bot's `/monarch confession setup` can't clobber
+  // each other (same rule as the command prefix above).
+
+  async getConfessionChannels(guildId: string): Promise<ConfessionChannelRecord> {
+    const row = await this.db.guildSettings.findUnique({
+      where: { guildId },
+      select: { confessionChannelId: true, confessionLogChannelId: true },
+    });
+    return {
+      guildId,
+      channelId: typeof row?.confessionChannelId === "string" ? row.confessionChannelId : null,
+      logChannelId: typeof row?.confessionLogChannelId === "string" ? row.confessionLogChannelId : null,
+    };
+  }
+
+  async putConfessionChannels(guildId: string, channels: ConfessionChannelRecord): Promise<void> {
+    await this.ensureGuild(guildId);
+    const confessionChannelId = channels.channelId ?? null;
+    const confessionLogChannelId = channels.logChannelId ?? null;
+    await this.db.guildSettings.upsert({
+      where: { guildId },
+      create: { guildId, confessionChannelId, confessionLogChannelId },
+      update: { confessionChannelId, confessionLogChannelId },
     });
   }
 

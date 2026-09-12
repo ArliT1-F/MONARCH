@@ -19,7 +19,7 @@ import {
  * apps/bot/src/prefix/commands.ts — a test asserts that too.
  */
 
-export type CommandGroupId = "general" | "design" | "moderation" | "music";
+export type CommandGroupId = "general" | "design" | "moderation" | "community" | "music";
 
 export interface CommandGroup {
   id: CommandGroupId;
@@ -75,6 +75,12 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     label: "Fun relays",
     description: "Burg gag — messages are deleted and re-posted with a cute style.",
     icon: "🧁",
+  },
+  {
+    id: "community",
+    label: "Community",
+    description: "Anonymous confessions — anyone can spill the tea, nobody gets caught.",
+    icon: "🤫",
   },
   {
     id: "music",
@@ -222,6 +228,40 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     who: "Administrator or Kick Members",
     details:
       "Shows every active burg: who, until when (or 'until toggled off'), which cute style, and who burg'd them. Run /burg on them again with no options to turn it off.",
+  },
+  {
+    name: "/monarch confession",
+    usage: "/monarch confession setup [channel] [logs]",
+    prefixUsage: "!monarch confession setup [#channel] [#logs]",
+    prefixAliases: ["confession"],
+    group: "community",
+    summary: "Set up (or disable) the anonymous confession channel.",
+    who: "Manage Server or Administrator",
+    details:
+      "Setup points Monarch at a confession channel (the channel where you run it by default) and an optional staff-only log channel, then posts the first 'starter' confession there. Anyone can then confess from the **Confess** button on any confession: the post goes to the confession channel as a fully anonymous embed — no username, no avatar, no id — and when a log channel is set, staff get a full entry there (who, when, the text, and a link to the public message). `/monarch confession disable` switches the feature off again (old messages stay in the channel).",
+    args: [
+      {
+        name: "channel",
+        description: "Where confessions are posted — omit to use the channel where you run the command.",
+      },
+      {
+        name: "logs",
+        description:
+          "Staff-only channel that receives full log entries (who/when/link). Must differ from the confession channel; omit for no logs (fully anonymous).",
+      },
+    ],
+    examples: [
+      "/monarch confession setup #confessions #confession-logs",
+      "/monarch confession setup",
+      "!monarch confession disable",
+      "!confession setup #confessions",
+    ],
+    notes: [
+      "Needs INTERNAL_API_TOKEN set in the dashboard and the bot (the setup must survive a restart).",
+      "Anyone in the server can confess — the Confess button and form need no permission.",
+      "The log channel must be different from the confession channel — it names names, so keep it staff-only.",
+      "Confessions are capped at 2000 characters (the form enforces it).",
+    ],
   },
 ];
 

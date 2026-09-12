@@ -81,6 +81,12 @@ model GuildSettings {
   // default "!"). Managed by getCommandPrefix/putCommandPrefix through the
   // bot's internal API (NOT by the designated-channels settings form).
   commandPrefix    String?
+  // Confessions: the guild's anonymous confession channel (null = off) and
+  // its optional staff-only log channel (full "who/when/link" entries).
+  // Managed by getConfessionChannels/putConfessionChannels through the
+  // bot's internal API (NOT by the designated-channels settings form).
+  confessionChannelId    String?
+  confessionLogChannelId String?
 }
 
 model DesignDraft {

@@ -112,6 +112,12 @@ export class PrefixCommandContext implements CommandContext {
     });
   }
 
+  getSubcommand(): string | null {
+    // On the prefix surface the group's leaf is the first argument word
+    // (e.g. `setup` in `!confession setup` / `!monarch confession setup`).
+    return this.args[0]?.toLowerCase() ?? null;
+  }
+
   getStringOption(name: string): string | null {
     if (FREEFORM_OPTIONS.has(name)) {
       return this.args.length > 0 ? this.args.join(" ") : null;

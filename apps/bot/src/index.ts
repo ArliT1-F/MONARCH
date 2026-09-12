@@ -8,9 +8,11 @@ import {
   REST,
   Routes,
   type APIEmbed,
+  type ButtonInteraction,
   type ChatInputCommandInteraction,
   type Interaction,
   type Message,
+  type ModalSubmitInteraction,
   type VoiceState,
   type Webhook,
   type WebhookMessageCreateOptions,
@@ -18,6 +20,14 @@ import {
 import { createLogger } from "@monarch/shared";
 import { burgCommandJSON, monarchCommandJSON } from "./commands.js";
 import { BurgRegistry, toBurg } from "./burg.js";
+import {
+  CONFESS_BUTTON_ID,
+  CONFESS_MODAL_ID,
+  ConfessionRegistry,
+  handleConfessButton,
+  handleConfessSubmit,
+  internalConfessionStore,
+} from "./confession.js";
 import { MonarchCommands } from "./monarch-commands.js";
 import { MusicCommands, musicCommandJSON } from "./music/commands.js";
 import { MusicManager } from "./music/player.js";
@@ -390,11 +400,20 @@ const prefixes = new PrefixRegistry({
   log,
 });
 
+// Per-guild confession channels: persisted through the dashboard's internal
+// API like the command prefix, cached per click so a busy confession channel
+// doesn't turn every button press into a fetch.
+const confessions = new ConfessionRegistry({
+  store: internalToken ? internalConfessionStore(appUrl, internalToken) : null,
+  log,
+});
+
 const monarchCommands = new MonarchCommands({
   appUrl,
   internalToken,
   burg,
   prefixes,
+  confessions,
   burgEnabled: () => messageContentEnabled,
   clientId, // for `!invite` — falls back to the bot's own user id below
   ownerUserId,
@@ -450,9 +469,50 @@ async function runSlash(
   }
 }
 
-async function onInteraction(interaction: Interaction) {
-  if (!interaction.isChatInputCommand()) return;
+/** Error net for the confession components — log, then say so in-channel. */
+async function runConfession(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  what: string,
+  run: () => Promise<void>,
+): Promise<void> {
+  try {
+    await run();
+  } catch (e) {
+    log.error(`${what} failed`, { error: String(e) });
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: "❌ Something went wrong with the confession — try again.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+    } catch {
+      // interaction already timed out — nothing more to do
+    }
+  }
+}
 
+async function onInteraction(interaction: Interaction) {
+  if (interaction.isChatInputCommand()) {
+    await runChatInput(interaction);
+    return;
+  }
+
+  // Confession components: the Confess button opens the modal, the modal
+  // posts the anonymous embed (and the staff log entry, when configured).
+  if (interaction.isButton() && interaction.customId === CONFESS_BUTTON_ID) {
+    const button = interaction;
+    await runConfession(interaction, "confess button", () => handleConfessButton(button, { registry: confessions, log }));
+    return;
+  }
+  if (interaction.isModalSubmit() && interaction.customId === CONFESS_MODAL_ID) {
+    const modal = interaction;
+    await runConfession(interaction, "confession modal", () => handleConfessSubmit(modal, { registry: confessions, log }));
+    return;
+  }
+}
+
+async function runChatInput(interaction: ChatInputCommandInteraction) {
   switch (interaction.commandName) {
     case "music": {
       const sub = interaction.options.getSubcommand(false) ?? "play";

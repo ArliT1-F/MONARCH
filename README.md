@@ -48,6 +48,11 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   (organization · naming · role consistency · branding) with concrete,
   human-readable suggestions, "mark as intentional" per check, and a
   Markdown report export. Read-only: it never changes your server
+- 🤫 **Confessions** — an anonymous confession channel: `/monarch confession
+  setup [channel] [logs]` posts a starter confession with a **Confess**
+  button; anyone can press it and tell their secret — it goes up as a fully
+  anonymous embed (no name, no avatar, no id). With a staff log channel,
+  staff also get a full entry (who, when, link) in a private channel
 - 📱 **Mobile-friendly dashboard** — collapsible navigation drawer, one-pane
   designer/builder views with tabs, touch drag-and-drop
 - 📚 **Help & Commands page** — every command with options, examples,
@@ -78,6 +83,7 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   | `/monarch embed` · `/monarch test` | Embed Builder link · test/publish the saved design | Manage Server / Admin |
   | `/burg @user [duration] [style] [reason]` | Delete everything the user posts and re-post it as cute uwu/owo text under their name and avatar. Run it again with no options to turn it off (or with options to update the timer/style); styles include random, soft, cat and chaotic | Administrator or Kick Members |
   | `/monarch burged` | List burg'd members | Administrator or Kick Members |
+  | `/monarch confession setup [channel] [logs]` | Set up the anonymous confession channel (and optional staff log channel) and post the starter confession. `/monarch confession disable` switches it off. Anyone can confess from the **Confess** button on any confession | Manage Server / Admin (confessing: everyone) |
   | `/music play <link or search>` | Play/queue YouTube & Spotify tracks, playlists and albums | everyone in voice |
   | `/music pause` · `/music resume` · `/music stop` | Pause · resume · stop + clear + leave | everyone in the bot's channel |
   | `/music skip` | Skip — instantly with a **DJ** or **Moderator/Staff** role (or if it's your song), otherwise by listener vote | everyone |
@@ -93,6 +99,7 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   | `!dashboard` · `!status` · `!prefix [set <new>\|reset]` · `!invite` (`!add`) | `/monarch dashboard` · `status` · `prefix` · `invite` |
   | `!backup [name]` · `!export` · `!embed` · `!test embed [publish] [#channel]` | `/monarch backup` · `export` · `embed` · `test` |
   | `!burg @user [duration] [style] [reason]` · `!burged` | `/burg` · `/monarch burged` |
+  | `!confession setup [#channel] [#logs]` · `!confession disable` | `/monarch confession setup` · `disable` |
   | `!play <link or search>` (`!p`) · `!skip` · `!queue [page]` (`!q`) · `!np` | `/music play` · `skip` · `queue` · `nowplaying` |
   | `!pause` · `!resume` · `!stop` (`!leave`) · `!volume [0-150]` · `!loop [off\|track\|queue]` | `/music pause` · `resume` · `stop` · `volume` · `loop` |
   | `!shuffle` · `!remove <#>` · `!clear` | `/music shuffle` · `remove` · `clear` |

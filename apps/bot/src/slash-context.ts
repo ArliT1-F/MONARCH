@@ -110,6 +110,10 @@ export class SlashCommandContext implements CommandContext {
     });
   }
 
+  getSubcommand(): string | null {
+    return this.interaction.options.getSubcommand(true);
+  }
+
   getStringOption(name: string): string | null {
     return this.interaction.options.getString(name);
   }

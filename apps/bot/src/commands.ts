@@ -1,4 +1,5 @@
 import {
+  ChannelType,
   InteractionContextType,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -113,6 +114,31 @@ export function monarchCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
         ),
     )
     .addSubcommand((s) => s.setName("burged").setDescription("List who is currently burg'd here"))
+    .addSubcommandGroup((g) =>
+      g
+        .setName("confession")
+        .setDescription("Anonymous confessions — set up the channel or switch it off")
+        .addSubcommand((s) =>
+          s
+            .setName("setup")
+            .setDescription(
+              "Set up the confession channel (and optional staff log channel), then post the starter confession",
+            )
+            .addChannelOption((o) =>
+              o
+                .setName("channel")
+                .setDescription("Where confessions are posted — omit to use this channel")
+                .addChannelTypes(ChannelType.GuildText),
+            )
+            .addChannelOption((o) =>
+              o
+                .setName("logs")
+                .setDescription("Staff-only channel that receives full log entries — omit for no logs")
+                .addChannelTypes(ChannelType.GuildText),
+            ),
+        )
+        .addSubcommand((s) => s.setName("disable").setDescription("Switch confessions off again")),
+    )
     .toJSON();
 }
 
@@ -153,7 +179,7 @@ export const DESIGN_PERMISSIONS = [PermissionFlagsBits.Administrator, Permission
 
 // ── /monarch help ────────────────────────────────────────────────────
 const GOLD = 0xf5c542;
-const GROUP_ORDER: CommandGroupId[] = ["general", "design", "moderation", "music"];
+const GROUP_ORDER: CommandGroupId[] = ["general", "design", "moderation", "community", "music"];
 const FIELD_VALUE_LIMIT = 1024;
 
 /** `also !play, !p` — the short prefix forms of a command, if it has any. */
