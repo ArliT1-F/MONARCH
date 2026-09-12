@@ -66,4 +66,22 @@ describe("toBurg", () => {
     const code = "```js\nconst hello = 'there';\n```";
     expect(toBurg(code, "chaotic", () => 0)).toBe(code);
   });
+
+  it("stutters the first word but closes the last segment with the suffix", () => {
+    // A mention in the middle used to trap the cute ending mid-message.
+    const mention = "<@123456789012345678>";
+    const result = toBurg(`hello ${mention} how are you`, "soft", () => 0);
+    expect(result.startsWith("h-hewwo")).toBe(true);
+    expect(result).toContain(mention);
+    expect(result.endsWith("uwu~")).toBe(true);
+    expect(result.indexOf("uwu~")).toBeGreaterThan(result.indexOf(mention));
+  });
+
+  it("keeps a leading mention untouched and still ends cute", () => {
+    const mention = "<@123456789012345678>";
+    const result = toBurg(`${mention} hello there`, "cat", () => 0);
+    expect(result.startsWith(mention)).toBe(true);
+    expect(result).toContain("hewwo");
+    expect(result.endsWith("nya~")).toBe(true);
+  });
 });

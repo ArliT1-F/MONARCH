@@ -60,7 +60,7 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   requester skip instantly; everyone else votes** and a majority of the
   listeners passes it
 - ⌨️ **Prefix commands** — every command also works as a plain message:
-  `!help`, `!play <song>`, `!jail @user`, `!backup`, or `@Monarch help`.
+  `!help`, `!play <song>`, `!burg @user`, `!backup`, or `@Monarch help`.
   Each server picks its own prefix with `!prefix set ?` (stored per server,
   the default `!` and an @Monarch mention always keep working), and unknown
   `!words` are ignored so other bots' prefixes stay theirs
@@ -76,16 +76,15 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   | `/monarch backup [name]` | Snapshot the server structure | Manage Server / Admin |
   | `/monarch export` | Post the layout as a `.json` template file | Manage Server / Admin |
   | `/monarch embed` · `/monarch test` | Embed Builder link · test/publish the saved design | Manage Server / Admin |
-  | `/monarch jail @user [duration] [reason]` | Delete everything the user posts and re-post it in the **Standard Galactic Alphabet** (the Minecraft enchanting script) under their name and avatar. No duration = until `/monarch unjail`; `10m`, `2h`, `1d`, `1h30m` auto-release | Administrator or Kick Members |
-  | `/burg @user [duration] [style] [reason]` | Toggle a cute uwu/owo relay under their name and avatar. Run it again for the same user to turn it off; styles include random, soft, cat and chaotic | Administrator or Kick Members |
-  | `/monarch unjail @user` · `/monarch jailed` | Release early · list jailed members | Administrator or Kick Members |
+  | `/burg @user [duration] [style] [reason]` | Delete everything the user posts and re-post it as cute uwu/owo text under their name and avatar. Run it again with no options to turn it off (or with options to update the timer/style); styles include random, soft, cat and chaotic | Administrator or Kick Members |
+  | `/monarch burged` | List burg'd members | Administrator or Kick Members |
   | `/music play <link or search>` | Play/queue YouTube & Spotify tracks, playlists and albums | everyone in voice |
   | `/music pause` · `/music resume` · `/music stop` | Pause · resume · stop + clear + leave | everyone in the bot's channel |
   | `/music skip` | Skip — instantly with a **DJ** or **Moderator/Staff** role (or if it's your song), otherwise by listener vote | everyone |
   | `/music queue [page]` · `/music nowplaying` | Show the queue · now playing with progress | everyone |
   | `/music volume [0-150]` · `/music loop [off\|track\|queue]` · `/music shuffle` · `/music remove <#>` · `/music clear` | Playback controls | everyone in the bot's channel |
   **Every one of those commands has a prefix form.** The slash tree mirrors
-  one-to-one (`!monarch jail @user 10m`, `!music play <song>`) and the things
+  one-to-one (`!monarch burged`, `!music play <song>`) and the things
   people type often have short aliases:
 
   | Prefix | Slash |
@@ -93,8 +92,7 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   | `!help` · `!commands` | `/monarch help` |
   | `!dashboard` · `!status` · `!prefix [set <new>\|reset]` · `!invite` (`!add`) | `/monarch dashboard` · `status` · `prefix` · `invite` |
   | `!backup [name]` · `!export` · `!embed` · `!test embed [publish] [#channel]` | `/monarch backup` · `export` · `embed` · `test` |
-  | `!jail @user [duration] [reason]` · `!unjail @user` · `!jailed` | `/monarch jail` · `unjail` · `jailed` |
-  | `!burg @user [duration] [style] [reason]` | `/burg` |
+  | `!burg @user [duration] [style] [reason]` · `!burged` | `/burg` · `/monarch burged` |
   | `!play <link or search>` (`!p`) · `!skip` · `!queue [page]` (`!q`) · `!np` | `/music play` · `skip` · `queue` · `nowplaying` |
   | `!pause` · `!resume` · `!stop` (`!leave`) · `!volume [0-150]` · `!loop [off\|track\|queue]` | `/music pause` · `resume` · `stop` · `volume` · `loop` |
   | `!shuffle` · `!remove <#>` · `!clear` | `/music shuffle` · `remove` · `clear` |
@@ -114,14 +112,14 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   only offers servers the person clicking can manage, and the link requests
   just the permissions Monarch uses (never Administrator), so the open door
   isn't a hole. Everything that reads or changes server data — `backup`,
-  `export`, `embed`, `test`, `prefix set`, the jail/burg gags — still requires
+  `export`, `embed`, `test`, `prefix set`, the burg gag — still requires
   Manage Server / Administrator, or Administrator / Kick Members.
 
   `backup`, `export`, `embed` and `test` need `INTERNAL_API_TOKEN` set in
   both the dashboard and the bot — as does saving a custom prefix, since the
-  bot has no database of its own. The jail, `/burg` and **all prefix
+  bot has no database of its own. `/burg` and **all prefix
   commands** need the **Message Content** privileged intent (see below); the
-  jail and burg relays also need the **Manage Messages** permission.
+  burg relay also needs the **Manage Messages** permission.
   Spotify links need `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` on the
   bot (free app at developer.spotify.com — see `.env.example`); YouTube
   links and search work out of the box. Playback needs **ffmpeg** — the
@@ -156,12 +154,12 @@ actually executes.
    screen (that one pre-selects the server). The link is built server-side by
    `GET /api/invite` and requests only the permissions Monarch uses —
    `Manage Channels`, `Manage Roles`, `Manage Webhooks`, `Manage Messages`
-   (jail), `View Channel`, `Send Messages`, `Send Messages in Threads`,
+   (burg), `View Channel`, `Send Messages`, `Send Messages in Threads`,
    `Embed Links`, `Attach Files`. Never Administrator. If Monarch was
    installed before `Manage Messages` was added, re-run the invite link or
    grant it in Server Settings → Roles.
 4. In the developer portal, under **Bot → Privileged Gateway Intents**,
-   enable **Message Content**. The jail and burg relays need it to read
+   enable **Message Content**. The burg relay needs it to read
    messages, and so does every prefix (text) command — without it only slash
    commands work. If it is off the bot still starts (Guilds-only), the
    commands explain what is missing and text commands simply never fire. Free
@@ -172,7 +170,7 @@ actually executes.
    `/monarch backup`, `/monarch export`, `/monarch embed`, `/monarch test`
    and `!prefix set` call the dashboard's `/api/internal/*` routes — set the
    same `INTERNAL_API_TOKEN` in both environments. `/monarch dashboard`,
-   `help`, `status`, `/burg`, the jail commands, all of `/music` and every
+   `help`, `status`, `/burg`, `/monarch burged`, all of `/music` and every
    other prefix command work without it.
 
    The bot also needs the **Server Voice States** intent for `/music`
@@ -205,7 +203,7 @@ and apply with `npm run db:migrate`.
 
 ```
 apps/dashboard    Next.js studio (UI + API routes)
-apps/bot          discord.js bot (dashboard links, status, jail, burg, music player)
+apps/bot          discord.js bot (dashboard links, status, burg, music player)
                   — every command on two surfaces: slash + prefix (apps/bot/src/prefix/)
 packages/*        shared · schemas · validation · design-engine · renderer · discord · music
 prisma/           PostgreSQL schema (production persistence target)

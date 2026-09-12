@@ -35,7 +35,7 @@ describe("parseArgs", () => {
 
   it("keeps quoted spans together", () => {
     expect(parseArgs('backup "before summer cleanup"')).toEqual(["backup", "before summer cleanup"]);
-    expect(parseArgs('jail 123 "10m" "spam in general"')).toEqual(["jail", "123", "10m", "spam in general"]);
+    expect(parseArgs('burg 123 "10m" "spam in general"')).toEqual(["burg", "123", "10m", "spam in general"]);
   });
 
   it("treats an unbalanced quote as running to the end", () => {
@@ -43,7 +43,7 @@ describe("parseArgs", () => {
   });
 
   it("rewrites user, channel and role mentions to snowflakes", () => {
-    expect(parseArgs("jail <@111111111111111> 10m")).toEqual(["jail", "111111111111111", "10m"]);
+    expect(parseArgs("burg <@111111111111111> 10m")).toEqual(["burg", "111111111111111", "10m"]);
     expect(parseArgs("<@!333333333333333> hi")).toEqual(["333333333333333", "hi"]);
     expect(parseArgs("test message <#222222222222222>")).toEqual(["test", "message", "222222222222222"]);
     expect(parseArgs("<@&444444444444444>")).toEqual(["444444444444444"]);
@@ -73,9 +73,9 @@ describe("extractPrefixCommand", () => {
   });
 
   it("keeps a two-word command path together", () => {
-    expect(invoke("!monarch jail <@111111111111111> 10m")).toMatchObject({
-      tokens: ["monarch", "jail"],
-      args: ["111111111111111", "10m"],
+    expect(invoke("!monarch burged")).toMatchObject({
+      tokens: ["monarch", "burged"],
+      args: [],
     });
     expect(invoke("!music play around the world")).toMatchObject({
       tokens: ["music", "play"],
@@ -86,7 +86,7 @@ describe("extractPrefixCommand", () => {
   it("stops the command path at the first non-word argument", () => {
     // `!play daft punk …` must keep its whole search phrase.
     expect(invoke("!play https://youtu.be/abc")).toMatchObject({ tokens: ["play"], args: ["https://youtu.be/abc"] });
-    expect(invoke("!jail <@111111111111111>")).toMatchObject({ tokens: ["jail"], args: ["111111111111111"] });
+    expect(invoke("!burg <@111111111111111>")).toMatchObject({ tokens: ["burg"], args: ["111111111111111"] });
     expect(invoke("!volume 80")).toMatchObject({ tokens: ["volume"], args: ["80"] });
   });
 
@@ -138,14 +138,12 @@ describe("matchCommand", () => {
 
   it("routes short aliases to the right surface", () => {
     expect(match("!help")).toMatchObject({ kind: "command", surface: "monarch", sub: "help", args: [] });
-    expect(match("!jail <@111111111111111> 10m")).toMatchObject({
+    expect(match("!burged")).toMatchObject({
       kind: "command",
       surface: "monarch",
-      sub: "jail",
-      args: ["111111111111111", "10m"],
+      sub: "burged",
+      args: [],
     });
-    expect(match("!unjail <@111111111111111>")).toMatchObject({ surface: "monarch", sub: "unjail" });
-    expect(match("!jailed")).toMatchObject({ surface: "monarch", sub: "jailed" });
     expect(match("!prefix set ?")).toMatchObject({ surface: "monarch", sub: "prefix", args: ["set", "?"] });
     expect(match("!invite")).toMatchObject({ surface: "monarch", sub: "invite", args: [] });
     expect(match("!add")).toMatchObject({ surface: "monarch", sub: "invite" });
@@ -161,7 +159,7 @@ describe("matchCommand", () => {
   });
 
   it("routes the mirrored slash tree", () => {
-    expect(match("!monarch jail <@111111111111111>")).toMatchObject({ surface: "monarch", sub: "jail" });
+    expect(match("!monarch burged")).toMatchObject({ surface: "monarch", sub: "burged" });
     expect(match("!monarch prefix m!")).toMatchObject({ surface: "monarch", sub: "prefix", args: ["m!"] });
     expect(match("!monarch invite")).toMatchObject({ surface: "monarch", sub: "invite" });
     expect(match("!music play around the world")).toMatchObject({
@@ -196,7 +194,7 @@ describe("matchCommand", () => {
 });
 
 describe("alias table ⇄ shared command catalog", () => {
-  /** `usage` "/monarch jail @user" → "jail". */
+  /** `usage` "/monarch burged" → "burged". */
   const subOf = (usage: string) => usage.split(" ")[1]!;
 
   it("documents prefix usage for every command", () => {
@@ -210,7 +208,7 @@ describe("alias table ⇄ shared command catalog", () => {
   it("writes prefix usage with the default prefix and matching arguments", () => {
     for (const doc of COMMAND_CATALOG) {
       const prefixForm = doc.prefixUsage!;
-      // "!monarch jail @user [duration]" ⇄ "/monarch jail @user [duration]"
+      // "!monarch burged" ⇄ "/monarch burged"
       const slashTail = doc.usage.slice(1);
       const prefixTail = prefixForm.slice(DEFAULT_COMMAND_PREFIX.length);
       expect(prefixTail.startsWith(slashTail.split(" ")[0]!)).toBe(true);

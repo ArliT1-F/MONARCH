@@ -167,9 +167,27 @@ describe("bot startup", () => {
     expect(mocks.login).toHaveBeenCalledTimes(2);
     expect(
       find(
-        "Message Content intent is not enabled for this application — /monarch jail, /burg and all prefix (text) commands are disabled; slash commands keep working. Enable it under Bot → Privileged Gateway Intents in the Discord developer portal, then restart.",
+        "Message Content intent is not enabled for this application — /burg and all prefix (text) commands are disabled; slash commands keep working. Enable it under Bot → Privileged Gateway Intents in the Discord developer portal, then restart.",
       ),
     ).toBeDefined();
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it("warns when MONARCH_OWNER_USER_ID is missing (the uno-reverse is off)", async () => {
+    await boot({ MONARCH_OWNER_USER_ID: undefined });
+
+    expect(find("MONARCH_OWNER_USER_ID is not set — the application owner can be burg'd and the uno-reverse is off. " +
+      "Set it to your Discord user id to protect yourself.")).toMatchObject({ level: "warn" });
+    expect(mocks.login).toHaveBeenCalledWith("test-token");
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it("stays silent about the owner id when it is configured", async () => {
+    await boot({ MONARCH_OWNER_USER_ID: "600000000000000001" });
+
+    expect(
+      lines.filter((l) => typeof l.msg === "string" && l.msg.includes("MONARCH_OWNER_USER_ID")),
+    ).toHaveLength(0);
     expect(exitSpy).not.toHaveBeenCalled();
   });
 

@@ -57,7 +57,7 @@ describe("buildBotInviteUrl", () => {
     // The ones the features actually need:
     expect(bits & Permission.ManageChannels).toBe(Permission.ManageChannels); // apply designs
     expect(bits & Permission.ManageRoles).toBe(Permission.ManageRoles);
-    expect(bits & Permission.ManageWebhooks).toBe(Permission.ManageWebhooks); // jail/burg relays
+    expect(bits & Permission.ManageWebhooks).toBe(Permission.ManageWebhooks); // burg relay
     expect(bits & Permission.ManageMessages).toBe(Permission.ManageMessages);
     expect(bits & Permission.SendMessages).toBe(Permission.SendMessages); // prefix command replies
     expect(bits & Permission.AttachFiles).toBe(Permission.AttachFiles); // /monarch export

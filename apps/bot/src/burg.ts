@@ -1,10 +1,10 @@
 /**
  * Burg — a cute, temporary message relay.
  *
- * A burg entry is intentionally kept in memory, just like the jail registry:
- * it is a short-lived server gag, not moderation state. A restart clears the
- * entries and the timers. The relay itself lives in index.ts because it needs
- * the live Discord message and webhook objects.
+ * A burg entry is intentionally kept in memory: it is a short-lived server
+ * gag, not moderation state. A restart clears the entries and the timers.
+ * The relay itself lives in index.ts because it needs the live Discord
+ * message and webhook objects.
  */
 
 export type BurgStyle = "random" | "soft" | "cat" | "chaotic";
@@ -112,7 +112,9 @@ export class BurgRegistry {
 
 /**
  * Discord markup and things Discord renders as special objects should not be
- * rewritten. This mirrors the safety boundary used by the Galactic relay.
+ * rewritten: mentions, emoji, timestamps, links and code are copied
+ * byte-for-byte so a burg'd message can't break formatting or smuggle plain
+ * text through.
  */
 const PRESERVE =
   /(```[\s\S]*?```|`[^`\n]*`|<a?:\w+:\d+>|<[@#][!&]?\d+>|<t:\d+(?::[tTdDfFR])?>|https?:\/\/\S+)/g;
@@ -126,7 +128,11 @@ const SUFFIXES: Record<Exclude<BurgStyle, "random">, readonly string[]> = {
 const STYLES: readonly Exclude<BurgStyle, "random">[] = ["soft", "cat", "chaotic"];
 
 function pick<T>(items: readonly T[], random: () => number): T {
-  const index = Math.min(items.length - 1, Math.max(0, Math.floor(random() * items.length)));
+  const roll = random();
+  // Math.random() never misbehaves, but an injected roller might — clamp
+  // anything outside [0, 1) instead of indexing out of bounds.
+  const safe = Number.isFinite(roll) ? Math.min(Math.max(roll, 0), 1 - Number.EPSILON) : 0;
+  const index = Math.min(items.length - 1, Math.floor(safe * items.length));
   return items[index]!;
 }
 
@@ -157,7 +163,12 @@ function stutterFirstWord(text: string): string {
   });
 }
 
-function decorate(text: string, style: Exclude<BurgStyle, "random">, random: () => number): string {
+/**
+ * The in-text flourishes (stutter, repetition, chaotic extras) — everything
+ * except the closing suffix, which is appended separately so it always lands
+ * at the end of the message rather than in the middle of it.
+ */
+function flourish(text: string, style: Exclude<BurgStyle, "random">, random: () => number): string {
   const stutterChance = style === "chaotic" ? 0.42 : style === "cat" ? 0.2 : 0.14;
   if (random() < stutterChance) text = stutterFirstWord(text);
 
@@ -172,7 +183,7 @@ function decorate(text: string, style: Exclude<BurgStyle, "random">, random: () 
   if (style === "chaotic" && random() < 0.28) {
     text = text.replace(/\b([A-Za-z]*)(f)\b/gi, (_match, prefix: string, last: string) => `${prefix}${last}${last}`);
   }
-  return `${text}${pick(SUFFIXES[style], random)}`;
+  return text;
 }
 
 /**
@@ -199,11 +210,22 @@ export function toBurg(
 
   const chosenStyle =
     style === "soft" || style === "cat" || style === "chaotic" ? style : pick(STYLES, random);
-  // Decorate the first ordinary segment only. This means a message beginning
-  // with a mention or URL keeps that object untouched; later text still gets
-  // the spelling transform and the cute ending.
-  const firstPlainIndex = parts.findIndex((part, index) => index % 2 === 0 && /[A-Za-z]/.test(part));
-  if (firstPlainIndex >= 0) converted[firstPlainIndex] = decorate(converted[firstPlainIndex]!, chosenStyle, random);
+  // Flourish the first ordinary segment (so the stutter lands on the first
+  // word) and close the *last* one with the cute suffix. Pinning both to the
+  // first segment used to drop the ending mid-message whenever a mention or
+  // URL split the text ("hewwo uwu~ <@123> how awe u?").
+  const plainIndexes = parts
+    .map((part, index) => ({ part, index }))
+    .filter(({ part, index }) => index % 2 === 0 && /[A-Za-z]/.test(part))
+    .map(({ index }) => index);
+  const firstPlainIndex = plainIndexes[0] ?? -1;
+  const lastPlainIndex = plainIndexes[plainIndexes.length - 1] ?? -1;
+  if (firstPlainIndex >= 0) {
+    converted[firstPlainIndex] = flourish(converted[firstPlainIndex]!, chosenStyle, random);
+  }
+  if (lastPlainIndex >= 0) {
+    converted[lastPlainIndex] = `${converted[lastPlainIndex]}${pick(SUFFIXES[chosenStyle], random)}`;
+  }
   return converted.join("");
 }
 

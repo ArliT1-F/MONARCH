@@ -15,6 +15,11 @@ services:
         sync: false
       - key: DISCORD_CLIENT_ID
         sync: false
+      # Your own Discord user id (Developer Mode → right-click your name →
+      # Copy User ID). Targeting it with /burg uno-reverses onto the invoker;
+      # without it the owner can be burg'd like anyone else.
+      - key: MONARCH_OWNER_USER_ID
+        sync: false
       # Optional: set a server ID for immediate slash-command updates while
       # testing. Leave unset to register globally (global propagation can take
       # up to an hour in Discord).

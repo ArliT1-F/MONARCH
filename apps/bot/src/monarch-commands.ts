@@ -6,24 +6,23 @@ import {
   buildBotInviteUrl,
   invitePermissionNames,
 } from "@monarch/shared";
-import { BURG_PERMISSIONS, DESIGN_PERMISSIONS, JAIL_PERMISSIONS, renderHelpEmbeds } from "./commands.js";
+import { BURG_PERMISSIONS, DESIGN_PERMISSIONS, renderHelpEmbeds } from "./commands.js";
 import type { BurgRegistry, BurgStyle } from "./burg.js";
 import { toBurg } from "./burg.js";
 import type { CommandContext } from "./context.js";
-import { formatDuration, parseDuration, toGalactic } from "./galactic.js";
-import type { JailRegistry } from "./jail.js";
+import { formatDuration, parseDuration } from "./durations.js";
 import type { PrefixRegistry } from "./prefix/registry.js";
 
 /**
  * The `/monarch` command family, written once against {@link CommandContext}
  * so slash commands and prefix commands share the exact same checks, replies
- * and API calls (`/monarch jail @user` and `!jail @user` are the same code).
+ * and API calls (`/burg @user` and `!burg @user` are the same code).
  *
  * Everything structural still happens in the dashboard: the commands that
  * touch server data call `/api/internal/*` with `INTERNAL_API_TOKEN`, and
  * anything that mutates Discord goes through the diff → review → apply
  * pipeline in the web UI. Nothing here writes to Discord directly except the
- * two in-memory gags (jail / burg), which need live gateway messages.
+ * in-memory burg gag, which needs live gateway messages.
  */
 
 export interface MonarchCommandDeps {
@@ -31,11 +30,10 @@ export interface MonarchCommandDeps {
   appUrl: string;
   /** Server-to-server token; without it backup/export/embed/test/prefix-set explain what's missing. */
   internalToken?: string;
-  jail: JailRegistry;
   burg: BurgRegistry;
   prefixes: PrefixRegistry;
-  /** True when the Message Content intent is enabled (jail/burg/prefix need it). */
-  messageGagsEnabled: () => boolean;
+  /** True when the Message Content intent is enabled (the burg relay needs it). */
+  burgEnabled: () => boolean;
   /**
    * Application id for `!invite` (the "add me to your server" link). Falls
    * back to the bot's own user id — for a bot, those are the same snowflake —
@@ -65,9 +63,7 @@ export const MONARCH_SUBCOMMANDS = [
   "export",
   "embed",
   "test",
-  "jail",
-  "unjail",
-  "jailed",
+  "burged",
 ] as const;
 
 export type MonarchSubcommand = (typeof MONARCH_SUBCOMMANDS)[number];
@@ -88,20 +84,35 @@ export const DURATION_ERROR = "❌ I didn't understand that duration. Use `30s`,
 const BURG_STYLE_WORDS = ["random", "soft", "cat", "chaotic"];
 
 /**
- * Does this word look like somebody *trying* to give a duration? `10m`, `2h`,
- * `90min`, `10 minutes` and a bare `minutes` all count; ordinary reason words
- * ("spamming memes", "being loud") don't.
- * Used so a typo is refused instead of being silently filed under "reason"
- * and turning a 10-minute jail into a life sentence.
+ * Does this word look like somebody *trying* to give a duration? Anything
+ * with a digit (`10m`, `0m`, `10minutes`, `90min`) always counts; a bare
+ * unit word (`minutes`, `hours`) only counts when a number shows up somewhere
+ * else in the command (`10 minutes`, `ten minutes`). That keeps ordinary
+ * reason prose ("being silly for hours") working while a typo is still
+ * refused instead of being silently filed under "reason" and turning a
+ * 10-minute burg into an indefinite one.
  */
-const DURATIONISH =
-  /^(?:\d+\s*(?:[smhdw]|ms|secs?|seconds?|mins?|minutes?|hrs?|hours?|days?|wks?|weeks?)|(?:secs?|seconds?|mins?|minutes?|hrs?|hours?|days?|wks?|weeks?))$/i;
+const DURATIONISH_WITH_DIGIT =
+  /^\d+\s*(?:[smhdw]|ms|secs?|seconds?|mins?|minutes?|hrs?|hours?|days?|wks?|weeks?)$/i;
+const DURATIONISH_BARE_UNIT = /^(?:secs?|seconds?|mins?|minutes?|hrs?|hours?|days?|wks?|weeks?)$/i;
+
+/** Number words that make a bare unit a duration attempt ("ten minutes"). */
+const NUMBER_WORDS = new Set(
+  "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred".split(
+    " ",
+  ),
+);
+
+/** A small bare number (`10` in `10 minutes`) — never a member snowflake. */
+const BARE_NUMBER = /^\d{1,6}$/;
 
 /**
- * Free-form prefix arguments for the two gag commands: a mention/id, then an
+ * Free-form prefix arguments for the burg command: a mention/id, then an
  * optional duration (`10m`, `1h30m`), an optional burg style, and whatever is
  * left over becomes the reason. Order-free on purpose — text commands get
- * typed in whatever order feels natural.
+ * typed in whatever order feels natural — with one exception: style words
+ * are only read *before* the reason starts, so "being chaotic today" stays
+ * a reason instead of becoming style=chaotic plus "being today".
  */
 export function parseGagArgs(args: readonly string[]): {
   target: string | null;
@@ -117,6 +128,11 @@ export function parseGagArgs(args: readonly string[]): {
   let style: string | null = null;
   const rest: string[] = [];
 
+  const sawNumeric = args.some((raw) => {
+    const word = raw.trim().toLowerCase();
+    return BARE_NUMBER.test(word) || NUMBER_WORDS.has(word);
+  });
+
   for (const raw of args) {
     const arg = raw.trim();
     if (arg.length === 0) continue;
@@ -130,16 +146,27 @@ export function parseGagArgs(args: readonly string[]): {
       duration = arg;
       continue;
     }
-    if (parsedMs === null && !invalidDuration && DURATIONISH.test(lower)) {
+    if (parsedMs === null && !invalidDuration && DURATIONISH_WITH_DIGIT.test(arg)) {
       invalidDuration = arg;
       continue;
     }
-    if (!style && BURG_STYLE_WORDS.includes(lower)) {
+    if (parsedMs === null && !invalidDuration && sawNumeric && DURATIONISH_BARE_UNIT.test(lower)) {
+      invalidDuration = arg;
+      continue;
+    }
+    if (!style && rest.length === 0 && BURG_STYLE_WORDS.includes(lower)) {
       style = lower;
       continue;
     }
     rest.push(arg);
   }
+
+  // A lone unit word with nothing else (`!burg @user minutes`) is a
+  // forgotten number, not a one-word reason.
+  if (!duration && !invalidDuration && rest.length === 1 && DURATIONISH_BARE_UNIT.test(rest[0]!.toLowerCase())) {
+    invalidDuration = rest.pop()!;
+  }
+
   return {
     target,
     duration,
@@ -191,12 +218,8 @@ export class MonarchCommands {
         return this.embed(ctx);
       case "test":
         return this.test(ctx);
-      case "jail":
-        return this.jail(ctx);
-      case "unjail":
-        return this.unjail(ctx);
-      case "jailed":
-        return this.jailed(ctx);
+      case "burged":
+        return this.burged(ctx);
       default:
         await ctx.replyHidden(
           `❓ I don't know \`${sub}\`. Try \`${ctx.commandPrefix}help\` or \`/monarch help\` for the full list.`,
@@ -246,7 +269,7 @@ export class MonarchCommands {
         `👑 **Add Monarch to a server** — ${url}`,
         `• Discord's dialog lists the servers you can manage — pick the one you want Monarch in (this one already has it).`,
         `• Monarch asks for ${invitePermissionNames().length} permissions and never Administrator — the ones it actually uses: ` +
-          `channels, roles, webhooks (the jail/burg relays), messages and files.`,
+          `channels, roles, webhooks (the burg relay), messages and files.`,
         `• Once it's in: \`${ctx.commandPrefix}help\` lists everything, and \`${ctx.commandPrefix}prefix set <new>\` picks a prefix.`,
         `• The dashboard for it lives at ${this.appUrl}/s/<server>.`,
       ].join("\n"),
@@ -254,7 +277,6 @@ export class MonarchCommands {
   }
 
   private async status(ctx: CommandContext): Promise<void> {
-    const jailed = this.deps.jail.list(ctx.guildId).length;
     const burged = this.deps.burg.list(ctx.guildId).length;
     const prefix = ctx.commandPrefix;
     await ctx.replyHidden(
@@ -263,7 +285,6 @@ export class MonarchCommands {
         `• Server: ${ctx.guild.name}`,
         `• Dashboard: ${this.appUrl}`,
         `• Prefix: \`${prefix}\` (also @Monarch) — change it with \`${prefix}prefix set <new>\``,
-        `• Jailed members: ${jailed}`,
         `• Burg'd members: ${burged}`,
         "• All design changes are previewed and applied from the dashboard.",
         `• \`${prefix}help\` or \`/monarch help\` lists every command — \`${prefix}invite\` adds Monarch to another server.`,
@@ -295,7 +316,7 @@ export class MonarchCommands {
       await ctx.replyHidden(
         [
           `**Prefix in ${ctx.guild.name}**: \`${current}\`${isDefault ? " (the default)" : ""}`,
-          `• Commands: \`${current}help\`, \`${current}play <song>\`, \`${current}jail @user\` — @Monarch works as a prefix too.`,
+          `• Commands: \`${current}help\`, \`${current}play <song>\`, \`${current}burg @user\` — @Monarch works as a prefix too.`,
           isDefault
             ? `• Change it with \`${current}prefix set <new>\` — 1-${MAX_COMMAND_PREFIX_LENGTH} characters from \`${COMMAND_PREFIX_CHARS}\`.`
             : `• \`${DEFAULT_COMMAND_PREFIX}\` still works, and \`${current}prefix reset\` restores the default.`,
@@ -346,7 +367,7 @@ export class MonarchCommands {
     await ctx.replyHidden(
       [
         `✅ Prefix for **${ctx.guild.name}** is now \`${outcome.prefix}\`.`,
-        `• Try \`${outcome.prefix}help\`, \`${outcome.prefix}play <song>\`, \`${outcome.prefix}jail @user\`.`,
+        `• Try \`${outcome.prefix}help\`, \`${outcome.prefix}play <song>\`, \`${outcome.prefix}burg @user\`.`,
         `• \`${DEFAULT_COMMAND_PREFIX}\` and an @Monarch mention keep working; \`${outcome.prefix}prefix reset\` restores the default.`,
       ].join("\n"),
     );
@@ -527,210 +548,80 @@ export class MonarchCommands {
     return null;
   }
 
-  // ── fun relays (jail + burg) ───────────────────────────────────────
+  // ── burg relay ─────────────────────────────────────────────────────
 
-  private async jail(ctx: CommandContext): Promise<void> {
-    const { jail, burg, log } = this.deps;
-    if (!ctx.memberHasAny(JAIL_PERMISSIONS)) {
-      await ctx.replyHidden("❌ Only administrators and roles with **Kick Members** can jail people.");
+  private async burged(ctx: CommandContext): Promise<void> {
+    if (!ctx.memberHasAny(BURG_PERMISSIONS)) {
+      await ctx.replyHidden("❌ Only administrators and roles with **Kick Members** can see who's burg'd.");
       return;
     }
-    if (!this.deps.messageGagsEnabled()) {
-      await ctx.replyHidden(
-        "❌ The jail is disabled on this Monarch instance: the **Message Content** intent isn't enabled for the bot application. " +
-          "The host must turn it on under Bot → Privileged Gateway Intents and restart the bot.",
-      );
-      return;
-    }
-
-    const target = await this.targetMember(ctx);
-    if (!target) {
-      await ctx.replyHidden("❌ That user isn't in this server.");
-      return;
-    }
-    // The jail director (the application owner) is immune to the normal hierarchy
-    // rules: trying to jail them is an uno reverse instead.
-    if (this.deps.ownerUserId && target.id === this.deps.ownerUserId) {
-      jail.jail({ guildId: ctx.guildId, userId: ctx.user.id, until: null, jailedBy: target.id });
-      log.info("jail director uno-reversed jail command", {
-        guildId: ctx.guildId,
-        attemptedTarget: target.id,
-        jailedUser: ctx.user.id,
-        surface: ctx.surface,
-      });
-      await ctx.replyHidden(
-        "🔄 You tried to jail the jail director. That's not how it works around here. Now you have been jailed.",
-      );
-      return;
-    }
-    if (target.id === ctx.user.id) {
-      await ctx.replyHidden("You can't jail yourself — nice try.");
-      return;
-    }
-    if (target.user.bot) {
-      await ctx.replyHidden("❌ Bots can't be jailed.");
-      return;
-    }
-    if (target.id === ctx.guild.ownerId) {
-      await ctx.replyHidden("❌ The server owner can't be jailed.");
-      return;
-    }
-    const invokerIsOwner = ctx.guild.ownerId === ctx.member.id;
-    if (!invokerIsOwner && target.roles.highest.position >= ctx.member.roles.highest.position) {
-      await ctx.replyHidden("❌ You can only jail members whose highest role is below yours.");
-      return;
-    }
-    if (target.permissions.has(PermissionFlagsBits.Administrator) && !invokerIsOwner) {
-      await ctx.replyHidden("❌ Administrators can only be jailed by the server owner.");
-      return;
-    }
-    const mine = ctx.myPermissions();
-    if (mine !== null && !mine.has(PermissionFlagsBits.ManageMessages)) {
-      await ctx.replyHidden(
-        "❌ Monarch needs the **Manage Messages** permission to delete and re-post jailed messages.\n" +
-          `Re-invite it from ${this.appUrl} or grant the permission in Server Settings → Roles, then try again.`,
-      );
-      return;
-    }
-    if (mine !== null && !mine.has(PermissionFlagsBits.ManageWebhooks)) {
-      log.warn("jail without Manage Webhooks — relaying as plain bot messages", { guildId: ctx.guildId });
-    }
-    if (burg.isBurg(ctx.guildId, target.id)) {
-      await ctx.replyHidden(
-        `❌ That member is already burg'd. Turn it off with \`${ctx.commandPrefix}burg @${target.user.username}\` first, then use the Galactic jail.`,
-      );
-      return;
-    }
-
-    const { duration: durationRaw, invalidDuration, reason } = this.gagInputs(ctx, ["duration", "reason"]);
-    let until: number | null = null;
-    if (invalidDuration) {
-      // Refuse rather than quietly jail them forever because "ten minutes"
-      // landed in the reason field.
-      await ctx.replyHidden(DURATION_ERROR);
-      return;
-    }
-    if (durationRaw) {
-      const ms = parseDuration(durationRaw);
-      if (ms === null) {
-        await ctx.replyHidden(DURATION_ERROR);
-        return;
-      }
-      until = Date.now() + ms;
-    }
-
-    jail.jail({ guildId: ctx.guildId, userId: target.id, until, jailedBy: ctx.user.id });
-    log.info("member jailed", { guildId: ctx.guildId, userId: target.id, by: ctx.user.id, until, surface: ctx.surface });
-    const when = until
-      ? `for **${formatDuration(until - Date.now())}** (until <t:${Math.floor(until / 1000)}:f>)`
-      : `**until released** with \`${ctx.commandPrefix}unjail\``;
-    await ctx.replyHidden(
-      `🔒 <@${target.id}> is jailed ${when}${reason ? ` — ${reason}` : ""}.\n` +
-        `Everything they post will be re-posted as ${toGalactic("galactic")} under their name.`,
-      { mentions: false },
-    );
-  }
-
-  private async unjail(ctx: CommandContext): Promise<void> {
-    if (!ctx.memberHasAny(JAIL_PERMISSIONS)) {
-      await ctx.replyHidden("❌ Only administrators and roles with **Kick Members** can release people.");
-      return;
-    }
-    const target = await this.targetMember(ctx);
-    if (!target) {
-      await ctx.replyHidden("❌ That user isn't in this server.");
-      return;
-    }
-    const released = this.deps.jail.release(ctx.guildId, target.id);
-    if (!released) {
-      await ctx.replyHidden(`<@${target.id}> isn't jailed.`);
-      return;
-    }
-    this.deps.log.info("member released", {
-      guildId: ctx.guildId,
-      userId: target.id,
-      by: ctx.user.id,
-      surface: ctx.surface,
-    });
-    await ctx.replyHidden(`🔓 <@${target.id}> has been released.`);
-  }
-
-  private async jailed(ctx: CommandContext): Promise<void> {
-    if (!ctx.memberHasAny(JAIL_PERMISSIONS)) {
-      await ctx.replyHidden("❌ Only administrators and roles with **Kick Members** can see the jail list.");
-      return;
-    }
-    const entries = this.deps.jail.list(ctx.guildId);
+    const entries = this.deps.burg.list(ctx.guildId);
     if (entries.length === 0) {
-      await ctx.replyHidden("Nobody is jailed right now.");
+      await ctx.replyHidden("Nobody is burg'd right now.");
       return;
     }
     await ctx.replyHidden(
       [
-        `🔒 **Jailed in ${ctx.guild.name}** (${entries.length})`,
+        `🧁 **Burg'd in ${ctx.guild.name}** (${entries.length})`,
         ...entries.map(
           (e) =>
-            `• <@${e.userId}> — ${e.until ? `until <t:${Math.floor(e.until / 1000)}:R>` : "until released"} · by <@${e.jailedBy}>`,
+            `• <@${e.userId}> — ${e.style} · ${e.until ? `until <t:${Math.floor(e.until / 1000)}:R>` : "until toggled off"} · by <@${e.burgedBy}>`,
         ),
       ].join("\n"),
     );
   }
 
   /**
-   * `/burg` — a toggle, so it lives beside the jail gag but keeps its own
-   * top-level name on both surfaces (`/burg @user`, `!burg @user`).
+   * `/burg` — a toggle with an update path, on both surfaces (`/burg @user`,
+   * `!burg @user`).
+   *
+   * Run it bare on a burg'd member to turn the gag off; run it with a
+   * duration, style or reason to (re)apply it. The inputs are parsed *before*
+   * the toggle decision so a typo can't silently switch the gag off.
    */
   async burg(ctx: CommandContext): Promise<void> {
-    const { burg, jail, log } = this.deps;
+    const { burg, log } = this.deps;
     if (!ctx.memberHasAny(BURG_PERMISSIONS)) {
       await ctx.replyHidden("❌ Only administrators and roles with **Kick Members** can use /burg.");
       return;
     }
 
-    const existingTarget = await this.targetMember(ctx);
-    if (!existingTarget) {
-      await ctx.replyHidden(
-        `❓ Say who to burg — \`${ctx.commandPrefix}burg @user [duration] [style] [reason]\` (run it again to turn it off).`,
-      );
-      return;
-    }
-    // Burg cannot target the jail director (the application owner). Reverse the
-    // gag onto the person who tried it instead.
-    if (this.deps.ownerUserId && existingTarget.id === this.deps.ownerUserId) {
-      if (!this.deps.messageGagsEnabled()) {
+    const target = await this.targetMember(ctx);
+    if (!target) {
+      if (ctx.surface === "prefix" && !this.targetUserId(ctx)) {
         await ctx.replyHidden(
-          "❌ The jail is disabled on this Monarch instance: the **Message Content** intent isn't enabled for the bot application. " +
-            "The host must turn it on under Bot → Privileged Gateway Intents and restart the bot.",
+          `❓ Say who to burg — \`${ctx.commandPrefix}burg @user [duration] [style] [reason]\` (run it again to turn it off).`,
         );
-        return;
+      } else {
+        // Slash always carries a user option, and a prefix id that resolves
+        // to nobody, both mean the same thing: the member isn't here.
+        await ctx.replyHidden("❌ That user isn't in this server.");
       }
-      jail.jail({ guildId: ctx.guildId, userId: ctx.user.id, until: null, jailedBy: existingTarget.id });
-      log.info("jail director uno-reversed burg command", {
-        guildId: ctx.guildId,
-        attemptedTarget: existingTarget.id,
-        jailedUser: ctx.user.id,
-        surface: ctx.surface,
-      });
-      await ctx.replyHidden(
-        "🔄 You tried to burg the jail director. That's not how it works around here. Now you have been jailed.",
-      );
-      return;
-    }
-    if (burg.get(ctx.guildId, existingTarget.id)) {
-      // Deliberately a toggle: no second command name to remember.
-      burg.release(ctx.guildId, existingTarget.id);
-      log.info("member unburged", {
-        guildId: ctx.guildId,
-        userId: existingTarget.id,
-        by: ctx.user.id,
-        surface: ctx.surface,
-      });
-      await ctx.replyHidden(`🧁 <@${existingTarget.id}> is no longer burg'd — their messages are back to normal.`);
       return;
     }
 
-    const target = existingTarget;
-    if (!this.deps.messageGagsEnabled()) {
+    const existing = burg.get(ctx.guildId, target.id);
+    const inputs = this.gagInputs(ctx, ["duration", "reason", "style"]);
+    const hasNewInputs =
+      inputs.duration !== null ||
+      inputs.invalidDuration !== null ||
+      inputs.style !== null ||
+      inputs.reason !== null;
+    if (existing && !hasNewInputs) {
+      // Deliberately a toggle: no second command name to remember. Switching
+      // the gag off needs nothing but the moderation permission — not the
+      // intent, not the role hierarchy, not a working relay.
+      burg.release(ctx.guildId, target.id);
+      log.info("member unburged", {
+        guildId: ctx.guildId,
+        userId: target.id,
+        by: ctx.user.id,
+        surface: ctx.surface,
+      });
+      await ctx.replyHidden(`🧁 <@${target.id}> is no longer burg'd — their messages are back to normal.`);
+      return;
+    }
+    if (!this.deps.burgEnabled()) {
       await ctx.replyHidden(
         "❌ /burg is disabled on this Monarch instance: the **Message Content** intent isn't enabled for the bot application. " +
           "The host must turn it on under Bot → Privileged Gateway Intents and restart the bot.",
@@ -739,6 +630,25 @@ export class MonarchCommands {
     }
     if (target.id === ctx.user.id) {
       await ctx.replyHidden("You can't burg yourself — nice try.");
+      return;
+    }
+    // Burg cannot target the bot owner (the application owner). Reverse the
+    // gag onto the person who tried it instead.
+    if (this.deps.ownerUserId && target.id === this.deps.ownerUserId) {
+      if (!burg.get(ctx.guildId, ctx.user.id)) {
+        // ...unless they're already burg'd, in which case the entry stays:
+        // the reverse must not become a free toggle-off.
+        burg.burg({ guildId: ctx.guildId, userId: ctx.user.id, until: null, burgedBy: target.id, style: "random" });
+      }
+      log.info("bot owner uno-reversed burg command", {
+        guildId: ctx.guildId,
+        attemptedTarget: target.id,
+        burgedUser: ctx.user.id,
+        surface: ctx.surface,
+      });
+      await ctx.replyHidden(
+        "🔄 You tried to burg the bot owner. That's not how it works around here. Now you have been burg'd.",
+      );
       return;
     }
     if (target.user.bot) {
@@ -758,12 +668,6 @@ export class MonarchCommands {
       await ctx.replyHidden("❌ Administrators can only be burg'd by the server owner.");
       return;
     }
-    if (jail.isJailed(ctx.guildId, target.id)) {
-      await ctx.replyHidden(
-        `❌ That member is already in the Galactic jail. Release them with \`${ctx.commandPrefix}unjail\` first, then use burg.`,
-      );
-      return;
-    }
     const mine = ctx.myPermissions();
     if (mine !== null && !mine.has(PermissionFlagsBits.ManageMessages)) {
       await ctx.replyHidden(
@@ -776,26 +680,51 @@ export class MonarchCommands {
       log.warn("burg without Manage Webhooks — relaying as plain bot messages", { guildId: ctx.guildId });
     }
 
-    const {
-      duration: durationRaw,
-      invalidDuration,
-      reason,
-      style: styleRaw,
-    } = this.gagInputs(ctx, ["duration", "reason", "style"]);
-    const style: BurgStyle =
-      styleRaw === "soft" || styleRaw === "cat" || styleRaw === "chaotic" ? styleRaw : "random";
-    let until: number | null = null;
-    if (invalidDuration) {
+    if (inputs.invalidDuration) {
       await ctx.replyHidden(DURATION_ERROR);
       return;
     }
-    if (durationRaw) {
-      const ms = parseDuration(durationRaw);
+    let until: number | null = null;
+    if (inputs.duration) {
+      const ms = parseDuration(inputs.duration);
       if (ms === null) {
         await ctx.replyHidden(DURATION_ERROR);
         return;
       }
       until = Date.now() + ms;
+    }
+    const style = asBurgStyle(inputs.style) ?? "random";
+
+    if (existing) {
+      // Re-running with options updates the entry instead of toggling it
+      // off: whatever the command didn't mention keeps its current value, so
+      // `!burg @user cat` changes the style without touching the timer.
+      const resolvedStyle = asBurgStyle(inputs.style) ?? existing.style;
+      const resolvedUntil = inputs.duration ? until : existing.until;
+      burg.burg({
+        guildId: ctx.guildId,
+        userId: target.id,
+        until: resolvedUntil,
+        burgedBy: ctx.user.id,
+        style: resolvedStyle,
+      });
+      log.info("member burg updated", {
+        guildId: ctx.guildId,
+        userId: target.id,
+        by: ctx.user.id,
+        until: resolvedUntil,
+        style: resolvedStyle,
+        surface: ctx.surface,
+      });
+      const when = resolvedUntil
+        ? `for **${formatDuration(resolvedUntil - Date.now())}** (until <t:${Math.floor(resolvedUntil / 1000)}:f>)`
+        : `**until toggled off** with \`${ctx.commandPrefix}burg @user\``;
+      const styleLabel = resolvedStyle === "random" ? "a random cute style" : `the **${resolvedStyle}** style`;
+      await ctx.replyHidden(
+        `🧁 Updated <@${target.id}>'s burg — now ${when}${inputs.reason ? ` — ${inputs.reason}` : ""}.\n` +
+          `Now using ${styleLabel}. Run \`${ctx.commandPrefix}burg @user\` with no options to turn it off.`,
+      );
+      return;
     }
 
     burg.burg({ guildId: ctx.guildId, userId: target.id, until, burgedBy: ctx.user.id, style });
@@ -812,7 +741,7 @@ export class MonarchCommands {
       : `**until toggled off** with \`${ctx.commandPrefix}burg @user\``;
     const styleLabel = style === "random" ? "a random cute style" : `the **${style}** style`;
     await ctx.replyHidden(
-      `🧁 <@${target.id}> is burg'd ${when}${reason ? ` — ${reason}` : ""}.\n` +
+      `🧁 <@${target.id}> is burg'd ${when}${inputs.reason ? ` — ${inputs.reason}` : ""}.\n` +
         `Their messages will be re-posted as ${styleLabel}, e.g. ${toBurg("hello there", style)} under their name and avatar.\n` +
         `Use \`${ctx.commandPrefix}burg\` on them again to turn it off.`,
     );
@@ -841,7 +770,7 @@ export class MonarchCommands {
   /**
    * Who the command is about: the slash `user` option, or the first mention /
    * snowflake in the prefix arguments. A bare word is never treated as a
-   * member — after `!jail` it's the reason.
+   * member — after `!burg` it's the reason.
    */
   private async targetMember(ctx: CommandContext): Promise<GuildMember | null> {
     const fromOption = ctx.getMemberOption("user");
@@ -863,6 +792,11 @@ export class MonarchCommands {
 /** The prefix form of a free-text option: every leftover word, joined. */
 function joinArgs(args: readonly string[]): string | null {
   return args.length > 0 ? args.join(" ") : null;
+}
+
+/** A validated burg style, or null when the caller gave none (or garbage). */
+function asBurgStyle(raw: string | null): BurgStyle | null {
+  return raw === "random" || raw === "soft" || raw === "cat" || raw === "chaotic" ? raw : null;
 }
 
 /** Slash-option form of {@link parseGagArgs} (typed options: nothing to guess). */

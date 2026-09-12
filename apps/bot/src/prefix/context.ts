@@ -19,8 +19,8 @@ import type { PrefixInvocation } from "./parse.js";
 
 /**
  * Prefix-command surface: adapts a Discord {@link Message} to the same
- * {@link CommandContext} the slash surface implements, so `!jail @user` and
- * `/monarch jail @user` run one and the same handler.
+ * {@link CommandContext} the slash surface implements, so `!burg @user` and
+ * `/burg @user` run one and the same handler.
  *
  * Differences from slash, all absorbed here rather than in the handlers:
  *

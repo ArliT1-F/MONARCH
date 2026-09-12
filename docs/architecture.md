@@ -13,7 +13,7 @@ with Send Test, **Embed Builder** (Phase 3) and **Message Designer**
 per-guild workspaces, Send Test / Publish through the Target Resolver, audit
 entries — plus **Backups & Restore**, **Templates (Import / Export)**, a
 responsive/mobile dashboard shell, and the bot's `help`, `backup`, `export`,
-`jail`/`unjail`/`jailed` and the standalone `/burg` slash command — every one
+`/burg` and `/monarch burged` commands — every one
 of which also answers as a **prefix (text) command** (`!help`, `!play`,
 `@Monarch status`) with a per-server prefix set by `!prefix set ?`.
 
@@ -46,34 +46,23 @@ both the user-facing routes and the bot-facing `/api/internal/*` routes:
   appends under the current structure (`mergeDesigns`, "add") or replaces
   categories/channels wholesale ("replace"), validates, and stages a draft.
 
-## Jail (bot-side moderation gag)
+## Burg (bot-side gag relay)
 
-`/monarch jail @user [duration]` is the one feature the bot runs on its own,
+`/burg @user [duration] [style]` is the one feature the bot runs on its own,
 because it needs live `messageCreate` events. State is an in-memory
-`JailRegistry` (apps/bot/src/jail.ts) with per-entry timers — a restart
+`BurgRegistry` (apps/bot/src/burg.ts) with per-entry timers — a restart
 releases everyone, by design (no bot database access). The relay deletes the
-original and re-posts it through a per-channel webhook named "Monarch Jail"
-using the member's display name and avatar, with the text transliterated to
-the Standard Galactic Alphabet (apps/bot/src/galactic.ts; mentions, custom
-emoji, timestamps, links and code spans are preserved so formatting can't be
-broken or bypassed). Requires the `GuildMessages` + privileged
-`MessageContent` intents and `Manage Messages`; if the intent is not enabled
-the bot falls back to Guilds-only and the command says so. Invokers must hold
-Administrator or Kick Members, and can only jail members below their highest
-role; owners and bots can't be jailed.
-
-### Burg relay
-
-`/burg @user [duration] [style]` uses the same permissions, duration parser,
-role checks, Message Content intent and Manage Messages requirement as the
-jail, but it is a single toggle: invoking it for an active member releases
-them. `BurgRegistry` (apps/bot/src/burg.ts) owns the in-memory timers and the
-uwu/owo transformer. Messages are re-posted through a separate per-channel
-"Monarch Burg" webhook so the member's display name and avatar remain visible.
-The transformer preserves mentions, custom emoji, timestamps, links and code
-spans, then adds readable spelling changes and selectable soft, cat, chaotic or
-random cute flourishes. A member cannot be in both relays at once; the command
-handler rejects that combination so relay precedence cannot surprise anyone.
+original and re-posts it through a per-channel webhook named "Monarch Burg"
+using the member's display name and avatar, with the text rewritten by the
+uwu/owo transformer (mentions, custom emoji, timestamps, links and code spans
+are preserved so formatting can't be broken or bypassed), plus readable
+spelling changes and selectable soft, cat, chaotic or random cute flourishes.
+Requires the `GuildMessages` + privileged `MessageContent` intents and
+`Manage Messages`; if the intent is not enabled the bot falls back to
+Guilds-only and the command says so. Invokers must hold Administrator or Kick
+Members, and can only burg members below their highest role; owners and bots
+can't be burg'd. Run bare on a burg'd member it toggles the gag off; run with
+options it updates the timer/style. `/monarch burged` lists who's burg'd.
 
 ## Command surface: slash + prefix (two ways to type one command)
 
@@ -103,27 +92,27 @@ whitespace, must end in punctuation — so `!`, `?`, `m!`, `>>` are valid and
 nobody knows the prefix), then text prefixes longest-first and
 case-insensitively; the rest of the message is tokenized by `prefix/parse.ts`
 (quotes keep arguments together, mentions become snowflakes, URLs stay whole).
-The router mirrors the slash tree (`!monarch jail @user 10m`, `!music play x`)
-plus short aliases (`!play`, `!p`, `!np`, `!q`, `!jail`, `!burg`, `!help`,
+The router mirrors the slash tree (`!monarch burged`, `!music play x`)
+plus short aliases (`!play`, `!p`, `!np`, `!q`, `!burged`, `!burg`, `!help`,
 `!invite`) that the shared command catalog documents and tests keep in sync.
 
 **Nothing harmless is gated.** `help`, `dashboard`, `status`, `prefix` (show)
 and `invite` run for any member; only commands that read or change server data
 ask for Manage Server / Administrator (`backup`, `export`, `embed`, `test`,
-`prefix set`) or Administrator / Kick Members (the jail and burg gags).
+`prefix set`) or Administrator / Kick Members (`burg`, `burged`).
 `!invite` builds its link with `packages/shared/src/invite.ts` — the same
 builder behind the dashboard's `GET /api/invite` and "Add Monarch to Discord"
 button — so a member who finds Monarch in somebody else's server can install it
 on their own with the identical least-privilege permission set.
 
-**Response policy.** A jail/burg relay entry outranks a command reply (a jailed
-user's `!help` becomes galactic text — asserted in the tests). Unknown `!words`
+**Response policy.** A text command outranks the burg relay (a burg'd
+user's `!burged` still runs as a command — asserted in the tests). Unknown `!words`
 are answered with **silence** so servers with several bots don't collect a pile
 of "unknown command" replies; only an explicit `@Monarch <typo>` or a bare
 `!monarch` / `!music` group root gets a helpful reply, and a bare `@Monarch`
 gets a greeting. Prefix replies are public (there is no ephemeral text message)
-and always send an explicit `allowedMentions`, so a `!jail <@someone>` reply
-can't ping the room.
+and always send an explicit `allowedMentions`, so a `!burg <@someone>` reply
+can't ping the room (the slash surface does the same).
 
 ## Monorepo layout
 

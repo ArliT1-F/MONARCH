@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PermissionFlagsBits, PermissionsBitField } from "discord.js";
 import { DEFAULT_COMMAND_PREFIX, buildBotInviteUrl } from "@monarch/shared";
 import { BurgRegistry } from "../src/burg.js";
-import { JailRegistry } from "../src/jail.js";
 import { MonarchCommands } from "../src/monarch-commands.js";
 import { PrefixRegistry } from "../src/prefix/registry.js";
 import { SlashCommandContext } from "../src/slash-context.js";
@@ -11,7 +10,7 @@ import type { ChatInputCommandInteraction } from "discord.js";
 /**
  * The slash surface after the prefix-command refactor.
  *
- * The point of these tests is parity: `/monarch jail` and `!jail` must land in
+ * The point of these tests is parity: `/burg` and `!burg` must land in
  * the same registry with the same checks, and the slash-only behaviours
  * (ephemeral replies, `deferReply` → `editReply`) must have survived the move
  * from a 500-line switch in index.ts into MonarchCommands + a context adapter.
@@ -32,7 +31,13 @@ const member = (id: string, position: number, bits: bigint = PermissionFlagsBits
 });
 
 /** Typed read of a `vi.fn()` payload — discord.js reply options in, assertions out. */
-type ReplyPayload = { content?: string; embeds?: { description: string }[]; files?: unknown[]; flags?: number };
+type ReplyPayload = {
+  content?: string;
+  embeds?: { description: string }[];
+  files?: unknown[];
+  flags?: number;
+  allowedMentions?: { parse: string[] };
+};
 function payloadAt(spy: { mock: { calls: unknown[][] } }, index = 0): ReplyPayload {
   const call = spy.mock.calls[index];
   if (!call) throw new Error(`expected a reply #${index}, got none`);
@@ -79,7 +84,6 @@ function fakeInteraction(options: Record<string, unknown> = {}) {
   return interaction;
 }
 
-let jail: JailRegistry;
 let burg: BurgRegistry;
 let prefixes: PrefixRegistry;
 let monarch: MonarchCommands;
@@ -94,16 +98,14 @@ function context(interaction: ReturnType<typeof fakeInteraction>, prefix = "!") 
 
 beforeEach(() => {
   vi.useRealTimers();
-  jail = new JailRegistry();
   burg = new BurgRegistry();
   prefixes = new PrefixRegistry();
   log = { info: vi.fn(), warn: vi.fn() };
   monarch = new MonarchCommands({
     appUrl: "https://monarch.example",
-    jail,
     burg,
     prefixes,
-    messageGagsEnabled: () => true,
+    burgEnabled: () => true,
     clientId: CLIENT_ID,
     log,
   });
@@ -127,34 +129,41 @@ describe("slash surface", () => {
     await monarch.run(context(interaction), "dashboard");
     const payload = payloadAt(interaction.reply);
     expect(payload.flags).toBe(64); // MessageFlags.Ephemeral
+    expect(payload.allowedMentions).toEqual({ parse: [] }); // user text can never mass-ping
     expect(payload.content).toContain(`https://monarch.example/s/${GUILD_ID}`);
   });
 
-  it("jails through the same registry the prefix surface uses", async () => {
+  it("burgs through the same registry the prefix surface uses", async () => {
     // Frozen clock: the reply quotes the time left, not the time requested.
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-12T12:00:00.000Z"));
-    const interaction = fakeInteraction({ user: { id: TARGET_ID }, duration: "10m", reason: "being silly" });
-    await monarch.run(context(interaction), "jail");
+    const interaction = fakeInteraction({
+      user: { id: TARGET_ID },
+      duration: "10m",
+      style: "cat",
+      reason: "being silly",
+    });
+    await monarch.burg(context(interaction));
 
-    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true);
-    const entry = jail.get(GUILD_ID, TARGET_ID)!;
-    expect(entry.jailedBy).toBe(MOD_ID);
+    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(true);
+    const entry = burg.get(GUILD_ID, TARGET_ID)!;
+    expect(entry.burgedBy).toBe(MOD_ID);
+    expect(entry.style).toBe("cat");
     expect(entry.until).toBe(Date.now() + 10 * 60 * 1000);
     const payload = payloadAt(interaction.reply);
-    expect(payload.content).toContain("is jailed for **10m**");
+    expect(payload.content).toContain("burg'd for **10m**");
     expect(payload.content).toContain("being silly");
     expect(payload.flags).toBe(64);
 
     // …and the prefix surface sees exactly the same state.
-    expect(jail.list(GUILD_ID)).toHaveLength(1);
+    expect(burg.list(GUILD_ID)).toHaveLength(1);
   });
 
   it("keeps the moderation checks", async () => {
     const interaction = fakeInteraction({ user: { id: TARGET_ID } });
     interaction.memberPermissions = new PermissionsBitField(0n);
-    await monarch.run(context(interaction), "jail");
-    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(false);
+    await monarch.burg(context(interaction));
+    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(false);
     expect(payloadAt(interaction.reply, 0).content).toContain("Kick Members");
   });
 
@@ -164,6 +173,26 @@ describe("slash surface", () => {
     await monarch.burg(context(interaction));
     expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(false);
     expect(payloadAt(interaction.reply, 0).content).toContain("no longer burg'd");
+  });
+
+  it("updates the entry when re-run with options instead of toggling off", async () => {
+    burg.burg({ guildId: GUILD_ID, userId: TARGET_ID, until: null, burgedBy: MOD_ID, style: "soft" });
+    const interaction = fakeInteraction({ user: { id: TARGET_ID }, duration: "10m" });
+    await monarch.burg(context(interaction));
+    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(true); // still on
+    expect(burg.get(GUILD_ID, TARGET_ID)?.style).toBe("soft"); // untouched
+    expect(burg.get(GUILD_ID, TARGET_ID)?.until).not.toBeNull(); // now timed
+    expect(payloadAt(interaction.reply, 0).content).toContain("Updated");
+  });
+
+  it("lists burg'd members through /monarch burged", async () => {
+    burg.burg({ guildId: GUILD_ID, userId: TARGET_ID, until: null, burgedBy: MOD_ID, style: "soft" });
+    const interaction = fakeInteraction({});
+    await monarch.run(context(interaction), "burged");
+    const payload = payloadAt(interaction.reply, 0);
+    expect(payload.content).toContain(`<@${TARGET_ID}>`);
+    expect(payload.content).toContain("until toggled off");
+    expect(payload.flags).toBe(64);
   });
 
   it("defers, then edits — never replies twice", async () => {
@@ -176,10 +205,9 @@ describe("slash surface", () => {
     monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
       internalToken: "token",
-      jail,
       burg,
       prefixes,
-      messageGagsEnabled: () => true,
+      burgEnabled: () => true,
       log,
     });
 
@@ -216,10 +244,9 @@ describe("slash surface", () => {
     monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
       internalToken: "token",
-      jail,
       burg,
       prefixes,
-      messageGagsEnabled: () => true,
+      burgEnabled: () => true,
       log,
     });
 
@@ -309,10 +336,9 @@ describe("the no-danger commands are open to everybody", () => {
   it("points at the dashboard when no application id is known", async () => {
     const orphan = new MonarchCommands({
       appUrl: "https://monarch.example",
-      jail,
       burg,
       prefixes,
-      messageGagsEnabled: () => true,
+      burgEnabled: () => true,
       clientId: null,
       log,
     });

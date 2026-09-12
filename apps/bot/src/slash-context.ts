@@ -27,7 +27,10 @@ import {
  * - once `defer()` has been called, `reply`/`edit`/`attach` all go through
  *   `editReply` — Discord rejects a second `reply` on a deferred interaction;
  * - prefix commands are resolved from the interaction's own text channel,
- *   which only matters for wording ("try `!play`").
+ *   which only matters for wording ("try `!play`");
+ * - every reply carries an explicit `allowedMentions` (default: nobody), so
+ *   user-supplied text such as burg reasons can never mass-ping — the same
+ *   rule the prefix surface follows.
  */
 export class SlashCommandContext implements CommandContext {
   readonly surface = "slash" as const;
@@ -96,10 +99,15 @@ export class SlashCommandContext implements CommandContext {
     );
     if (this.deferred || this.interaction.deferred || this.interaction.replied) {
       this.responded = true;
-      return this.interaction.editReply({ content, files: attachments });
+      return this.interaction.editReply({ content, files: attachments, allowedMentions: allowedMentionsFor() });
     }
     this.responded = true;
-    return this.interaction.reply({ content, files: attachments, flags: MessageFlags.Ephemeral });
+    return this.interaction.reply({
+      content,
+      files: attachments,
+      flags: MessageFlags.Ephemeral,
+      allowedMentions: allowedMentionsFor(),
+    });
   }
 
   getStringOption(name: string): string | null {
@@ -141,18 +149,21 @@ export class SlashCommandContext implements CommandContext {
     options?: ReplyOptions,
   ): Promise<unknown> {
     this.responded = true;
+    // Always explicit: without it, Discord falls back to its default mention
+    // behaviour and user text (a burg reason, a backup name) could ping.
+    const allowedMentions = allowedMentionsFor(options);
     if (this.deferred || this.interaction.deferred || this.interaction.replied) {
       return this.interaction.editReply({
         content: payload.content,
         embeds: payload.embeds,
-        ...(options?.mentions ? { allowedMentions: allowedMentionsFor(options) } : {}),
+        allowedMentions,
       });
     }
     return this.interaction.reply({
       content: payload.content,
       embeds: payload.embeds,
       ...this.replyFlags(options),
-      ...(options?.mentions ? { allowedMentions: allowedMentionsFor(options) } : {}),
+      allowedMentions,
     });
   }
 }

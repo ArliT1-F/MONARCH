@@ -1,3 +1,4 @@
+import os from "node:os";
 import {
   Client,
   Events,
@@ -12,12 +13,11 @@ import {
   type Message,
   type VoiceState,
   type Webhook,
+  type WebhookMessageCreateOptions,
 } from "discord.js";
 import { createLogger } from "@monarch/shared";
 import { burgCommandJSON, monarchCommandJSON } from "./commands.js";
 import { BurgRegistry, toBurg } from "./burg.js";
-import { toGalactic } from "./galactic.js";
-import { JailRegistry } from "./jail.js";
 import { MonarchCommands } from "./monarch-commands.js";
 import { MusicCommands, musicCommandJSON } from "./music/commands.js";
 import { MusicManager } from "./music/player.js";
@@ -31,11 +31,11 @@ import { SlashCommandContext } from "./slash-context.js";
  * The web dashboard is the product; the bot is the integration layer.
  * Commands provide quick actions and dashboard links. Structural changes
  * are executed by the API layer through @monarch/discord (REST), not by
- * this process. The live message gags (jail and burg) run here because they
+ * this process. The live burg gag runs here because it
  * need gateway message events; the rest of the design work stays in the API.
  *
- * Every command answers to both surfaces: slash (`/monarch jail`,
- * `/music play`) and text prefixes (`!jail`, `!play`, `@Monarch help`) with a
+ * Every command answers to both surfaces: slash (`/burg`,
+ * `/music play`) and text prefixes (`!burg`, `!play`, `@Monarch help`) with a
  * per-server prefix. Both are thin adapters over the same handlers, so they
  * cannot drift — see ./prefix/ and ./context.ts.
  *
@@ -59,15 +59,26 @@ if (!token) {
   process.exit(0);
 }
 
+// The uno-reverse only exists when the worker knows who the application owner
+// is. A missing id fails *open* (the owner can be burg'd like anyone else),
+// so say so loudly at boot instead of letting it look like a burg bug —
+// especially when two workers share a token and only one of them has it set.
+if (!ownerUserId) {
+  log.warn(
+    "MONARCH_OWNER_USER_ID is not set — the application owner can be burg'd and the uno-reverse is off. " +
+      "Set it to your Discord user id to protect yourself.",
+  );
+}
+
 /**
  * Intents: Guilds for slash commands; GuildVoiceStates for the music player;
- * GuildMessages + MessageContent so the jail and burg relays can read and
+ * GuildMessages + MessageContent so the burg relay can read and
  * re-post messages, and so prefix (text) commands can be seen at all.
  * MessageContent is a *privileged* intent — enable it under Bot → Privileged
  * Gateway Intents in the developer portal (free under 100 servers,
  * verification required above that). If it is not enabled Discord refuses
  * the connection, so `start()` falls back to Guilds + VoiceStates with the
- * message features (both gags *and* prefix commands) disabled instead of
+ * message features (the burg relay *and* prefix commands) disabled instead of
  * crash-looping the worker — slash commands keep working.
  */
 const FULL_INTENTS = [
@@ -78,12 +89,8 @@ const FULL_INTENTS = [
 ];
 const BASIC_INTENTS = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates];
 
-let jailEnabled = true;
+let messageContentEnabled = true;
 let client = createClient(FULL_INTENTS);
-
-const jail = new JailRegistry((entry) => {
-  log.info("jail expired", { guildId: entry.guildId, userId: entry.userId });
-});
 
 const burg = new BurgRegistry((entry) => {
   log.info("burg expired", { guildId: entry.guildId, userId: entry.userId, style: entry.style });
@@ -118,11 +125,14 @@ function createClient(intents: number[]): Client {
   c.once(Events.ClientReady, (ready) => {
     log.info("bot ready", {
       user: ready.user.tag,
+      // Which machine/container this is: two workers sharing one token each
+      // log a ready line, and the hostname tells them apart.
+      instance: os.hostname(),
       guilds: ready.guilds.cache.size,
-      jail: jailEnabled,
-      // The same flag gates the relays and text commands: both need to read
+      burg: messageContentEnabled,
+      // The same flag gates the relay and text commands: both need to read
       // other people's message content.
-      prefixCommands: jailEnabled,
+      prefixCommands: messageContentEnabled,
     });
   });
   // Surface gateway trouble instead of letting an EventEmitter "error" event
@@ -180,45 +190,75 @@ function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-// ── live message relays (jail + burg) ────────────────────────────────
+// ── live message relay (burg) ────────────────────────────────────────
 
-const JAIL_WEBHOOK_NAME = "Monarch Jail";
 const BURG_WEBHOOK_NAME = "Monarch Burg";
-const jailWebhookCache = new Map<string, Webhook>();
 const burgWebhookCache = new Map<string, Webhook>();
 
 /** One webhook per channel, created lazily and reused (Discord caps them at 15/channel). */
-async function relayWebhook(
-  message: Message<true>,
-  name: string,
-  reason: string,
-  cache: Map<string, Webhook>,
-): Promise<Webhook | null> {
+async function burgWebhook(message: Message<true>): Promise<Webhook | null> {
   const channel = message.channel;
   // Threads post through their parent's webhook with `threadId`.
   const host = channel.isThread() ? channel.parent : channel;
   if (!host || !("fetchWebhooks" in host)) return null;
-  const cached = cache.get(host.id);
+  const cached = burgWebhookCache.get(host.id);
   if (cached) return cached;
   const me = message.guild.members.me;
   if (!me || !host.permissionsFor(me).has(PermissionFlagsBits.ManageWebhooks)) return null;
   const hooks = await host.fetchWebhooks();
   let hook = hooks.find(
-    (candidate) => candidate.owner?.id === client.user?.id && candidate.name === name && candidate.token,
+    (candidate) =>
+      candidate.owner?.id === client.user?.id && candidate.name === BURG_WEBHOOK_NAME && candidate.token,
   );
   if (!hook) {
-    hook = await host.createWebhook({ name, reason });
+    hook = await host.createWebhook({ name: BURG_WEBHOOK_NAME, reason: "Monarch burg relay" });
   }
-  cache.set(host.id, hook);
+  burgWebhookCache.set(host.id, hook);
   return hook;
 }
 
-async function jailWebhook(message: Message<true>): Promise<Webhook | null> {
-  return relayWebhook(message, JAIL_WEBHOOK_NAME, "Monarch jail relay", jailWebhookCache);
+/** Drop a cached webhook so the next relay re-fetches (or recreates) it. */
+function evictWebhookCache(hook: Webhook): void {
+  for (const [channelId, cached] of burgWebhookCache) {
+    if (cached.id === hook.id) burgWebhookCache.delete(channelId);
+  }
 }
 
-async function burgWebhook(message: Message<true>): Promise<Webhook | null> {
-  return relayWebhook(message, BURG_WEBHOOK_NAME, "Monarch burg relay", burgWebhookCache);
+function isUnknownWebhook(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === 10015;
+}
+
+/**
+ * Webhook display names may not contain "discord" (Discord rejects the send,
+ * which would delete the original with nothing re-posted), so swap one
+ * character for a lookalike instead of failing the whole relay.
+ */
+function sanitizeRelayUsername(displayName: string, fallback: string): string {
+  const cleaned = displayName
+    .replace(/discord/gi, "d\u0456scord")
+    .replace(/clyde/gi, "\u0441lyde")
+    .trim();
+  const name = cleaned.length > 0 ? cleaned : fallback;
+  // Truncate by code point so a trailing emoji isn't sliced in half (Discord
+  // caps webhook usernames at 80 characters).
+  return Array.from(name).slice(0, 80).join("");
+}
+
+// Relay sends for one channel run in order: without this, two quick messages
+// race their webhook posts and arrive swapped. The stored promise never
+// rejects, so one failed relay can't wedge the channel behind it.
+const relayChains = new Map<string, Promise<void>>();
+
+function serializeRelay(channelId: string, task: () => Promise<void>): Promise<void> {
+  const previous = relayChains.get(channelId) ?? Promise.resolve();
+  const current = previous.catch(() => {}).then(task);
+  const stored = current.catch(() => {});
+  relayChains.set(channelId, stored);
+  const cleanup = () => {
+    if (relayChains.get(channelId) === stored) relayChains.delete(channelId);
+  };
+  current.then(cleanup, cleanup);
+  return current;
 }
 
 async function onMessage(message: Message) {
@@ -235,34 +275,44 @@ async function onMessage(message: Message) {
     return;
   }
 
-  // 2) The jail / burg relays.
+  // 2) The burg relay.
   try {
-    // If someone has both gags enabled, jail wins. More importantly, only one
-    // handler ever deletes the source message, so the two relays cannot race.
-    const jailed = jail.isJailed(message.guildId, message.author.id);
-    const burgEntry = jailed ? null : burg.get(message.guildId, message.author.id);
-    if (!jailed && !burgEntry) return;
-    const mode = jailed ? "jail" : "burg";
+    const burgEntry = burg.get(message.guildId, message.author.id);
+    if (!burgEntry) return;
 
-    const me = message.guild.members.me;
-    const channelPerms = me ? message.channel.permissionsFor(me) : null;
-    if (!channelPerms?.has(PermissionFlagsBits.ManageMessages)) {
-      log.warn(`${mode}ged message left alone — missing Manage Messages`, {
+    // Polls can't be re-posted faithfully (recreating one would lose every
+    // vote), so they're left alone rather than deleted.
+    if (message.poll) {
+      log.info("burg skipped — message contains a poll", {
         guildId: message.guildId,
         channelId: message.channelId,
       });
       return;
     }
 
-    const plainContent = message.content ?? "";
-    const content = jailed ? toGalactic(plainContent) : toBurg(plainContent, burgEntry!.style);
+    const me = message.guild.members.me;
+    const channelPerms = me ? message.channel.permissionsFor(me) : null;
+    if (!channelPerms?.has(PermissionFlagsBits.ManageMessages)) {
+      log.warn("burg'd message left alone — missing Manage Messages", {
+        guildId: message.guildId,
+        channelId: message.channelId,
+      });
+      return;
+    }
+    if (!channelPerms.has(PermissionFlagsBits.SendMessages)) {
+      // Deleting a message the bot couldn't re-post would just destroy it.
+      log.warn("burg'd message left alone — missing Send Messages", {
+        guildId: message.guildId,
+        channelId: message.channelId,
+      });
+      return;
+    }
+
+    const content = toBurg(message.content ?? "", burgEntry.style);
     const files = message.attachments.map((a) => a.url);
     const stickers = message.stickers.map((s) => s.name);
-    const stickerText = stickers.length
-      ? jailed
-        ? `*(sticker: ${stickers.join(", ")})*`
-        : toBurg(`*(sticker: ${stickers.join(", ")})*`, burgEntry!.style)
-      : "";
+    const stickerText =
+      stickers.length > 0 ? toBurg(`*(sticker: ${stickers.join(", ")})*`, burgEntry.style) : "";
     const body = [content, stickerText].filter(Boolean).join("\n");
     if (!body && files.length === 0) {
       await message.delete().catch(() => {});
@@ -272,32 +322,51 @@ async function onMessage(message: Message) {
     const member = message.member;
     const displayName = member?.displayName ?? message.author.displayName ?? message.author.username;
     const avatarURL = member?.displayAvatarURL({ size: 256 }) ?? message.author.displayAvatarURL({ size: 256 });
+    const username = sanitizeRelayUsername(displayName, message.author.username);
+    const sendPayload = (): WebhookMessageCreateOptions => ({
+      content: truncate(body, 2000) || undefined,
+      files: files.slice(0, 10),
+      username,
+      avatarURL,
+      threadId: message.channel.isThread() ? message.channel.id : undefined,
+      allowedMentions: { parse: [] },
+    });
 
     // Relay first (attachments are re-uploaded from the original's CDN
     // URLs, which must still exist), then delete. The delete happens even if
-    // the relay failed so the gag always holds.
-    try {
-      const hook = jailed ? await jailWebhook(message) : await burgWebhook(message);
-      if (hook) {
-        await hook.send({
-          content: truncate(body, 2000) || undefined,
-          files: files.slice(0, 10),
-          username: truncate(displayName, 80),
-          avatarURL,
-          threadId: message.channel.isThread() ? message.channel.id : undefined,
-          allowedMentions: { parse: [] },
-        });
-      } else {
-        await message.channel.send({
-          content: truncate(`**${displayName}**: ${body}`, 2000),
-          files: files.slice(0, 10),
-          allowedMentions: { parse: [] },
-        });
+    // the relay failed so the gag always holds. One channel relays at a time
+    // so quick messages can't arrive swapped.
+    await serializeRelay(message.channelId, async () => {
+      try {
+        const hook = await burgWebhook(message);
+        if (hook) {
+          try {
+            await hook.send(sendPayload());
+          } catch (error) {
+            // A webhook deleted from Server Settings leaves a stale cache
+            // entry: evict it and try once more with a fresh one.
+            if (!isUnknownWebhook(error)) throw error;
+            log.info("burg webhook was deleted — recreating", {
+              guildId: message.guildId,
+              channelId: message.channelId,
+            });
+            evictWebhookCache(hook);
+            const fresh = await burgWebhook(message);
+            if (!fresh) throw error;
+            await fresh.send(sendPayload());
+          }
+        } else {
+          await message.channel.send({
+            content: truncate(`**${displayName}**: ${body}`, 2000),
+            files: files.slice(0, 10),
+            allowedMentions: { parse: [] },
+          });
+        }
+      } catch (e) {
+        log.warn("burg relay failed — original still deleted", { error: String(e) });
       }
-    } catch (e) {
-      log.warn(`${mode} relay failed — original still deleted`, { error: String(e) });
-    }
-    await message.delete().catch((e) => log.warn(`could not delete ${mode}ged message`, { error: String(e) }));
+      await message.delete().catch((e) => log.warn("could not delete burg'd message", { error: String(e) }));
+    });
   } catch (e) {
     log.error("message relay failed", { error: String(e) });
   }
@@ -310,7 +379,7 @@ async function onMessage(message: Message) {
  * ./monarch-commands.ts and ./music/commands.ts) that talks to a
  * CommandContext (./context.ts). `onInteraction` wraps interactions in
  * SlashCommandContext, `handlePrefixMessage` wraps messages in
- * PrefixCommandContext — so `/monarch jail @user` and `!jail @user` are the
+ * PrefixCommandContext — so `/burg @user` and `!burg @user` are the
  * same code, with the same checks, the same API calls and the same replies.
  *
  * This file keeps only what needs the live gateway: the relay webhooks above,
@@ -324,10 +393,9 @@ const prefixes = new PrefixRegistry({
 const monarchCommands = new MonarchCommands({
   appUrl,
   internalToken,
-  jail,
   burg,
   prefixes,
-  messageGagsEnabled: () => jailEnabled,
+  burgEnabled: () => messageContentEnabled,
   clientId, // for `!invite` — falls back to the bot's own user id below
   ownerUserId,
   log,
@@ -342,7 +410,7 @@ const prefixDeps: PrefixDispatcherDeps = {
   monarch: monarchCommands,
   music: () => getMusicCommands(),
   botUserId: () => client.user?.id ?? null,
-  enabled: () => jailEnabled, // MessageContent intent → text commands at all
+  enabled: () => messageContentEnabled, // MessageContent intent → text commands at all
   log,
 };
 
@@ -444,12 +512,12 @@ async function start(botToken: string) {
   } catch (e) {
     if (!isDisallowedIntents(e)) throw e;
     log.error(
-      "Message Content intent is not enabled for this application — /monarch jail, /burg and all prefix (text) " +
+      "Message Content intent is not enabled for this application — /burg and all prefix (text) " +
         "commands are disabled; slash commands keep working. " +
         "Enable it under Bot → Privileged Gateway Intents in the Discord developer portal, then restart.",
       { error: String(e) },
     );
-    jailEnabled = false;
+    messageContentEnabled = false;
     try {
       client.destroy();
     } catch {

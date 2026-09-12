@@ -13,8 +13,8 @@ import { PermissionsBitField, type APIEmbed, type Guild, type GuildMember, type 
  *   the message text, there is no ephemeral flag (everybody can see a text
  *   command), and deferring posts a placeholder message that gets edited.
  *
- * Keeping the handlers surface-neutral is what makes `!play`, `!jail` and
- * `/music play`, `/monarch jail` run the *same* code: one set of permission
+ * Keeping the handlers surface-neutral is what makes `!play`, `!burg` and
+ * `/music play`, `/burg` run the *same* code: one set of permission
  * checks, one set of replies, no drift between the two ways of typing a
  * command. Anything a handler needs that isn't here belongs in the surface
  * adapter, not in the handler.
@@ -122,7 +122,7 @@ export interface SendableChannel {
  * Both surfaces must agree, including Discord's "Administrator implies
  * everything" shortcut — which `PermissionsBitField.has()` implements and a
  * raw bitwise AND does not. Handlers therefore read the same answer whether
- * the command arrived as `/monarch jail` or `!jail`.
+ * the command arrived as `/burg` or `!burg`.
  */
 export function hasAnyPermission(
   permissions: PermissionsBitField | bigint | null | undefined,

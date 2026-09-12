@@ -52,6 +52,10 @@ services:
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
       APP_URL: ${APP_URL:-http://localhost:3000}
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      # Your own Discord user id: targeting it with /burg uno-reverses onto
+      # the invoker instead. Without it the owner can be burg'd like anyone
+      # else (the worker logs a warning at boot).
+      MONARCH_OWNER_USER_ID: ${MONARCH_OWNER_USER_ID:-}
 
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
