@@ -267,7 +267,7 @@ export function renderHelpEmbeds(appUrl: string, guildId?: string, prefix: strin
         `-# Music player: /music play · pause · resume · skip · queue · nowplaying · volume · loop · shuffle · remove · clear · stop\n` +
         prefixHelpLine(prefix),
       fields,
-      footer: { text: "Preview first → validate → diff → confirm → apply. Never blind writes." },
+      footer: { text: "For any issues dm @icy404 on Discord."},
     },
   ];
 }
