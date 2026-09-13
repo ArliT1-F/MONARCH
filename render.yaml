@@ -1,6 +1,17 @@
 # Optional companion deployment for the long-lived Discord gateway.
 # Keep the dashboard on Vercel; deploy this worker to Render (or any worker
 # host). Both services must use the same DISCORD_BOT_TOKEN.
+#
+# ⚠️ This worker cannot do /music: voice audio is UDP and Render's containers
+# have no UDP egress, so the bot joins the channel and times out in
+# "signalling". Everything else (designer commands, burg, prefixes, confessions,
+# invite/backup/export) works fine here. For voice, run the worker on a host
+# that passes outbound UDP — Fly.io, any VPS, or your own machine via
+# deploy/laptop-install.sh (docs/hosting-laptop.md).
+#
+# Never run *this* service and a self-hosted worker at the same time on the same
+# token: both process every message (double !burg relays, double prefix
+# commands) and two MusicManagers fight over one guild's voice channel.
 services:
   - type: worker
     name: monarch-bot

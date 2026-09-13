@@ -133,10 +133,16 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   burg relay also needs the **Manage Messages** permission.
   Spotify links need `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` on the
   bot (free app at developer.spotify.com — see `.env.example`); YouTube
-  links and search work out of the box. Playback needs **ffmpeg** — the
-  Docker image ships it, and local installs fall back to the bundled
-  `@ffmpeg-installer/ffmpeg`. DJ roles are recognized by name (`DJ` by
-  default; `MUSIC_DJ_ROLE_NAMES`, staff roles via `MUSIC_STAFF_ROLE_NAMES`).
+  links and search work out of the box. Playback needs two things on the
+  worker: **ffmpeg** (the Docker image ships it; local installs fall back to
+  the bundled `@ffmpeg-installer/ffmpeg`) and an **Opus encoder** — which is
+  what `opusscript` in `apps/bot/package.json` is for, because
+  `@discordjs/voice` has no codec of its own. Voice is also **UDP**, so the
+  host must allow outbound UDP: that rules out Render, and
+  [docs/hosting-laptop.md](docs/hosting-laptop.md) covers running the worker on
+  your own machine instead. DJ roles are recognized by
+  name (`DJ` by default; `MUSIC_DJ_ROLE_NAMES`, staff roles via
+  `MUSIC_STAFF_ROLE_NAMES`).
 
 Welcome Designer and Branding Studio are phased next — see
 [docs/architecture.md](docs/architecture.md).
@@ -199,13 +205,20 @@ cd docker && docker compose up --build
 Deploying to **Vercel + Postgres (Prisma)** — see
 [docs/deploying-vercel.md](docs/deploying-vercel.md). Vercel runs the dashboard;
 the Discord Gateway bot must run as a long-lived worker (Render, Railway,
-Fly.io, a VM, or Docker). Set the same `DISCORD_BOT_TOKEN` and `APP_URL` in
-both services so slash commands and dashboard changes stay online together.
+Fly.io, a VM, or Docker). Any of those run everything except **`/music`**:
+voice needs outbound UDP, which Render's containers don't have — for that, or
+to stop paying for a worker at all, run it on your own always-on box with
+`deploy/laptop-install.sh` ([docs/hosting-laptop.md](docs/hosting-laptop.md));
+that page also lists which hosts allow UDP. **Exactly one** worker may hold
+`DISCORD_BOT_TOKEN` — two of them double every `!burg`/prefix command and fight
+over one guild's voice channel — and it talks to the dashboard through
+`APP_URL` + a matching `INTERNAL_API_TOKEN`, because the bot keeps no database
+of its own.
 Set `DISCORD_CLIENT_ID` on the worker so it can register `/monarch`, `/burg`
 and `/music`; optionally set `DISCORD_GUILD_ID` while testing for immediate
 slash-command updates (global Discord commands can take up to an hour to
-propagate). `render.yaml` is ready for a Render worker. Set `DATABASE_URL`
-(anywhere:
+propagate). `render.yaml` is ready for a Render worker — everything except
+`/music`, since Render has no UDP (see above). Set `DATABASE_URL` (anywhere:
 Vercel, Docker, local) and Monarch swaps its file store for the PostgreSQL-
 backed `PrismaStore` automatically; migrations ship in `prisma/migrations/`
 and apply with `npm run db:migrate`.
@@ -220,6 +233,8 @@ packages/*        shared · schemas · validation · design-engine · renderer �
 prisma/           PostgreSQL schema (production persistence target)
 docker/           Compose + Dockerfiles
 docs/             Architecture & decisions
+deploy/           laptop-install.sh — systemd user unit for a self-hosted worker
+                  (see docs/hosting-laptop.md; no sudo, no Docker, no bill)
 ```
 
 The music player is split the same way as everything else:

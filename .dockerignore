@@ -1,0 +1,33 @@
+# Build context for docker/bot.Dockerfile and docker/dashboard.Dockerfile
+# (Fly.io's `fly deploy` and Render both honour this file).
+#
+# Both images run `npm ci` from package.json + package-lock.json, so the
+# locally installed node_modules must NOT be shipped — a Linux box's
+# node_modules copied into an alpine image is a great way to meet a
+# "module compiled for a different runtime".
+**/node_modules
+
+# git + local state
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+.monarch-data
+
+# build output and caches (the images rebuild these)
+**/dist
+**/build
+**/out
+**/.next
+**/.turbo
+**/coverage
+# prisma generate recreates this during the image build (root postinstall)
+apps/dashboard/lib/generated
+
+# logs
+**/*.log
+npm-debug.log*
+
+# editor / OS noise
+.DS_Store

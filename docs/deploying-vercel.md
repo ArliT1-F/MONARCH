@@ -3,7 +3,12 @@
 The dashboard is a Next.js app and deploys cleanly to Vercel. The **bot**
 keeps a live Discord gateway connection and must run somewhere long-lived
 (the provided Docker Compose stack, a VM, or a container platform) — never
-on serverless.
+on serverless. And if you want `/music`, "somewhere" additionally means a host
+that passes **outbound UDP**: Render doesn't, so a Render worker gets every
+command except voice. Reclaiming that hosting budget is what
+[hosting-laptop.md](hosting-laptop.md) is for — `deploy/laptop-install.sh`
+turns any always-on Linux box into the worker, with the dashboard still on
+Vercel.
 
 ```
 ┌────────────┐   HTTPS    ┌──────────────────────┐   pooled PG wire
