@@ -1,5 +1,6 @@
-# Build context for docker/bot.Dockerfile and docker/dashboard.Dockerfile
-# (Fly.io's `fly deploy` and Render both honour this file).
+# Build context for docker/bot.Dockerfile and docker/dashboard.Dockerfile —
+# `docker build`, `docker compose build`, and Render's dockerContext: "." all
+# honour this file.
 #
 # Both images run `npm ci` from package.json + package-lock.json, so the
 # locally installed node_modules must NOT be shipped — a Linux box's
