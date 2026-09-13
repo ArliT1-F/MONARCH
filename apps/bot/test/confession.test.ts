@@ -1,5 +1,10 @@
 import { MessageFlags, TextInputStyle } from "discord.js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { CONFESSION_COOLDOWN_MS } from "@monarch/shared";
+import {
+  ConfessionCooldowns,
+  type ConfessionCooldownStore,
+} from "../src/confession-cooldown.js";
 import {
   CONFESS_BUTTON_ID,
   CONFESS_MODAL_ID,
@@ -190,8 +195,11 @@ function fakeChannel(id: string, name: string, opts: { send?: boolean } = {}) {
     guild: { id: GUILD_ID },
     isTextBased: () => true,
     permissionsFor: () => ({ has: () => true }),
+    // `...args: any[]` (rather than no parameters) so the assertions can read
+    // the payload back off `send.mock.calls[0]![0]` — the flow's real argument
+    // is a discord.js payload the double doesn't need to model.
     send: vi.fn(
-      async () =>
+      async (..._args: any[]) =>
         opts.send === false
           ? Promise.reject(new Error("cannot send"))
           : { id: `m-${Math.random()}`, url: `https://discord.com/channels/${GUILD_ID}/${id}/m1` },
@@ -199,7 +207,41 @@ function fakeChannel(id: string, name: string, opts: { send?: boolean } = {}) {
   };
 }
 
-function fakeInteraction(kind: "button" | "modal", extra: Record<string, unknown> = {}) {
+/**
+ * A double for the interactions the flow receives. Typed as what it really is
+ * (spies plus the handful of fields the flow reads) rather than as a real
+ * `ButtonInteraction` / `ModalSubmitInteraction`, so assertions like
+ * `interaction.reply.mock.calls[0]` stay typed; {@link asButton} and
+ * {@link asModal} hand it to the handlers.
+ */
+type FakeInteraction = {
+  inCachedGuild: () => boolean;
+  inGuild: () => boolean;
+  guildId: string;
+  user: { id: string; username: string };
+  member: { displayName: string };
+  /** Present when the person confessing holds Manage Server / Administrator. */
+  memberPermissions?: { has: (permission: bigint) => boolean };
+  replied: boolean;
+  deferred: boolean;
+  reply: Mock;
+  showModal: Mock;
+  fields?: { getTextInputValue: (id: string) => string };
+  client: {
+    user: { id: string; username: string };
+    channels: { fetch: Mock };
+  };
+};
+
+function asButton(interaction: FakeInteraction): Parameters<typeof handleConfessButton>[0] {
+  return interaction as never;
+}
+
+function asModal(interaction: FakeInteraction): Parameters<typeof handleConfessSubmit>[0] {
+  return interaction as never;
+}
+
+function fakeInteraction(kind: "button" | "modal", extra: Record<string, unknown> = {}): FakeInteraction {
   return {
     inCachedGuild: () => true,
     inGuild: () => true,
@@ -216,18 +258,49 @@ function fakeInteraction(kind: "button" | "modal", extra: Record<string, unknown
       channels: { fetch: vi.fn(async (id: string) => (extra["channels"] as Record<string, unknown>)[id] ?? null) },
     },
     ...extra,
-  } as never as Parameters<typeof handleConfessButton>[0];
+  } as never as FakeInteraction;
+}
+
+/**
+ * Cooldown deps for the flow. By default every claim succeeds with a fresh 6h
+ * window, so the posting tests below read exactly as they did before the
+ * cooldown existed; `blockedUntil` simulates a window that is already running
+ * and `unreachable` a dashboard that is down (the flow must fail open).
+ */
+function fakeCooldowns(opts: { blockedUntil?: number; unreachable?: boolean } = {}) {
+  const calls = { status: 0, claim: 0, release: 0 };
+  const store: ConfessionCooldownStore = {
+    status: async () => {
+      calls.status += 1;
+      if (opts.unreachable) throw new Error("dashboard down");
+      return opts.blockedUntil ?? null;
+    },
+    claim: async () => {
+      calls.claim += 1;
+      if (opts.unreachable) throw new Error("dashboard down");
+      if (opts.blockedUntil !== undefined) return { claimed: false, nextAllowedAt: opts.blockedUntil };
+      return { claimed: true, nextAllowedAt: Date.now() + CONFESSION_COOLDOWN_MS };
+    },
+    release: async () => {
+      calls.release += 1;
+    },
+  };
+  return { cooldowns: new ConfessionCooldowns({ store, log }), calls };
 }
 
 describe("confess flow", () => {
+  /** Every test starts with a permissive cooldown unless it asks for one. */
+  let cooldowns: ConfessionCooldowns;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    cooldowns = fakeCooldowns().cooldowns;
   });
 
   it("the button says confessions are off when nothing is set up", async () => {
     const registry = new ConfessionRegistry(); // no store
     const interaction = fakeInteraction("button");
-    await handleConfessButton(interaction, { registry, log });
+    await handleConfessButton(asButton(interaction), { registry, cooldowns, log });
     expect(interaction.showModal).not.toHaveBeenCalled();
     expect(interaction.reply).toHaveBeenCalledOnce();
     const [payload] = interaction.reply.mock.calls[0]!;
@@ -238,7 +311,7 @@ describe("confess flow", () => {
   it("the button opens the modal when a confession channel exists", async () => {
     const registry = new ConfessionRegistry({ store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }) });
     const interaction = fakeInteraction("button");
-    await handleConfessButton(interaction, { registry, log });
+    await handleConfessButton(asButton(interaction), { registry, cooldowns, log });
     expect(interaction.showModal).toHaveBeenCalledOnce();
     expect(interaction.showModal.mock.calls[0]![0].toJSON().custom_id).toBe(CONFESS_MODAL_ID);
   });
@@ -250,7 +323,7 @@ describe("confess flow", () => {
       text: "I think I left the oven on.",
       channels: { [CHANNEL_ID]: channel },
     });
-    await handleConfessSubmit(interaction, { registry, log });
+    await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
 
     expect(channel.send).toHaveBeenCalledOnce();
     const [payload] = channel.send.mock.calls[0]!;
@@ -274,14 +347,16 @@ describe("confess flow", () => {
       text: "I told the secret.",
       channels: { [CHANNEL_ID]: channel, [LOG_CHANNEL_ID]: logChannel },
     });
-    await handleConfessSubmit(interaction, { registry, log });
+    await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
 
     expect(logChannel.send).toHaveBeenCalledOnce();
     const [payload] = logChannel.send.mock.calls[0]!;
     const embed = payload.embeds[0]!;
     expect(embed.title).toContain("logged");
     expect(embed.description).toBe("I told the secret.");
-    const fields = Object.fromEntries((embed.fields ?? []).map((f) => [f.name, f.value]));
+    const fields = Object.fromEntries(
+      (embed.fields ?? []).map((f: { name: string; value: string }) => [f.name, f.value]),
+    );
     expect(fields["From"]).toBe(`<@${USER_ID}>`);
     expect(fields["Public post"]).toContain(channel && "<https://discord.com/channels/");
     // The public post happened first, and the log links to it.
@@ -293,7 +368,7 @@ describe("confess flow", () => {
     const channel = fakeChannel(CHANNEL_ID, "confessions");
     const registry = new ConfessionRegistry({ store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }) });
     const interaction = fakeInteraction("modal", { text: "  ", channels: { [CHANNEL_ID]: channel } });
-    await handleConfessSubmit(interaction, { registry, log });
+    await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
     expect(channel.send).not.toHaveBeenCalled();
     expect(interaction.reply.mock.calls[0]![0].content).toContain("too short");
   });
@@ -304,7 +379,7 @@ describe("confess flow", () => {
       text: "a real confession",
       channels: {}, // fetch returns null
     });
-    await handleConfessSubmit(interaction, { registry, log });
+    await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
     expect(interaction.reply.mock.calls[0]![0].content).toContain("can't post");
   });
 
@@ -317,10 +392,177 @@ describe("confess flow", () => {
       text: "a real confession",
       channels: { [CHANNEL_ID]: channel }, // the log channel is gone
     });
-    await handleConfessSubmit(interaction, { registry, log });
+    await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
 
     expect(channel.send).toHaveBeenCalledOnce(); // the confession survives
     expect(log.warn).toHaveBeenCalled(); // …but the operator is told
     expect(interaction.reply.mock.calls[0]![0].content).toContain("Heads up");
+  });
+  // ── the six hour cooldown ───────────────────────────────────────────
+
+  it("the button answers with a countdown while the window is running", async () => {
+    const blockedUntil = Date.now() + 5 * 60 * 60 * 1000;
+    const { cooldowns, calls } = fakeCooldowns({ blockedUntil });
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
+    const interaction = fakeInteraction("button");
+    await handleConfessButton(asButton(interaction), { registry, cooldowns, log });
+
+    // No form: opening one only to refuse the submission wastes their secret.
+    expect(interaction.showModal).not.toHaveBeenCalled();
+    expect(calls.status).toBe(1);
+    expect(interaction.reply).toHaveBeenCalledOnce();
+    const payload = interaction.reply.mock.calls[0]![0];
+    expect(payload.flags).toBe(MessageFlags.Ephemeral);
+    expect(payload.content).toContain("one confession every");
+    expect(payload.content).toContain(`<t:${Math.floor(blockedUntil / 1000)}:R>`);
+  });
+
+  it("the button opens the modal when the cooldown can't be checked at all", async () => {
+    const { cooldowns } = fakeCooldowns({ unreachable: true });
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
+    const interaction = fakeInteraction("button");
+    await handleConfessButton(asButton(interaction), { registry, cooldowns, log });
+
+    expect(interaction.showModal).toHaveBeenCalledOnce(); // fail open
+    expect(log.warn).toHaveBeenCalled();
+  });
+
+  it("staff (Manage Server / Administrator) skip the wait on the button", async () => {
+    const { cooldowns, calls } = fakeCooldowns({ blockedUntil: Date.now() + 60_000 });
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
+    const interaction = fakeInteraction("button", { memberPermissions: { has: () => true } });
+    await handleConfessButton(asButton(interaction), { registry, cooldowns, log });
+
+    expect(interaction.showModal).toHaveBeenCalledOnce();
+    expect(calls.status).toBe(0); // never even asked
+  });
+
+  it("the modal refuses a second confession and posts nothing", async () => {
+    const blockedUntil = Date.now() + 5 * 60 * 59 * 1000;
+    const channel = fakeChannel(CHANNEL_ID, "confessions");
+    const { cooldowns, calls } = fakeCooldowns({ blockedUntil });
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
+    const interaction = fakeInteraction("modal", {
+      text: "The second secret of the hour.",
+      channels: { [CHANNEL_ID]: channel },
+    });
+    await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
+
+    expect(calls.claim).toBe(1);
+    expect(channel.send).not.toHaveBeenCalled(); // nothing leaked to the channel
+    expect(calls.release).toBe(0); // a refused claim never held a window
+    const content = interaction.reply.mock.calls[0]![0].content as string;
+    expect(content).toContain("You've confessed recently");
+    expect(content).toContain(`<t:${Math.floor(blockedUntil / 1000)}:R>`);
+  });
+
+  it("the modal claims a window and tells them when they're next allowed", async () => {
+    const channel = fakeChannel(CHANNEL_ID, "confessions");
+    const { cooldowns, calls } = fakeCooldowns();
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
+    const interaction = fakeInteraction("modal", {
+      text: "A first, allowed confession.",
+      channels: { [CHANNEL_ID]: channel },
+    });
+    await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
+
+    expect(calls.claim).toBe(1);
+    expect(channel.send).toHaveBeenCalledOnce();
+    expect(calls.release).toBe(0); // the post worked, so the window stands
+    const content = interaction.reply.mock.calls[0]![0].content as string;
+    expect(content).toContain("Your confession is live");
+    expect(content).toMatch(/You can confess again <t:\d+:R>\./);
+  });
+
+  it("a failed post gives the window back — a Discord hiccup costs nobody six hours", async () => {
+    const channel = fakeChannel(CHANNEL_ID, "confessions", { send: false });
+    const { cooldowns, calls } = fakeCooldowns();
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
+    const interaction = fakeInteraction("modal", {
+      text: "A confession that never made it.",
+      channels: { [CHANNEL_ID]: channel },
+    });
+    await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
+
+    // The claim happened *before* the send (otherwise there'd be nothing to
+    // release), and the release happened because the send failed.
+    expect(calls.claim).toBe(1);
+    expect(calls.release).toBe(1);
+    expect(interaction.reply.mock.calls[0]![0].content).toContain("couldn't post");
+  });
+
+  it("a broken confession channel costs nobody their window", async () => {
+    const { cooldowns, calls } = fakeCooldowns();
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
+    const interaction = fakeInteraction("modal", { text: "a real confession", channels: {} });
+    await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
+
+    expect(calls.claim).toBe(0); // claimed only once the channel is known to work
+    expect(calls.release).toBe(0);
+  });
+
+  it("a too-short confession costs nobody their window either", async () => {
+    const channel = fakeChannel(CHANNEL_ID, "confessions");
+    const { cooldowns, calls } = fakeCooldowns();
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
+    const interaction = fakeInteraction("modal", { text: "  ", channels: { [CHANNEL_ID]: channel } });
+    await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
+
+    expect(calls.claim).toBe(0);
+    expect(channel.send).not.toHaveBeenCalled();
+  });
+
+  it("staff skip the wait on submit too", async () => {
+    const channel = fakeChannel(CHANNEL_ID, "confessions");
+    const { cooldowns, calls } = fakeCooldowns({ blockedUntil: Date.now() + 60_000 });
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
+    const interaction = fakeInteraction("modal", {
+      text: "An admin testing the channel.",
+      channels: { [CHANNEL_ID]: channel },
+      memberPermissions: { has: () => true },
+    });
+    await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
+
+    expect(calls.claim).toBe(0);
+    expect(channel.send).toHaveBeenCalledOnce();
+    expect(interaction.reply.mock.calls[0]![0].content).not.toContain("You can confess again");
+  });
+
+  it("an unreachable dashboard doesn't eat the confession", async () => {
+    const channel = fakeChannel(CHANNEL_ID, "confessions");
+    const { cooldowns } = fakeCooldowns({ unreachable: true });
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
+    const interaction = fakeInteraction("modal", {
+      text: "Confessed during an outage.",
+      channels: { [CHANNEL_ID]: channel },
+    });
+    await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
+
+    expect(channel.send).toHaveBeenCalledOnce(); // fail open
+    const content = interaction.reply.mock.calls[0]![0].content as string;
+    expect(content).toContain("Your confession is live");
+    // Nothing was recorded, so don't promise a countdown that isn't real.
+    expect(content).not.toContain("You can confess again");
+    expect(log.warn).toHaveBeenCalled();
   });
 });

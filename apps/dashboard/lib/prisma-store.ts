@@ -1,11 +1,15 @@
 import type { MockState } from "@monarch/discord";
 import type { EmbedDesign, MessageDesign, ServerDesign } from "@monarch/schemas";
+import { CONFESSION_COOLDOWN_MS } from "@monarch/shared";
 import type { PrismaClient } from "@/lib/generated/prisma/client";
 import { getPrisma } from "./prisma";
 import { decryptSecret, encryptSecret } from "./secure-token";
 import type {
   AuditRecord,
   ConfessionChannelRecord,
+  ConfessionCooldownClaim,
+  ConfessionCooldownRecord,
+  ConfessionCooldownWindow,
   DraftRecord,
   GuildSettingsRecord,
   GuildWorkspaceRecord,
@@ -91,6 +95,11 @@ export type TemplateRow = {
   updatedAt: Date;
 };
 
+export type ConfessionCooldownRow = {
+  userId: string;
+  nextAllowedAt: Date;
+};
+
 // ── row ↔ record mappers (pure; unit-tested without a database) ──────
 
 export function sessionRowToRecord(
@@ -170,6 +179,30 @@ export function templateRowToRecord(row: TemplateRow): TemplateRecord {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/**
+ * A cooldown row → record. An expired window reads as `null`: "may confess
+ * now" is what the bot acts on, so a stale row must never look like a live
+ * one (rows are left in the table until the next claim overwrites them).
+ */
+export function confessionCooldownRowToRecord(
+  userId: string,
+  row: ConfessionCooldownRow | null | undefined,
+  now: Date = new Date(),
+): ConfessionCooldownRecord {
+  const at = row?.nextAllowedAt;
+  const live = at instanceof Date && !Number.isNaN(at.getTime()) && at.getTime() > now.getTime();
+  return { userId, nextAllowedAt: live ? at.toISOString() : null };
+}
+
+/**
+ * Prisma's P2002 — a unique constraint. For the confession cooldown that
+ * means a concurrent claim created the row a moment ago, which is an answer
+ * ("somebody got there first"), not a failure.
+ */
+export function isUniqueViolation(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === "P2002";
 }
 
 // ── PrismaStore ──────────────────────────────────────────────────────
@@ -467,6 +500,83 @@ export class PrismaStore implements MonarchStore {
       create: { guildId, confessionChannelId, confessionLogChannelId },
       update: { confessionChannelId, confessionLogChannelId },
     });
+  }
+
+  // ── Confession cooldowns ───────────────────────────────────────────
+  // Their own table (ConfessionCooldown), keyed by Discord user id and NOT
+  // related to User or Guild: the window is global across servers and the
+  // people it belongs to are anonymous confessors who never sign in.
+
+  async getConfessionCooldown(userId: string): Promise<ConfessionCooldownRecord> {
+    const row = await this.db.confessionCooldown.findUnique({
+      where: { userId },
+      select: { userId: true, nextAllowedAt: true },
+    });
+    return confessionCooldownRowToRecord(userId, row);
+  }
+
+  /**
+   * Compare-and-set: claim the next 6h window, or report whose window is
+   * still running.
+   *
+   * Two statements, because "update if expired, else insert" has to survive
+   * two submissions arriving at once (the same person double-clicking, or
+   * confessing in two servers within a second):
+   *
+   * 1. `updateMany` with `nextAllowedAt <= now` in the WHERE flips an expired
+   *    row and tells us by its count whether we won it — the database, not
+   *    this process, decides;
+   * 2. no row at all → `create`, where a racing claim collides on the primary
+   *    key (P2002) and we loop once to read the winner's timestamp.
+   */
+  async claimConfessionCooldown(
+    userId: string,
+    window: ConfessionCooldownWindow = {},
+  ): Promise<ConfessionCooldownClaim> {
+    const now = window.now ?? new Date();
+    const windowMs = window.windowMs ?? CONFESSION_COOLDOWN_MS;
+    const nextAllowedAt = new Date(now.getTime() + windowMs);
+    const claimed = { claimed: true, nextAllowedAt: nextAllowedAt.toISOString() } as const;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const flipped = await this.db.confessionCooldown.updateMany({
+        where: { userId, nextAllowedAt: { lte: now } },
+        data: { nextAllowedAt },
+      });
+      if (flipped.count > 0) return claimed;
+
+      const existing = await this.db.confessionCooldown.findUnique({
+        where: { userId },
+        select: { userId: true, nextAllowedAt: true },
+      });
+      if (!existing) {
+        try {
+          await this.db.confessionCooldown.create({ data: { userId, nextAllowedAt } });
+          return claimed;
+        } catch (error) {
+          if (!isUniqueViolation(error)) throw error;
+          continue; // created concurrently — re-run the compare-and-set above
+        }
+      }
+      if (existing.nextAllowedAt.getTime() > now.getTime()) {
+        return { claimed: false, nextAllowedAt: existing.nextAllowedAt.toISOString() };
+      }
+      // Expired between the two round trips: loop and take it properly.
+    }
+
+    // Only reachable if the row keeps expiring mid-flight. Report the stored
+    // window rather than inventing one — the bot's own check runs next anyway.
+    const row = await this.db.confessionCooldown.findUnique({
+      where: { userId },
+      select: { userId: true, nextAllowedAt: true },
+    });
+    return { claimed: false, nextAllowedAt: (row?.nextAllowedAt ?? nextAllowedAt).toISOString() };
+  }
+
+  async releaseConfessionCooldown(userId: string): Promise<void> {
+    // Deleting a row that is already gone is not an error (two failed posts,
+    // or a release after the window expired on its own).
+    await this.db.confessionCooldown.delete({ where: { userId } }).catch(() => {});
   }
 
   async getWorkspace(guildId: string): Promise<GuildWorkspaceRecord> {

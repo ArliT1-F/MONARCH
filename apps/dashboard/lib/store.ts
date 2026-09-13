@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { EmbedDesign, MessageDesign, ServerDesign } from "@monarch/schemas";
 import type { MockState } from "@monarch/discord";
+import { CONFESSION_COOLDOWN_MS } from "@monarch/shared";
 import { env } from "./env";
 import { PrismaStore } from "./prisma-store";
 
@@ -62,6 +63,34 @@ export interface ConfessionChannelRecord {
   guildId: string;
   channelId: string | null;
   logChannelId: string | null;
+}
+
+/**
+ * Confession cooldown for one Discord user — **global across every server**
+ * (confessing in server A is what makes you wait in server B).
+ * `nextAllowedAt` (ISO-8601) is the earliest moment they may confess again;
+ * null means they are free right now.
+ */
+export interface ConfessionCooldownRecord {
+  userId: string;
+  nextAllowedAt: string | null;
+}
+
+/**
+ * Answer to "may this person confess now?". Exactly one of several
+ * concurrent claims wins; the loser gets the winner's `nextAllowedAt` so the
+ * bot can tell them when they are back instead of guessing.
+ */
+export type ConfessionCooldownClaim =
+  | { claimed: true; nextAllowedAt: string }
+  | { claimed: false; nextAllowedAt: string };
+
+/** How a caller may override the confession window (tests; the route never does). */
+export interface ConfessionCooldownWindow {
+  /** Defaults to CONFESSION_COOLDOWN_MS (6h) from @monarch/shared. */
+  windowMs?: number;
+  /** Defaults to the current time. */
+  now?: Date;
 }
 
 export interface AuditRecord {
@@ -157,6 +186,18 @@ export interface MonarchStore {
   putConfessionChannels(guildId: string, channels: ConfessionChannelRecord): Promise<void>;
 
   /**
+   * Confession cooldowns — keyed by Discord **user**, not guild, because the
+   * window is global: one confession per person per `CONFESSION_COOLDOWN_MS`
+   * (6h) across every server. `claim` is a compare-and-set (two submissions
+   * racing for the same person produce exactly one winner) and `release`
+   * hands the window back, which the bot uses when posting the confession
+   * failed — a deleted channel must not lock somebody out for six hours.
+   */
+  getConfessionCooldown(userId: string): Promise<ConfessionCooldownRecord>;
+  claimConfessionCooldown(userId: string, window?: ConfessionCooldownWindow): Promise<ConfessionCooldownClaim>;
+  releaseConfessionCooldown(userId: string): Promise<void>;
+
+  /**
    * Template library (FEATURE 7). Every read is scoped by ownerId so one
    * user can never list, fetch, overwrite or delete another user's files.
    */
@@ -201,6 +242,39 @@ async function writeJson(file: string, data: unknown): Promise<void> {
     });
   writeQueues.set(file, next);
   return next;
+}
+
+// ── confession cooldowns (file store) ────────────────────────────────
+
+/** userId → ISO `nextAllowedAt`. Global per user: the file has no guilds in it. */
+const COOLDOWN_FILE = "confession-cooldowns.json";
+
+async function readCooldowns(): Promise<Record<string, string>> {
+  const all = await readJson<Record<string, string>>(COOLDOWN_FILE);
+  // A hand-edited or half-written file degrades to "nobody is cooling down"
+  // rather than throwing — the bot fails open on this by design.
+  return all && typeof all === "object" && !Array.isArray(all) ? all : {};
+}
+
+/**
+ * Write back with the expired windows dropped, so the file can't grow forever
+ * (every confessor ever would otherwise leave a row behind).
+ */
+async function writeCooldowns(all: Record<string, string>, now: Date): Promise<void> {
+  const live: Record<string, string> = {};
+  for (const [userId, until] of Object.entries(all)) {
+    const at = Date.parse(until);
+    if (Number.isFinite(at) && at > now.getTime()) live[userId] = until;
+  }
+  await writeJson(COOLDOWN_FILE, live);
+}
+
+/** The stored window for a user, or null when it is missing/expired/malformed. */
+function liveCooldown(all: Record<string, string>, userId: string, now: Date): string | null {
+  const until = all[userId];
+  if (typeof until !== "string") return null;
+  const at = Date.parse(until);
+  return Number.isFinite(at) && at > now.getTime() ? until : null;
 }
 
 class FileStore implements MonarchStore {
@@ -344,6 +418,35 @@ class FileStore implements MonarchStore {
       };
     }
     await writeJson("confession-channels.json", all);
+  }
+
+  // Confession cooldowns: keyed by user id, so one file covers every server.
+  // Read-modify-write is serialized per file by writeJson's queue; the JSON
+  // store is dev/demo only, so that is as much atomicity as it needs (the
+  // PrismaStore below does a real compare-and-set).
+  async getConfessionCooldown(userId: string): Promise<ConfessionCooldownRecord> {
+    const all = await readCooldowns();
+    return { userId, nextAllowedAt: liveCooldown(all, userId, new Date()) };
+  }
+  async claimConfessionCooldown(
+    userId: string,
+    window: ConfessionCooldownWindow = {},
+  ): Promise<ConfessionCooldownClaim> {
+    const now = window.now ?? new Date();
+    const windowMs = window.windowMs ?? CONFESSION_COOLDOWN_MS;
+    const all = await readCooldowns();
+    const existing = liveCooldown(all, userId, now);
+    if (existing) return { claimed: false, nextAllowedAt: existing };
+    const nextAllowedAt = new Date(now.getTime() + windowMs).toISOString();
+    all[userId] = nextAllowedAt;
+    await writeCooldowns(all, now);
+    return { claimed: true, nextAllowedAt };
+  }
+  async releaseConfessionCooldown(userId: string): Promise<void> {
+    const all = await readCooldowns();
+    if (!(userId in all)) return;
+    delete all[userId];
+    await writeCooldowns(all, new Date());
   }
 
   async listTemplates(ownerId: string) {

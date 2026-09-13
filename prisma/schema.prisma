@@ -89,6 +89,21 @@ model GuildSettings {
   confessionLogChannelId String?
 }
 
+// Confession cooldowns: one row per Discord user, **global across every
+// server** (confessing in server A is what makes you wait in server B).
+// `nextAllowedAt` is the earliest moment they may confess again; the bot
+// claims the window through /api/internal/users/:id/confession-cooldown just
+// before it posts, and releases it again when posting fails.
+//
+// Deliberately NOT a relation to User: confessors are anonymous by design and
+// almost never sign in to the dashboard, so there is no User row to hang this
+// on — and the row must never grow a link back to the confession text.
+model ConfessionCooldown {
+  userId        String   @id // Discord user id
+  nextAllowedAt DateTime
+  updatedAt     DateTime @updatedAt
+}
+
 model DesignDraft {
   id         String   @id @default(cuid())
   guildId    String

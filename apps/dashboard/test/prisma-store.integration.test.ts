@@ -7,6 +7,7 @@ import { PGlite } from "@electric-sql/pglite";
 import type { PGLiteSocketServer as PGLiteSocketServerType } from "@electric-sql/pglite-socket";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { emptyServerDesign } from "@monarch/schemas";
+import { CONFESSION_COOLDOWN_MS } from "@monarch/shared";
 import { PrismaClient } from "@/lib/generated/prisma/client";
 import { PrismaStore } from "@/lib/prisma-store";
 
@@ -200,6 +201,58 @@ describe("PrismaStore against PostgreSQL (PGlite)", () => {
     expect(await store.getMockState()).toEqual(state);
     const rows = await pglite.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM "MockDiscordState"`);
     expect(rows.rows[0]!.n).toBe(1);
+  });
+
+  // Confession cooldowns: the only store code that has to be atomic, because
+  // two submissions (a double-click, or the same person in two servers) race
+  // for one six-hour window.
+  it("claims a global confession window and refuses the next claim", async () => {
+    const user = "555000000000000001";
+    expect(await store.getConfessionCooldown(user)).toEqual({ userId: user, nextAllowedAt: null });
+
+    const before = Date.now();
+    const first = await store.claimConfessionCooldown(user);
+    expect(first.claimed).toBe(true);
+    const until = Date.parse(first.nextAllowedAt);
+    expect(until - before).toBeGreaterThan(CONFESSION_COOLDOWN_MS - 5_000);
+    expect(until - before).toBeLessThanOrEqual(CONFESSION_COOLDOWN_MS);
+
+    // One row per *person* — there is no guild in the key, so this is the same
+    // window they would run into in every other server.
+    const rows = await pglite.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM "ConfessionCooldown" WHERE "userId" = '555000000000000001'`,
+    );
+    expect(rows.rows[0]!.n).toBe(1);
+
+    const second = await store.claimConfessionCooldown(user);
+    expect(second.claimed).toBe(false);
+    expect(second.nextAllowedAt).toBe(first.nextAllowedAt); // a refused claim extends nothing
+    expect((await store.getConfessionCooldown(user)).nextAllowedAt).toBe(first.nextAllowedAt);
+  });
+
+  it("lets exactly one of two racing claims win", async () => {
+    const user = "555000000000000002";
+    const [a, b] = await Promise.all([
+      store.claimConfessionCooldown(user),
+      store.claimConfessionCooldown(user),
+    ]);
+    expect([a.claimed, b.claimed].filter(Boolean)).toHaveLength(1);
+    expect(a.nextAllowedAt).toBe(b.nextAllowedAt); // the loser reports the winner's window
+  });
+
+  it("claims over an expired window and releases one on demand", async () => {
+    const user = "555000000000000003";
+    await pglite.exec(`
+      INSERT INTO "ConfessionCooldown" ("userId", "nextAllowedAt", "updatedAt")
+      VALUES ('555000000000000003', NOW() - INTERVAL '1 minute', NOW());
+    `);
+    // An expired window reads as free rather than lingering as a live one.
+    expect(await store.getConfessionCooldown(user)).toEqual({ userId: user, nextAllowedAt: null });
+    expect((await store.claimConfessionCooldown(user)).claimed).toBe(true);
+
+    await store.releaseConfessionCooldown(user);
+    expect(await store.getConfessionCooldown(user)).toEqual({ userId: user, nextAllowedAt: null });
+    await store.releaseConfessionCooldown(user); // releasing nothing is not an error
   });
 
   it("cascades guild deletion to dependent rows (schema FK behavior)", async () => {
