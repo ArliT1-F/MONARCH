@@ -238,7 +238,7 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     summary: "Set up (or disable) the anonymous confession channel.",
     who: "Manage Server or Administrator",
     details:
-      "Setup points Monarch at a confession channel (the channel where you run it by default) and an optional staff-only log channel, then posts the first 'starter' confession there. Anyone can then confess from the **Confess** button on any confession: the post goes to the confession channel as a fully anonymous embed — no username, no avatar, no id — and when a log channel is set, staff get a full entry there (who, when, the text, and a link to the public message). `/monarch confession disable` switches the feature off again (old messages stay in the channel).",
+      "Setup points Monarch at a confession channel (the channel where you run it by default) and an optional staff-only log channel, then posts the first 'starter' confession there. Anyone can then confess from the **Confess** button on any confession: the post goes to the confession channel as a fully anonymous embed — no username, no avatar, no id — and when a log channel is set, staff get a full entry there (who, when, the text, and a link to the public message). `/monarch confession disable` switches the feature off again (old messages stay in the channel). Confessions are rate-limited to **one per person every 6 hours**, counted across every server Monarch is in: the Confess button answers with a countdown while the window is running instead of opening the form.",
     args: [
       {
         name: "channel",
@@ -259,6 +259,7 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     notes: [
       "Needs INTERNAL_API_TOKEN set in the dashboard and the bot (the setup must survive a restart).",
       "Anyone in the server can confess — the Confess button and form need no permission.",
+      "One confession per person every 6 hours, shared across every server (confessing here makes you wait elsewhere too). Manage Server / Administrator skip the wait; a failed post never costs anybody their window.",
       "The log channel must be different from the confession channel — it names names, so keep it staff-only.",
       "Confessions are capped at 2000 characters (the form enforces it).",
     ],

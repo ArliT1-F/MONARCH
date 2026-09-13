@@ -12,6 +12,10 @@ import {
   type GuildTextBasedChannel,
   type ModalSubmitInteraction,
 } from "discord.js";
+import { CONFESSION_COOLDOWN_MS } from "@monarch/shared";
+import { DESIGN_PERMISSIONS } from "./commands.js";
+import type { ConfessionCooldowns } from "./confession-cooldown.js";
+import { formatDuration } from "./durations.js";
 
 /**
  * Confessions — an anonymous confession channel per guild.
@@ -30,6 +34,20 @@ import {
  *
  * The confessor's id is otherwise never stored anywhere: outside the log
  * channel a confession is untraceable by design.
+ *
+ * **One confession per person every 6 hours** (`CONFESSION_COOLDOWN_MS` in
+ * @monarch/shared), counted across *every* server: confessing here is what
+ * makes the button in another server say "later" too. The window is stored in
+ * the dashboard and claimed a moment before the post, so a restart doesn't
+ * reset it and a double-click doesn't double-post — see
+ * ./confession-cooldown.ts. Manage Server / Administrator skip the wait
+ * (they set the channel up and test it); everyone else gets a countdown.
+ *
+ * Privacy note: the cooldown row is the one place outside the log channel
+ * where a confessor's id appears, and it holds *only* that id and a timestamp
+ * — never the text, never the channel. Someone reading Monarch's database can
+ * tell that a person confessed somewhere in the last six hours; they cannot
+ * tell what was said or which server it was posted in.
  */
 
 // ── component ids and limits ────────────────────────────────────────
@@ -230,7 +248,9 @@ export function starterEmbed(): APIEmbed {
     description:
       "Confess anything — **anonymously**.\n" +
       "Press **Confess** below and tell us what you've been keeping secret. It gets posted here " +
-      "with no name, no avatar, no id — nobody can trace it back to you.",
+      "with no name, no avatar, no id — nobody can trace it back to you.\n\n" +
+      `One confession every **${formatDuration(CONFESSION_COOLDOWN_MS)}**, counted across every server ` +
+      "Monarch is in — press **Confess** while you're still cooling down and it tells you when you're back.",
     footer: { text: "Anonymous by design · set up with /monarch confession setup" },
   };
 }
@@ -305,6 +325,12 @@ export function confessionModal(): ModalBuilder {
 
 export interface ConfessFlowDeps {
   registry: ConfessionRegistry;
+  /**
+   * The per-user confession window (6h, global across servers). Required, so a
+   * worker that forgets to wire it fails to compile rather than silently
+   * letting everybody spam the channel.
+   */
+  cooldowns: ConfessionCooldowns;
   log: {
     info: (msg: string, meta?: Record<string, unknown>) => void;
     warn: (msg: string, meta?: Record<string, unknown>) => void;
@@ -314,6 +340,26 @@ export interface ConfessFlowDeps {
 
 async function ephemeral(interaction: ButtonInteraction | ModalSubmitInteraction, content: string): Promise<void> {
   await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
+}
+
+/**
+ * Manage Server / Administrator skip the cooldown. They are the ones who set
+ * the channel up, and locking a server's own staff out of their confession
+ * channel for six hours would punish the people testing it. `has()` treats
+ * Administrator as holding every permission, so both are listed for clarity.
+ */
+function isConfessionStaff(interaction: ButtonInteraction | ModalSubmitInteraction): boolean {
+  const perms = interaction.memberPermissions;
+  return Boolean(perms && DESIGN_PERMISSIONS.some((permission) => perms.has(permission)));
+}
+
+/** "You can confess again <t:…:R>" — Discord renders the countdown itself. */
+function onCooldownReply(nextAllowedAt: number, windowMs: number): string {
+  return (
+    `⏳ You've confessed recently — it's one confession every **${formatDuration(windowMs)}**, ` +
+    "in every server Monarch is in.\n" +
+    `You can confess again <t:${Math.floor(nextAllowedAt / 1000)}:R>.`
+  );
 }
 
 /** The "Confess" button was pressed → open the modal (when confessions are on). */
@@ -329,6 +375,16 @@ export async function handleConfessButton(interaction: ButtonInteraction, deps: 
       "🤫 Confessions aren't set up in this server yet — an admin can run `/monarch confession setup`.",
     );
     return;
+  }
+  // Answer the cooldown here rather than after they've written the whole
+  // thing: a form that opens only to be refused wastes their secret. This is
+  // the advisory check — the submit claims the window for real.
+  if (!isConfessionStaff(interaction)) {
+    const blockedUntil = await deps.cooldowns.blockedUntil(interaction.user.id);
+    if (blockedUntil !== null) {
+      await ephemeral(interaction, onCooldownReply(blockedUntil, deps.cooldowns.windowMs));
+      return;
+    }
   }
   await interaction.showModal(confessionModal());
 }
@@ -364,6 +420,20 @@ export async function handleConfessSubmit(interaction: ModalSubmitInteraction, d
     return;
   }
 
+  // Claim the window *after* the channel is known to be usable and *before*
+  // the post: a broken setup must cost nobody their six hours, and this — not
+  // the button's advisory check — is what makes a double-click (or confessing
+  // in two servers at once) produce exactly one confession.
+  let nextAllowedAt: number | null = null;
+  if (!isConfessionStaff(interaction)) {
+    const decision = await deps.cooldowns.claim(interaction.user.id);
+    if (!decision.allowed) {
+      await ephemeral(interaction, onCooldownReply(decision.nextAllowedAt, deps.cooldowns.windowMs));
+      return;
+    }
+    nextAllowedAt = decision.nextAllowedAt;
+  }
+
   let publicMessage: { url: string };
   try {
     publicMessage = await publicChannel.send({
@@ -372,6 +442,9 @@ export async function handleConfessSubmit(interaction: ModalSubmitInteraction, d
       allowedMentions: { parse: [] },
     });
   } catch (e) {
+    // Nothing was posted, so give the window back — otherwise a Discord
+    // hiccup would silently lock them out for six hours.
+    if (nextAllowedAt !== null) await deps.cooldowns.release(interaction.user.id);
     deps.log.error("confession post failed", { guildId: interaction.guildId, error: String(e) });
     await ephemeral(interaction, "❌ I couldn't post your confession — try again in a moment.");
     return;
@@ -413,6 +486,7 @@ export async function handleConfessSubmit(interaction: ModalSubmitInteraction, d
   await ephemeral(
     interaction,
     `🤫 Your confession is live in **${publicChannel.name}** — it's anonymous, nobody can trace it back to you.` +
+      (nextAllowedAt !== null ? ` You can confess again <t:${Math.floor(nextAllowedAt / 1000)}:R>.` : "") +
       (logFailed ? " (Heads up: I couldn't write the staff log entry for this one.)" : ""),
   );
 }

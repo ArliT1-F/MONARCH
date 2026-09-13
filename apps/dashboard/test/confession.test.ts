@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { CONFESSION_COOLDOWN_MS } from "@monarch/shared";
 
 /**
  * Confessions, dashboard side: the bot reads and writes a server's confession
@@ -31,11 +32,32 @@ process.env.INTERNAL_API_TOKEN = "test-internal-token";
 vi.mock("@/lib/prisma-store", () => ({ PrismaStore: class {} }));
 
 const { GET, PUT } = await import("@/app/api/internal/guilds/[guildId]/confession/route");
+const {
+  GET: cooldownGET,
+  POST: cooldownPOST,
+  DELETE: cooldownDELETE,
+} = await import("@/app/api/internal/users/[userId]/confession-cooldown/route");
 const { getStore } = await import("@/lib/store");
 
 const GUILD = "900000000000000001";
 const CHANNEL = "500000000000000001";
 const LOG_CHANNEL = "400000000000000001";
+/** The confessor: cooldowns are keyed by user id, never by guild. */
+const USER = "700000000000000001";
+const OTHER_USER = "700000000000000002";
+
+function cooldownRequest(
+  method: "GET" | "POST" | "DELETE",
+  userId: string = USER,
+  token: string | null = "test-internal-token",
+) {
+  return new NextRequest(`http://localhost:3000/api/internal/users/${userId}/confession-cooldown`, {
+    method,
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+}
+
+const cooldownParams = (userId: string = USER) => ({ params: Promise.resolve({ userId }) });
 
 function request(body?: unknown, token: string | null = "test-internal-token") {
   return new NextRequest("http://localhost:3000/api/internal/guilds/" + GUILD + "/confession", {
@@ -52,6 +74,8 @@ const params = { params: Promise.resolve({ guildId: GUILD }) };
 
 beforeEach(async () => {
   await getStore().putConfessionChannels(GUILD, { guildId: GUILD, channelId: null, logChannelId: null });
+  await getStore().releaseConfessionCooldown(USER);
+  await getStore().releaseConfessionCooldown(OTHER_USER);
 });
 
 afterAll(() => {
@@ -168,5 +192,151 @@ describe("PUT /api/internal/guilds/:id/confession", () => {
 
   it("is closed without the internal token", async () => {
     expect((await PUT(request({ channelId: CHANNEL, logChannelId: null }, null), params)).status).toBe(401);
+  });
+});
+
+// ── the six hour cooldown ────────────────────────────────────────────
+//
+// One window per Discord user, global across every server: the bot claims it
+// just before posting a confession and releases it again when the post fails.
+
+describe("confession cooldown store", () => {
+  it("is free by default", async () => {
+    expect(await getStore().getConfessionCooldown(USER)).toEqual({ userId: USER, nextAllowedAt: null });
+  });
+
+  it("claims a six hour window and refuses the next claim", async () => {
+    const before = Date.now();
+    const first = await getStore().claimConfessionCooldown(USER);
+    expect(first.claimed).toBe(true);
+
+    const until = Date.parse(first.nextAllowedAt);
+    expect(until - before).toBeGreaterThan(CONFESSION_COOLDOWN_MS - 5_000);
+    expect(until - before).toBeLessThanOrEqual(CONFESSION_COOLDOWN_MS);
+    expect(CONFESSION_COOLDOWN_MS).toBe(6 * 60 * 60 * 1000);
+
+    const second = await getStore().claimConfessionCooldown(USER);
+    expect(second.claimed).toBe(false);
+    expect(second.nextAllowedAt).toBe(first.nextAllowedAt); // a refused claim extends nothing
+    expect((await getStore().getConfessionCooldown(USER)).nextAllowedAt).toBe(first.nextAllowedAt);
+  });
+
+  it("is one window per person, not per guild", async () => {
+    // The record carries no guild id at all — confessing in one server is
+    // what makes the person wait in every other server too.
+    await getStore().claimConfessionCooldown(USER);
+    expect(Object.keys(await getStore().getConfessionCooldown(USER))).toEqual(["userId", "nextAllowedAt"]);
+    expect((await getStore().claimConfessionCooldown(OTHER_USER)).claimed).toBe(true);
+  });
+
+  it("releases a window so the person can confess again at once", async () => {
+    await getStore().claimConfessionCooldown(USER);
+    await getStore().releaseConfessionCooldown(USER);
+    expect(await getStore().getConfessionCooldown(USER)).toEqual({ userId: USER, nextAllowedAt: null });
+    expect((await getStore().claimConfessionCooldown(USER)).claimed).toBe(true);
+  });
+
+  it("releasing nothing is not an error", async () => {
+    await expect(getStore().releaseConfessionCooldown(USER)).resolves.toBeUndefined();
+  });
+
+  it("treats an expired window as free and claims over it", async () => {
+    const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1000);
+    await getStore().claimConfessionCooldown(USER, { now: sevenHoursAgo });
+    expect(await getStore().getConfessionCooldown(USER)).toEqual({ userId: USER, nextAllowedAt: null });
+    const reclaimed = await getStore().claimConfessionCooldown(USER);
+    expect(reclaimed.claimed).toBe(true);
+    expect(Date.parse(reclaimed.nextAllowedAt)).toBeGreaterThan(Date.now());
+  });
+
+  it("honours an explicit window (tests, and nothing else)", async () => {
+    const claimed = await getStore().claimConfessionCooldown(USER, { windowMs: 60_000 });
+    expect(claimed.claimed).toBe(true);
+    expect(Date.parse(claimed.nextAllowedAt) - Date.now()).toBeLessThanOrEqual(60_000);
+    expect((await getStore().claimConfessionCooldown(USER)).claimed).toBe(false);
+  });
+});
+
+describe("GET /api/internal/users/:id/confession-cooldown", () => {
+  it("reports a free person as ready", async () => {
+    const res = await cooldownGET(cooldownRequest("GET"), cooldownParams());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      userId: USER,
+      nextAllowedAt: null,
+      ready: true,
+      cooldownMs: CONFESSION_COOLDOWN_MS,
+    });
+  });
+
+  it("reports a running window instead", async () => {
+    await getStore().claimConfessionCooldown(USER);
+    const res = await cooldownGET(cooldownRequest("GET"), cooldownParams());
+    const data = (await res.json()) as { ready: boolean; nextAllowedAt: string; cooldownMs: number };
+    expect(data.ready).toBe(false);
+    expect(Date.parse(data.nextAllowedAt)).toBeGreaterThan(Date.now());
+    expect(data.cooldownMs).toBe(CONFESSION_COOLDOWN_MS);
+  });
+
+  it("refuses a user id that is not a snowflake", async () => {
+    const res = await cooldownGET(cooldownRequest("GET", "not-a-user"), cooldownParams("not-a-user"));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("confession.invalid-user");
+  });
+
+  it("is closed without the internal token", async () => {
+    expect((await cooldownGET(cooldownRequest("GET", USER, null), cooldownParams())).status).toBe(401);
+    expect((await cooldownGET(cooldownRequest("GET", USER, "wrong"), cooldownParams())).status).toBe(401);
+  });
+});
+
+describe("POST /api/internal/users/:id/confession-cooldown", () => {
+  it("claims the window and stores it", async () => {
+    const res = await cooldownPOST(cooldownRequest("POST"), cooldownParams());
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { claimed: boolean; nextAllowedAt: string; retryAfterMs: number };
+    expect(data.claimed).toBe(true);
+    expect(data.retryAfterMs).toBeGreaterThan(CONFESSION_COOLDOWN_MS - 10_000);
+    expect((await getStore().getConfessionCooldown(USER)).nextAllowedAt).toBe(data.nextAllowedAt);
+  });
+
+  it("answers 'not yet' with the running window — 200, not an error", async () => {
+    const first = await cooldownPOST(cooldownRequest("POST"), cooldownParams());
+    const firstData = (await first.json()) as { nextAllowedAt: string };
+
+    const second = await cooldownPOST(cooldownRequest("POST"), cooldownParams());
+    expect(second.status).toBe(200);
+    const data = (await second.json()) as { claimed: boolean; nextAllowedAt: string; retryAfterMs: number };
+    expect(data.claimed).toBe(false);
+    expect(data.nextAllowedAt).toBe(firstData.nextAllowedAt);
+    expect(data.retryAfterMs).toBeGreaterThan(0);
+  });
+
+  it("is closed without the internal token", async () => {
+    expect((await cooldownPOST(cooldownRequest("POST", USER, null), cooldownParams())).status).toBe(401);
+    expect((await getStore().getConfessionCooldown(USER)).nextAllowedAt).toBeNull();
+  });
+});
+
+describe("DELETE /api/internal/users/:id/confession-cooldown", () => {
+  it("releases a claimed window so the next claim wins", async () => {
+    await cooldownPOST(cooldownRequest("POST"), cooldownParams());
+    const res = await cooldownDELETE(cooldownRequest("DELETE"), cooldownParams());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, userId: USER });
+
+    const ready = await cooldownGET(cooldownRequest("GET"), cooldownParams());
+    expect(((await ready.json()) as { ready: boolean }).ready).toBe(true);
+    expect(
+      ((await (await cooldownPOST(cooldownRequest("POST"), cooldownParams())).json()) as { claimed: boolean }).claimed,
+    ).toBe(true);
+  });
+
+  it("is a no-op for somebody with no window", async () => {
+    expect((await cooldownDELETE(cooldownRequest("DELETE"), cooldownParams())).status).toBe(200);
+  });
+
+  it("is closed without the internal token", async () => {
+    expect((await cooldownDELETE(cooldownRequest("DELETE", USER, null), cooldownParams())).status).toBe(401);
   });
 });

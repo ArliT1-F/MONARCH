@@ -110,7 +110,7 @@ Dashboard edits → ServerDesign (@monarch/schemas) →
 they live in `prisma.config.ts` (CLI) and `apps/dashboard/lib/prisma.ts`
 (runtime, via the pg driver adapter).
 
-### Models (10 total, all in 2 migrations)
+### Models (11 total)
 
 | Model | Migration | Key fields | Relations |
 |---|---|---|---|
@@ -118,6 +118,7 @@ they live in `prisma.config.ts` (CLI) and `apps/dashboard/lib/prisma.ts`
 | `Session` | init | id, userId, accessTokenEnc (AES-GCM), createdAt, expiresAt | → User CASCADE |
 | `Guild` | init | id, name, iconUrl, createdAt | settings, workspace, drafts[], versions[], auditEntries[] |
 | `GuildSettings` | init + `…_add_analyzer_dismissed` + `…_add_command_prefix` + `…_add_confession_channels` | guildId, welcomeChannelId, announcementsChannelId, testingChannelId, templateTestingChannelId, analyzerDismissed (Json? — string[] of dismissed analyzer check ids), commandPrefix (String? — the guild's text-command prefix; NULL = the shared default `!`), confessionChannelId (String? — the anonymous confession channel; NULL = off), confessionLogChannelId (String? — optional staff-only log channel; NULL = no logs) | → Guild CASCADE |
+| `ConfessionCooldown` | `…_add_confession_cooldowns` | userId (Discord user id, **no FK**), nextAllowedAt, updatedAt | — (deliberately standalone: one row per *person*, global across every server — see the confession cooldown follow-up at the end) |
 | `GuildWorkspace` | guild_workspace | guildId, embed (Json?), message (Json?), updatedAt | → Guild CASCADE |
 | `DesignDraft` | init | id (cuid), guildId, userId, design, baseDesign, updatedAt — UNIQUE(guildId, userId) | → Guild, → User CASCADE |
 | `DesignVersion` | init | id (cuid), guildId, name, kind, design, createdAt | → Guild CASCADE; INDEX(guildId, createdAt) |
@@ -189,6 +190,14 @@ This is the cheat sheet for "where do I make change X".
   `!prefix set` and the dashboard's internal route both call it, so they can't
   disagree. Rule: ≤4 chars, no whitespace, never `@` `/` quotes/brackets, and
   it must *end* in punctuation (so `m!` and `>>` are fine, `hey` is not).
+
+- `confessions.ts` — `CONFESSION_COOLDOWN_MS = 6h`. **The one place the
+  confession window length lives**: the dashboard stamps `nextAllowedAt` with
+  it and the bot words "you can confess again …" from it, so the two sides of
+  the internal API can't drift (same reasoning as `prefix.ts`).
+- `commands.ts` — the command catalog (`CommandDoc`, `COMMAND_GROUPS`,
+  `MONARCH_COMMANDS`, `BURG_COMMANDS`, `MUSIC_COMMANDS`) rendered by both
+  `/monarch help` and the dashboard's Help page.
 
 ### `packages/schemas` (zod)
 - `server-design.ts` — `DESIGN_SCHEMA_VERSION = 1`; `CategoryDesign`, `ChannelDesign`
@@ -479,6 +488,17 @@ This is the cheat sheet for "where do I make change X".
   read, `get`, `candidates`, `set(guildId, prefix|null)`) + `PrefixStore`
   seam + `internalPrefixStore(appUrl, token)`. **A dead dashboard degrades to
   the default prefix, never to a per-message fetch.**
+- `confession.ts` — `ConfessionRegistry` (per-guild channels, TTL cache +
+  `ConfessionStore` seam), `internalConfessionStore`, the embed builders, the
+  Confess button/modal, and the button→modal→post flow
+  (`handleConfessButton`, `handleConfessSubmit`). The flow now takes
+  `{ registry, cooldowns, log }` — `cooldowns` is **required**, so a worker
+  that forgets it fails to compile instead of silently letting everyone spam.
+- `confession-cooldown.ts` — `ConfessionCooldowns` (cache of *live* windows
+  keyed by user id, `blockedUntil` / `claim` / `release`) +
+  `ConfessionCooldownStore` seam + `internalConfessionCooldownStore`.
+  **Fails open**: a dead dashboard lets the confession through (the channels
+  themselves already read as "off" from the same API).
 - `burg.ts` — `BurgRegistry` in-memory on purpose. `setTimeout` tops out at
   ~24.8 days, so durations >2B ms are chunked. **A bot restart releases
   everyone by design.** `toBurg` rewrites text as uwu/owo; the `PRESERVE`
@@ -528,6 +548,9 @@ This is the cheat sheet for "where do I make change X".
 | PUT | `/api/internal/guilds/:id/prefix` | **INTERNAL_API_TOKEN** | – | `{prefix: "?"}` to change, `{prefix: null}` to reset. Validated with the shared `parseCommandPrefix`; writes `GuildSettings.commandPrefix`. Called by `!prefix set` / `/monarch prefix`. |
 | GET | `/api/internal/guilds/:id/confession` | **INTERNAL_API_TOKEN** | – | `{channelId, logChannelId}` — the guild's confession channels (both null = off). Bot cache refill for Confess buttons / modal submits. |
 | PUT | `/api/internal/guilds/:id/confession` | **INTERNAL_API_TOKEN** | – | `{channelId: snowflake\|null, logChannelId: snowflake\|null}` — full reconfiguration (both null = disabled). Snowflake-checked; refuses logChannelId === channelId (the log names names). Called by `/monarch confession setup` / `disable`. |
+| GET | `/api/internal/users/:id/confession-cooldown` | **INTERNAL_API_TOKEN** | – | `{nextAllowedAt, ready, cooldownMs}` — when this *person* may confess again (global, not per guild). Read by the Confess button so it can answer with a countdown instead of opening a form that would be refused. |
+| POST | `/api/internal/users/:id/confession-cooldown` | **INTERNAL_API_TOKEN** | – | Claim the window: `{claimed: true\|false, nextAllowedAt, retryAfterMs, cooldownMs}` — **200 either way** ("not yet" is an answer, not an error). Compare-and-set in the store, so racing submissions produce one winner. Called right before the confession is posted. |
+| DELETE | `/api/internal/users/:id/confession-cooldown` | **INTERNAL_API_TOKEN** | – | Release a claimed window (`{ok: true}`). The bot calls it when posting failed, so a deleted channel can't lock somebody out for six hours. Idempotent. |
 
 **`guild.userCanDesign` requires `userCanDesign` (ManageGuild/Administrator OR owner)**
 at the guild level — `requireGuildAccess` enforces this.
@@ -586,7 +609,7 @@ at the guild level — `requireGuildAccess` enforces this.
 | `DIRECT_DATABASE_URL` | only for migrations | prisma migrate | Set to the same as DATABASE_URL for plain Postgres |
 | `MONARCH_DEMO` | optional | `isDemoMode` | `"1"` forces demo even with creds |
 | `MONARCH_OWNER_USER_ID` | optional but own-protection | bot worker (`apps/bot/src/index.ts` → `MonarchCommands`) | Your Discord user id: targeting it with /burg uno-reverses onto the invoker. Missing = owner burgable like anyone else (worker logs a boot warning). Must be threaded through every deploy path (`render.yaml`, `docker/docker-compose.yml`) — not just `.env.example` |
-| `INTERNAL_API_TOKEN` | optional | bot/dashboard server-to-server | `openssl rand -hex 32`; same value on dashboard + bot. Without it `/monarch backup/export/embed/test`, saving a custom prefix, confession setup, and `/api/internal/*` reply 503 — everything else (incl. all prefix commands on the default `!`) still works |
+| `INTERNAL_API_TOKEN` | optional | bot/dashboard server-to-server | `openssl rand -hex 32`; same value on dashboard + bot. Without it `/monarch backup/export/embed/test`, saving a custom prefix, confession setup **and the confession cooldown**, and `/api/internal/*` reply 503 — everything else (incl. all prefix commands on the default `!`) still works |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | for Spotify links | bot music | Official Web API, client credentials. Without them `/music` says Spotify isn't configured; YouTube/search work |
 | `MUSIC_DJ_ROLE_NAMES` | optional | `/music skip` | Comma-separated role names that force-skip; default `dj` |
 | `MUSIC_STAFF_ROLE_NAMES` | optional | `/music skip` | Default moderator/mod/staff/admin/administrator + plurals; real moderation permissions always count too |
@@ -642,7 +665,12 @@ at the guild level — `requireGuildAccess` enforces this.
     rejection, save-from-guild/upload, rename/duplicate/delete, envelope
     rebuild, install → stageImport handoff),
     `prisma-store.test.ts` (mappers incl. template rows, AES-GCM round-trip
-    + tamper cases),
+    + tamper cases, **and the confession cooldown's compare-and-set against a
+    fake `confessionCooldown` delegate** — fresh claim, live-window refusal,
+    expired-row flip, lost P2002 create race, non-P2002 rethrow, release),
+    `confession.test.ts` (channel store round-trip + the GET/PUT route, and
+    the cooldown store + GET/POST/DELETE route on FileStore: six-hour window,
+    one window per person rather than per guild, release, expiry),
     `prisma-store.integration.test.ts` (PGlite + applied migrations;
     needs Prisma client — fails in this sandbox),
     `fetch-json.test.ts`, `invite.test.ts`, `workspace-parse.test.ts`.
@@ -653,15 +681,27 @@ at the guild level — `requireGuildAccess` enforces this.
     internal store HTTP shape), `prefix-commands.test.ts` (fake gateway
     messages through the real dispatcher + real handlers/registries),
     `slash-context.test.ts` (the slash adapter: ephemeral, defer→edit, same
-    registries as prefix), `durations.test.ts`, `burg.test.ts`,
+    registries as prefix), `confession.test.ts` (registry cache/degradation,
+    embed anonymity, the button→modal→post flow, **and the cooldown**: button
+    countdown, staff bypass, refused second confession, claim-before-post,
+    release after a failed post, fail-open on a dead dashboard),
+    `confession-cooldown.test.ts` (window cache/expiry, per-user not
+    per-guild, fail-open, release, internal store HTTP shape),
+    `durations.test.ts`, `burg.test.ts`,
     `music-*.test.ts`, `shutdown.test.ts` (drives the real entry point with
     discord.js stubbed; mutation-checked).
   - `packages/shared` — `prefix.test.ts` (prefix legality rules).
 
-- **Test count (most recent reported):** 198 passed, 8 failing in this
-  sandbox (the PGlite Prisma integration suite — needs the generated
-  Prisma client, which this sandbox can't download; in a normal
-  environment those 8 pass and the count is ~206).
+- **Test count (most recent reported):** 497 passed, 11 failing in this
+  sandbox — all 11 in `prisma-store.integration.test.ts` (PGlite + the
+  generated Prisma client, which this sandbox can't download; 8 pre-existing
+  + the 3 confession-cooldown ones). In a normal environment all 11 pass and
+  the count is ~508.
+- **Bot typecheck caveat:** `npx tsc --noEmit -p apps/bot/tsconfig.json`
+  still reports 7 pre-existing errors in test files (APIEmbed/API component
+  union assertions in `confession.test.ts`, `required` in `commands.test.ts`).
+  The confession flow doubles are properly typed now (`FakeInteraction` +
+  `asButton`/`asModal`), which removed 21 of the 28 that were there.
 
 ---
 
@@ -806,6 +846,13 @@ work — the merge commit already contains the full tree).
 | `20260909230000_add_analyzer_dismissed/` | 2026-09-09 (filename) | `GuildSettings.analyzerDismissed JSONB` (Design Analyzer "mark as intentional") | Template Library + Analyzer session |
 | `20260912000000_add_command_prefix/` | 2026-09-12 (filename) | `GuildSettings.commandPrefix TEXT` (per-server prefix for text commands) | Prefix commands session |
 | `20260912120000_add_confession_channels/` | 2026-09-12 (filename) | `GuildSettings.confessionChannelId TEXT` + `GuildSettings.confessionLogChannelId TEXT` (anonymous confession channel + optional staff log channel) | Confessions session |
+| `20260913000000_add_confession_cooldowns/` | 2026-09-13 (filename) | `ConfessionCooldown` table (userId PK, nextAllowedAt, updatedAt — **no FK**, one row per person, global across servers) | Confession cooldown follow-up |
+
+**Gotcha for migration comments:** `prisma-store.integration.test.ts` applies
+every `migration.sql` by splitting on `;` *first* and stripping `--` comments
+after. A semicolon **inside a comment line** therefore splits the comment in
+two and PGlite tries to execute the tail (`syntax error at or near "a"`).
+Keep `;` out of SQL comments.
 
 `migration_lock.toml` provider is `postgresql`.
 
@@ -954,6 +1001,8 @@ needed.
 | Change the default prefix or what a legal prefix is | `packages/shared/src/prefix.ts` only |
 | Change how a server's prefix is stored / cached | `apps/bot/src/prefix/registry.ts`, `app/api/internal/guilds/[guildId]/prefix/route.ts`, `GuildSettings.commandPrefix` |
 | Change confession channels, embeds, the button/modal flow | `apps/bot/src/confession.ts` (registry + embeds + flow), `app/api/internal/guilds/[guildId]/confession/route.ts`, `GuildSettings.confession*ChannelId` |
+| Change the confession cooldown length | `packages/shared/src/confessions.ts` only (`CONFESSION_COOLDOWN_MS`) — both sides read it |
+| Change how the confession cooldown is stored / enforced | `apps/bot/src/confession-cooldown.ts`, `app/api/internal/users/[userId]/confession-cooldown/route.ts`, `lib/store.ts` + `lib/prisma-store.ts` (`*ConfessionCooldown*`), the `ConfessionCooldown` model |
 | Change the uwu transformer (or anything burg-related) | `apps/bot/src/burg.ts`, `apps/bot/src/durations.ts` |
 | Change the diff/apply ordering | `packages/design-engine/src/{diff,apply-plan}.ts` |
 | Add a new variable | `packages/shared/src/variables.ts` (CORE_VARIABLES) |
@@ -1487,3 +1536,81 @@ channel (the route and the registry both refuse it).
   `mock.results[].value` is unreliable for async implementations in this
   setup (records `{}`), which is why deferred-placeholder assertions read
   from `sentMessages` instead.
+
+### Confession cooldown (2026-09-13, follow-up)
+
+**Ask:** "a 6 hour cooldown for using the confession — each user sends a
+confession and they can't send any more for the next 5 hours and 59 minutes."
+
+**Decisions (asked, not assumed):**
+- **Persisted**, not in-memory: the window lives in the dashboard's store, so a
+  redeploy doesn't hand everybody a fresh confession. (The burg registry is
+  in-memory on purpose — a gag. This is a rate limit.)
+- **Global per Discord user**, not per guild: confessing in server A is what
+  makes the button in server B say "later". Hence a `ConfessionCooldown` table
+  keyed by `userId` with **no guild column and no FK**.
+- **Manage Server / Administrator skip the wait** (`DESIGN_PERMISSIONS`, the
+  same list the setup command uses) — staff set the channel up and test it.
+
+**How it flows** (`apps/bot/src/confession.ts`):
+1. **Confess button** → `cooldowns.blockedUntil(user.id)`. A live window
+   answers `⏳ … You can confess again <t:…:R>` and the modal never opens —
+   a form that would only be refused wastes their secret. Advisory check.
+2. **Modal submit** → text length → channel config → *usable channel* →
+   `cooldowns.claim(user.id)` → post. The claim is the authoritative one, and
+   it sits **after** the channel is known to work (a broken setup costs nobody
+   their window) and **before** the send (a double-click can't double-post).
+3. **Send failed** → `cooldowns.release(user.id)`: nothing was posted, so the
+   six hours are given back. A failed *log* entry does not release — the
+   confession is live.
+4. The success reply names the next window (`You can confess again <t:…:R>.`).
+
+**Where it lives**
+- **Shared:** `packages/shared/src/confessions.ts` → `CONFESSION_COOLDOWN_MS`
+  (6h). The route stamps `nextAllowedAt` with it, the bot words replies from
+  it, and the bot never *sends* a length — so the two sides can't disagree.
+- **Bot:** `apps/bot/src/confession-cooldown.ts` — `ConfessionCooldowns`
+  (cache of live windows keyed by user id: absolute timestamps need no TTL, an
+  expired entry means "free" forever), the `ConfessionCooldownStore` seam and
+  `internalConfessionCooldownStore`. `ConfessFlowDeps.cooldowns` is
+  **required**, so a worker that forgets to wire it fails to compile instead of
+  silently letting everyone spam.
+- **Dashboard:** `app/api/internal/users/[userId]/confession-cooldown/route.ts`
+  (GET/POST/DELETE, snowflake-checked, internal token). `MonarchStore` gained
+  `getConfessionCooldown` / `claimConfessionCooldown` /
+  `releaseConfessionCooldown`; FileStore writes `confession-cooldowns.json`
+  (pruning expired windows on every write), PrismaStore does a real
+  compare-and-set — `updateMany` with `nextAllowedAt <= now` (its **count**
+  decides the winner) → else `create`, catching P2002 and looping once to read
+  the winner's timestamp.
+- **Schema:** `ConfessionCooldown` model + migration
+  `20260913000000_add_confession_cooldowns`.
+- **Docs:** README feature bullet + command table, the shared catalog's
+  `/monarch confession` details/notes (Help page), the starter embed ("One
+  confession every 6h…") and the setup command's success reply.
+
+**Notes / gotchas**
+- **Fail open.** An unreachable dashboard lets the confession through and logs
+  a warning. The cooldown is a guard rail, not a permission — and when the
+  dashboard is down the channels themselves already read as "off" from the same
+  API, so failing closed would only add a second, more confusing reason.
+- **Privacy:** the cooldown row is the only place outside the log channel where
+  a confessor's id appears, and it holds *just* that id and a timestamp — never
+  the text, never a channel id. Someone reading Monarch's database can tell
+  that a person confessed somewhere in the last six hours, not what they said
+  or where it was posted. `confession.ts` and the schema comment both say so,
+  and the bot's own log lines stay free of the confessor's id.
+- **No semicolons in migration comments** — the integration test splits on `;`
+  *before* stripping `--`, so a commented semicolon becomes executable SQL
+  (see §11 Migration history).
+- **Sandbox:** `prisma generate` still can't run here, so the type-only stub at
+  `apps/dashboard/lib/generated/prisma/client.ts` now proxies delegate access
+  and throws a message that says why. The 3 new integration tests (claim,
+  race, expiry/release) fail here for that reason alone and pass in a normal
+  environment; the compare-and-set's control flow is also unit-tested against a
+  fake delegate in `prisma-store.test.ts`, which *does* run here.
+- **Deliberately not done:** no per-guild or per-channel windows, no
+  configurable length (one shared constant), no dashboard UI, and no
+  `/monarch confession cooldown` command to inspect or lift a window — the
+  staff bypass covers "I need to test it", and DELETE on the internal route
+  exists for the failed-post path only.

@@ -28,6 +28,7 @@ import {
   handleConfessSubmit,
   internalConfessionStore,
 } from "./confession.js";
+import { ConfessionCooldowns, internalConfessionCooldownStore } from "./confession-cooldown.js";
 import { MonarchCommands } from "./monarch-commands.js";
 import { MusicCommands, musicCommandJSON } from "./music/commands.js";
 import { MusicManager } from "./music/player.js";
@@ -408,6 +409,15 @@ const confessions = new ConfessionRegistry({
   log,
 });
 
+// The confession cooldown: one 6h window per Discord user, global across every
+// server, stored in the dashboard (same internal API, same token) so a
+// redeploy doesn't hand everybody a fresh confession. Degrades to "let them
+// confess" when the dashboard is unreachable — see ./confession-cooldown.ts.
+const confessionCooldowns = new ConfessionCooldowns({
+  store: internalToken ? internalConfessionCooldownStore(appUrl, internalToken) : null,
+  log,
+});
+
 const monarchCommands = new MonarchCommands({
   appUrl,
   internalToken,
@@ -498,16 +508,21 @@ async function onInteraction(interaction: Interaction) {
     return;
   }
 
-  // Confession components: the Confess button opens the modal, the modal
-  // posts the anonymous embed (and the staff log entry, when configured).
+  // Confession components: the Confess button opens the modal (unless the
+  // person is still cooling down), the modal posts the anonymous embed (and
+  // the staff log entry, when configured) after claiming the 6h window.
   if (interaction.isButton() && interaction.customId === CONFESS_BUTTON_ID) {
     const button = interaction;
-    await runConfession(interaction, "confess button", () => handleConfessButton(button, { registry: confessions, log }));
+    await runConfession(interaction, "confess button", () =>
+      handleConfessButton(button, { registry: confessions, cooldowns: confessionCooldowns, log }),
+    );
     return;
   }
   if (interaction.isModalSubmit() && interaction.customId === CONFESS_MODAL_ID) {
     const modal = interaction;
-    await runConfession(interaction, "confession modal", () => handleConfessSubmit(modal, { registry: confessions, log }));
+    await runConfession(interaction, "confession modal", () =>
+      handleConfessSubmit(modal, { registry: confessions, cooldowns: confessionCooldowns, log }),
+    );
     return;
   }
 }

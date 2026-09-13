@@ -52,7 +52,11 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   setup [channel] [logs]` posts a starter confession with a **Confess**
   button; anyone can press it and tell their secret — it goes up as a fully
   anonymous embed (no name, no avatar, no id). With a staff log channel,
-  staff also get a full entry (who, when, link) in a private channel
+  staff also get a full entry (who, when, link) in a private channel. One
+  confession per person every **6 hours**, counted across *every* server —
+  while the window runs the button answers with a countdown instead of
+  opening the form (Manage Server / Admin skip the wait, and a post that
+  fails never costs anybody their window)
 - 📱 **Mobile-friendly dashboard** — collapsible navigation drawer, one-pane
   designer/builder views with tabs, touch drag-and-drop
 - 📚 **Help & Commands page** — every command with options, examples,
@@ -83,7 +87,7 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   | `/monarch embed` · `/monarch test` | Embed Builder link · test/publish the saved design | Manage Server / Admin |
   | `/burg @user [duration] [style] [reason]` | Delete everything the user posts and re-post it as cute uwu/owo text under their name and avatar. Run it again with no options to turn it off (or with options to update the timer/style); styles include random, soft, cat and chaotic | Administrator or Kick Members |
   | `/monarch burged` | List burg'd members | Administrator or Kick Members |
-  | `/monarch confession setup [channel] [logs]` | Set up the anonymous confession channel (and optional staff log channel) and post the starter confession. `/monarch confession disable` switches it off. Anyone can confess from the **Confess** button on any confession | Manage Server / Admin (confessing: everyone) |
+  | `/monarch confession setup [channel] [logs]` | Set up the anonymous confession channel (and optional staff log channel) and post the starter confession. `/monarch confession disable` switches it off. Anyone can confess from the **Confess** button on any confession — one per person every 6 hours, across every server (Manage Server / Admin skip the wait) | Manage Server / Admin (confessing: everyone) |
   | `/music play <link or search>` | Play/queue YouTube & Spotify tracks, playlists and albums | everyone in voice |
   | `/music pause` · `/music resume` · `/music stop` | Pause · resume · stop + clear + leave | everyone in the bot's channel |
   | `/music skip` | Skip — instantly with a **DJ** or **Moderator/Staff** role (or if it's your song), otherwise by listener vote | everyone |

@@ -1,6 +1,7 @@
 import { PermissionFlagsBits, type GuildBasedChannel, type GuildMember } from "discord.js";
 import {
   COMMAND_PREFIX_CHARS,
+  CONFESSION_COOLDOWN_MS,
   DEFAULT_COMMAND_PREFIX,
   MAX_COMMAND_PREFIX_LENGTH,
   buildBotInviteUrl,
@@ -776,6 +777,7 @@ export class MonarchCommands {
           `❓ Confessions usage:`,
           `• \`${ctx.commandPrefix}monarch confession setup [#channel] [#logs]\` — point confessions at a channel (this one by default) and an optional staff log channel, then post the starter confession`,
           `• \`${ctx.commandPrefix}monarch confession disable\` — switch confessions off`,
+          `• Anyone can confess from the **Confess** button — one confession per person every ${formatDuration(CONFESSION_COOLDOWN_MS)}, across every server.`,
           `• Also try \`/monarch confession setup\` with the channel picker.`,
         ].join("\n"),
       );
@@ -855,6 +857,7 @@ export class MonarchCommands {
       [
         `🤫 **Confessions are live in ${publicChannel.name}** — the starter confession is posted.`,
         "• Anyone can press **Confess** on any confession and tell us their secret — it goes up as an embed with no name, no avatar, no id.",
+        `• One confession per person every **${formatDuration(CONFESSION_COOLDOWN_MS)}**, counted across every server Monarch is in — the button tells them when they're next allowed, and **Manage Server** / **Administrator** skip the wait.`,
         logChannel
           ? `• Staff log: **${logChannel.name}** receives who, when, and a link to every confession — keep it staff-only.`
           : "• No log channel — confessions are fully untraceable. Add one with the `logs` option if staff should be able to see who confesses.",
