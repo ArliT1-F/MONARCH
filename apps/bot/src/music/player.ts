@@ -1,10 +1,10 @@
 import {
   AudioPlayerStatus,
   NoSubscriberBehavior,
-  StreamType,
   VoiceConnectionStatus,
   createAudioPlayer,
   createAudioResource,
+  demuxProbe,
   entersState,
   joinVoiceChannel,
   type AudioPlayer,
@@ -269,20 +269,23 @@ export class MusicManager {
         this.cancelLeaveTimer(s);
 
         let resource: AudioResource;
+        let sourceStream: Awaited<ReturnType<typeof audioStreamFor>> | null = null;
         try {
-          const stream = await audioStreamFor(track);
+          sourceStream = await audioStreamFor(track);
           if (s.stopping || this.sessions.get(guildId) !== s) {
-            stream.destroy();
+            sourceStream.destroy();
             return;
           }
 
-          // Attach diagnostics to the raw YouTube stream so a truncated /
-          // throttled download is visible in logs instead of silent.
+          // yt-dlp normally gives us WebM/Opus, but its final selector can
+          // legitimately fall back to AAC or another container. Probe before
+          // building the resource so @discordjs/voice uses its native demuxer
+          // for WebM/Opus instead of asking ffmpeg to infer a live pipe's
+          // format with zero input analysis time. Do not add a `data` listener
+          // until after probing: making a paused child stdout flow here could
+          // consume the probe bytes before demuxProbe sees them.
           let bytes = 0;
-          stream.on("data", (chunk: Buffer) => {
-            bytes += chunk.length;
-          });
-          stream.on("error", (err) => {
+          sourceStream.on("error", (err) => {
             log.error("source stream error", {
               guildId,
               track: track.title,
@@ -291,7 +294,7 @@ export class MusicManager {
               error: String(err),
             });
           });
-          stream.on("close", () => {
+          sourceStream.on("close", () => {
             log.info("source stream closed", {
               guildId,
               track: track.title,
@@ -300,9 +303,29 @@ export class MusicManager {
             });
           });
 
-          resource = createAudioResource(stream, { inputType: StreamType.Arbitrary, inlineVolume: true });
+          const probed = await demuxProbe(sourceStream);
+          const playableStream = probed.stream;
+          if (s.stopping || this.sessions.get(guildId) !== s) {
+            playableStream.destroy();
+            if (playableStream !== sourceStream) sourceStream.destroy();
+            return;
+          }
+          playableStream.on("data", (chunk: Buffer) => {
+            bytes += chunk.length;
+          });
+          playableStream.on("error", (err) => {
+            log.error("playable source stream error", {
+              guildId,
+              track: track.title,
+              videoId: track.videoId,
+              bytes,
+              error: String(err),
+            });
+          });
+          resource = createAudioResource(playableStream, { inputType: probed.type, inlineVolume: true });
 
-          // playStream is the ffmpeg transcoded PCM — errors here mean ffmpeg died.
+          // playStream is the ffmpeg/transcoder output — errors here mean the
+          // source format or ffmpeg pipeline was not playable.
           (resource.playStream as any)?.on?.("error", (err: Error) => {
             log.error("ffmpeg playStream error", {
               guildId,
@@ -317,6 +340,7 @@ export class MusicManager {
             log.info("ffmpeg playStream closed", { guildId, track: track.title });
           });
         } catch (e) {
+          sourceStream?.destroy();
           if (s.stopping || this.sessions.get(guildId) !== s) return;
           s.failStreak += 1;
           log.warn("track resolution failed", { guildId, track: track.title, error: String(e) });
