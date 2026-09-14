@@ -1,9 +1,11 @@
 import { evaluatePlayer } from "./javascript.js";
+import { execFile, spawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { randomUUID } from "node:crypto";
+import { promisify } from "node:util";
 import { createLogger } from "@monarch/shared";
 import { classifySource, type SourceQuery, type Track } from "@monarch/music";
-import type { Innertube, YT } from "youtubei.js";
+import type { Innertube, Types, YT } from "youtubei.js";
 
 /**
  * Source resolution — turns a `/music play` query into playable tracks.
@@ -57,10 +59,65 @@ export class SourceError extends Error {}
 
 let innertubePromise: Promise<Innertube> | null = null;
 
+// ── InnerTube client strategy ────────────────────────────────────────
+//
+// YouTube's InnerTube API hands different player clients different streams.
+// Since the SABR rollout the plain WEB client often returns *URL-less*
+// formats only (audio extraction then fails with "no usable audio stream"),
+// while the TV / music / mobile clients still hand out plain HTTPS URLs —
+// the same fallback chain yt-dlp uses. Audio extraction therefore tries
+// several clients in order and takes the first one with a downloadable
+// audio format; search and metadata keep the session default (they are
+// unaffected by SABR).
+//
+// Operators can tune this without a code change:
+// - YOUTUBE_CLIENTS="TV,ANDROID,WEB" overrides the order (uppercase,
+//   comma-separated; any InnerTubeClient name youtubei.js supports);
+// - YOUTUBE_COOKIE (alias YT_COOKIE) passes a browser-exported youtube.com
+//   cookie to the session — helps with LOGIN_REQUIRED answers and with
+//   IPs YouTube rate-limits;
+// - YOUTUBE_PO_TOKEN passes a Proof-of-Origin token to clients that demand
+//   attestation before releasing stream URLs.
+
+const DEFAULT_YOUTUBE_CLIENTS = [
+  "TV",
+  "YTMUSIC",
+  "ANDROID",
+  "IOS",
+  "YTMUSIC_ANDROID",
+  "MWEB",
+  "TV_EMBEDDED",
+  "WEB_EMBEDDED",
+  "WEB",
+] as const;
+
+export function youtubeClients(): string[] {
+  const raw = (process.env.YOUTUBE_CLIENTS ?? "")
+    .split(",")
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+  return raw.length > 0 ? [...new Set(raw)] : [...DEFAULT_YOUTUBE_CLIENTS];
+}
+
+function youtubeCookie(): string | undefined {
+  return process.env.YOUTUBE_COOKIE?.trim() || process.env.YT_COOKIE?.trim() || undefined;
+}
+
+function youtubePoToken(): string | undefined {
+  return process.env.YOUTUBE_PO_TOKEN?.trim() || undefined;
+}
+
 export function getYoutube(): Promise<Innertube> {
   innertubePromise ??= import("youtubei.js").then(({ Innertube, Platform }) => {
     Platform.shim.eval = evaluatePlayer;
-    return Innertube.create({ generate_session_locally: true });
+    const cookie = youtubeCookie();
+    const po_token = youtubePoToken();
+    if (cookie) log.info("using YouTube cookie for InnerTube requests");
+    return Innertube.create({
+      generate_session_locally: true,
+      ...(cookie ? { cookie } : {}),
+      ...(po_token ? { po_token } : {}),
+    });
   }).catch((error) => {
     innertubePromise = null; // A transient initialization failure must not poison every request.
     throw error;
@@ -99,31 +156,158 @@ export async function youtubeVideoMeta(videoId: string): Promise<VideoMeta> {
 /** Best-effort audio stream for a YouTube video. */
 export async function youtubeAudioStream(videoId: string): Promise<Readable> {
   const yt = await getYoutube();
+  const clients = youtubeClients();
+  const po_token = youtubePoToken();
   let loginRequired = false;
-  // WEB can return SABR-only formats without URLs. Try a second supported
-  // client, and only select formats the direct-download API can actually use.
-  for (const client of ["ANDROID", "WEB"] as const) {
+  let sawSabrOnly = false;
+  let lastDetail = "no InnerTube client returned a stream";
+  for (const client of clients) {
     try {
-      const info = await yt.getBasicInfo(videoId, { client });
-      if (info.playability_status?.status === "LOGIN_REQUIRED") {
+      const info = await yt.getBasicInfo(videoId, {
+        client: client as Types.InnerTubeClient,
+        ...(po_token ? { po_token } : {}),
+      });
+      const status = info.playability_status?.status;
+      if (status === "LOGIN_REQUIRED") {
         loginRequired = true;
+        lastDetail = `${client}: login required`;
         continue;
       }
-      const formats = info.streaming_data?.adaptive_formats ?? [];
-      const format = formats
-        .filter((f) => f.has_audio && !f.has_video && (f.url || f.signature_cipher || f.cipher))
-        .sort((a, b) => b.bitrate - a.bitrate)[0];
-      if (!format) continue;
+      if (status === "UNPLAYABLE") {
+        lastDetail = `${client}: video unplayable (${info.playability_status?.reason ?? "no reason given"})`;
+        continue;
+      }
+      const streaming = info.streaming_data;
+      if (!streaming) {
+        lastDetail = `${client}: no streaming data`;
+        continue;
+      }
+      const adaptive = streaming.adaptive_formats ?? [];
+      const progressive = streaming.formats ?? [];
+      const candidates = [...adaptive, ...progressive];
+      if (candidates.length === 0 && streaming.server_abr_streaming_url) sawSabrOnly = true;
+      // Only formats the direct-download API can actually use (a plain URL
+      // or a cipher it can decipher). Prefer audio-only (itag 140/251/…);
+      // fall back to a progressive video+audio file (itag 18/…) — ffmpeg
+      // extracts the audio either way.
+      const downloadable = (list: typeof candidates) =>
+        list.filter((f) => f.has_audio && (f.url || f.signature_cipher || f.cipher));
+      const format =
+        downloadable(adaptive.filter((f) => !f.has_video)).sort((a, b) => b.bitrate - a.bitrate)[0] ??
+        downloadable(candidates).sort((a, b) => b.bitrate - a.bitrate)[0];
+      if (!format) {
+        // Formats exist but carry no URL — the SABR-only signature.
+        if (candidates.length > 0) sawSabrOnly = true;
+        lastDetail = `${client}: ${candidates.length} format(s) but no downloadable audio URL`;
+        continue;
+      }
       const stream = await info.download({ itag: format.itag, type: "audio", quality: "best", format: "any" });
+      if (client !== clients[0]) log.info("YouTube audio client fallback worked", { videoId, client });
       return Readable.fromWeb(stream as unknown as import("node:stream/web").ReadableStream);
     } catch (error) {
       if (/login.required/i.test(String(error))) loginRequired = true;
-      log.warn("YouTube audio client failed", { videoId, client, error: String(error) });
+      lastDetail = `${client}: ${String(error).slice(0, 160)}`;
+      log.warn("YouTube audio client failed", { videoId, client, error: String(error).slice(0, 300) });
     }
   }
-  throw new SourceError(loginRequired
-    ? "YouTube requires login for this video or the bot's hosting IP. Try another track; if all tracks fail, the host may be blocked by YouTube."
-    : "YouTube did not provide a usable audio stream. Try another track; if this persists, the extractor or hosting access needs attention.");
+  // Last resort: a system yt-dlp, which tracks YouTube's breakage on its own
+  // release cadence (SABR, PO tokens) independently of youtubei.js.
+  const fallback = await ytdlpAudioStream(`https://www.youtube.com/watch?v=${videoId}`);
+  if (fallback) return fallback;
+  log.warn("YouTube audio failed on every client", {
+    videoId,
+    clients: clients.join(","),
+    detail: lastDetail,
+    sabrOnly: sawSabrOnly,
+    loginRequired,
+  });
+  if (loginRequired) {
+    throw new SourceError(
+      "YouTube requires login for this video or the bot's hosting IP. " +
+        "Set YOUTUBE_COOKIE on the worker (a browser-exported youtube.com cookie) and try again; " +
+        "if all tracks fail, the host may be blocked by YouTube.",
+    );
+  }
+  if (sawSabrOnly) {
+    throw new SourceError(
+      "YouTube only offered SABR streams for this video (no direct audio URL). " +
+        "Install yt-dlp on the worker for automatic fallback, or set YOUTUBE_PO_TOKEN / YOUTUBE_COOKIE — " +
+        "and try another track meanwhile.",
+    );
+  }
+  throw new SourceError(
+    `YouTube did not provide a usable audio stream (${lastDetail}). ` +
+      "Installing yt-dlp on the worker enables automatic fallback; " +
+      "if this persists, the extractor or hosting access needs attention.",
+  );
+}
+
+// ── yt-dlp fallback ──────────────────────────────────────────────────
+//
+// Piped straight into the voice pipeline (`yt-dlp -o -`), so no disk, no
+// temp files. Enabled by presence: any yt-dlp binary on the PATH (or at
+// YTDLP_PATH) is used; YTDLP_DISABLED=1 turns the fallback off, and
+// YTDLP_COOKIES points at a Netscape cookies.txt for login-gated videos.
+
+const execFileAsync = promisify(execFile);
+
+function ytdlpBin(): string | null {
+  if (process.env.YTDLP_DISABLED === "1") return null;
+  return process.env.YTDLP_PATH?.trim() || "yt-dlp";
+}
+
+async function ytdlpAvailable(bin: string): Promise<boolean> {
+  try {
+    await execFileAsync(bin, ["--version"], { timeout: 8000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Last-resort audio: pipe `yt-dlp -o -` into the caller. Returns null when
+ * yt-dlp isn't installed (or is disabled) so the caller can throw its
+ * InnerTube diagnostics instead.
+ */
+async function ytdlpAudioStream(url: string): Promise<Readable | null> {
+  const bin = ytdlpBin();
+  if (!bin) return null;
+  if (!(await ytdlpAvailable(bin))) return null;
+  const args = ["--no-playlist", "--no-warnings", "--no-cache-dir", "-f", "bestaudio/best", "-o", "-"];
+  const cookies = process.env.YTDLP_COOKIES?.trim();
+  if (cookies) args.push("--cookies", cookies);
+  args.push(url);
+  try {
+    const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    const spawned = await new Promise<boolean>((resolve) => {
+      child.once("spawn", () => resolve(true));
+      child.once("error", () => resolve(false));
+    });
+    if (!spawned || !child.stdout) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+      return null;
+    }
+    child.stderr?.resume();
+    child.on("error", () => {});
+    const out = child.stdout as unknown as Readable;
+    // Don't leak a download process when the track is skipped or stopped.
+    out.once("close", () => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+    });
+    log.info("using yt-dlp fallback for YouTube audio", { url });
+    return out;
+  } catch {
+    return null;
+  }
 }
 
 /** YouTube search → first reasonable video result. */

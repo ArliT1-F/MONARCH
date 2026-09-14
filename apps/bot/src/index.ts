@@ -453,8 +453,44 @@ async function slashContext(
       .catch(() => {});
     return null;
   }
-  const prefix = await prefixes.get(interaction.guildId);
+  // Never await the network before the first reply: `deferReply` must reach
+  // Discord within 3 s of the interaction, and a cold dashboard (serverless
+  // cold start + cold database) easily takes longer — the result is
+  // `DiscordAPIError[10062]: Unknown interaction` on the first command after
+  // a boot. The prefix only affects reply *wording*, so serve the cached
+  // value and refresh it in the background.
+  const prefix = prefixes.peekSingle(interaction.guildId);
+  void prefixes.get(interaction.guildId);
   return new SlashCommandContext(interaction, prefix);
+}
+
+/**
+ * Discord error codes that mean "this interaction is already dead":
+ * - 10062 Unknown interaction — the 3 s window passed before the first
+ *   reply (slow network, cold-starting dashboard, overloaded event loop);
+ * - 40060 already acknowledged — another worker answered the same
+ *   interaction first (two services sharing DISCORD_BOT_TOKEN).
+ * Either way retrying the reply fails the same way, so callers log and stop.
+ */
+function deadInteractionCode(e: unknown): number | null {
+  const code = (e as { code?: unknown } | null)?.code;
+  if (code === 10062 || code === "10062") return 10062;
+  if (code === 40060 || code === "40060") return 40060;
+  if (/unknown interaction/i.test(String(e))) return 10062;
+  if (/already[ -]acknowledged/i.test(String(e))) return 40060;
+  return null;
+}
+
+/** Log a dead interaction as the operational warning it is — not an error. */
+function logDeadInteraction(what: string, e: unknown, code: number): void {
+  log.warn(`${what} — interaction expired before the bot answered`, {
+    code,
+    hint:
+      code === 40060
+        ? "another worker acknowledged it first — pause any second bot service sharing DISCORD_BOT_TOKEN (see docs/hosting-laptop.md §3)"
+        : "slow network, a cold-starting dashboard, or two workers sharing DISCORD_BOT_TOKEN — the next try usually works",
+    error: String(e),
+  });
 }
 
 /** The single error net for slash commands: log, then say so in-channel. */
@@ -468,6 +504,13 @@ async function runSlash(
     if (!ctx) return;
     await run(ctx);
   } catch (e) {
+    const dead = deadInteractionCode(e);
+    if (dead !== null) {
+      // The user already saw "This interaction failed" (or another worker
+      // answered first) — a retry of the reply would fail the same way.
+      logDeadInteraction(what, e, dead);
+      return;
+    }
     log.error(`${what} failed`, { error: String(e) });
     const msg = "❌ Something went wrong running that command.";
     try {
@@ -488,6 +531,11 @@ async function runConfession(
   try {
     await run();
   } catch (e) {
+    const dead = deadInteractionCode(e);
+    if (dead !== null) {
+      logDeadInteraction(what, e, dead);
+      return;
+    }
     log.error(`${what} failed`, { error: String(e) });
     try {
       if (!interaction.replied && !interaction.deferred) {
