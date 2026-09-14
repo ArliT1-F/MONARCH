@@ -159,10 +159,21 @@ looks like from here:
   worker, step 3).
 - `track resolution failed` / `YouTube only offered SABR streams` → YouTube
   gave no direct audio URL on any InnerTube client. Install `yt-dlp` on the
-  laptop (`pip install yt-dlp` — the bot picks it up automatically as a
-  fallback); if tracks fail with `requires login`, export a `YOUTUBE_COOKIE`
-  from your browser into `.env` (see `.env.example`). A single failing track
-  while others play is just that video (blocked/removed) — not the worker.
+  laptop (`pip install yt-dlp` — the bot now *prefers* it when available,
+  `YTDLP_PREFER=1` by default, and falls back to InnerTube only if it fails);
+  if tracks fail with `requires login`, export a `YOUTUBE_COOKIE` from your
+  browser into `.env` (see `.env.example`). A single failing track while
+  others play is just that video (blocked/removed) — not the worker.
+- `track ended prematurely` / song stops ~1 min early with no error → classic
+  throttled InnerTube stream (especially the ANDROID client — it returns a
+  URL, starts playing, then YouTube throttles and closes after ~3 min). The
+  bot now logs `elapsed vs expected` and announces `⚠️ Track cut short` when
+  it detects this. Fix: `pip install yt-dlp` on the worker (or `sudo apt
+  install yt-dlp`) — with `YTDLP_PREFER=1` (default) the bot uses yt-dlp's
+  chunked, retried download first, which bypasses throttling. For the laptop
+  in the bug report (`Muharrem Ahmeti - Viti Ri Gon Kalaja` 4:13 stopped at
+  3:12), installing yt-dlp is the one-line fix; the code fix makes the failure
+  visible instead of silent and makes yt-dlp preferred.
 
 ## Day 2
 
