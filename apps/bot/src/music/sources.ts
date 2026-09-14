@@ -599,6 +599,29 @@ class SpotifyClient {
     };
   }
 
+  /** Search Spotify tracks — used when user forces `source: spotify` for a plain search. */
+  async searchTracks(query: string, limit = 5): Promise<SpotifyTrackMeta[]> {
+    const q = encodeURIComponent(query);
+    const data = await this.get<{
+      tracks: {
+        items: {
+          name: string;
+          duration_ms: number;
+          external_urls: { spotify: string };
+          album?: { images?: { url: string }[] };
+          artists: { name: string }[];
+        }[];
+      };
+    }>(`/search?q=${q}&type=track&limit=${Math.min(Math.max(limit, 1), 10)}&market=US`);
+    return data.tracks.items.map((t) => ({
+      name: t.name,
+      artists: t.artists.map((a) => a.name).join(", "),
+      durationMs: t.duration_ms,
+      url: t.external_urls.spotify,
+      thumbnail: t.album?.images?.at(-1)?.url ?? null,
+    }));
+  }
+
   /** Album tracks, paged (50/page). */
   async album(id: string, cap: number): Promise<{ name: string; tracks: SpotifyTrackMeta[] }> {
     const meta = await this.get<{
@@ -690,6 +713,8 @@ export function getSpotify(): SpotifyClient {
 
 // ── The resolver facade ──────────────────────────────────────────────
 
+export type MusicSourcePreference = "youtube" | "spotify";
+
 function makeTrack(meta: VideoMeta, requestedBy: string, requestedByName: string): Track {
   return {
     id: randomUUID(),
@@ -729,12 +754,15 @@ function spotifyTrack(
 /**
  * Resolve any `/music play` input into a list of tracks.
  * `cap` bounds playlist imports.
+ * `preferredSource` forces search to use YouTube or Spotify when the query
+ * is a plain search phrase (links are always honored as-is).
  */
 export async function resolveQuery(
   query: string,
   requestedBy: string,
   requestedByName: string,
   cap: number,
+  preferredSource: MusicSourcePreference = "youtube",
 ): Promise<ResolveResult> {
   const source = classifySource(query);
 
@@ -775,6 +803,31 @@ export async function resolveQuery(
     default: {
       const text = source.query?.trim();
       if (!text) throw new SourceError("Tell me what to play — a YouTube/Spotify link or a search phrase.");
+
+      // User explicitly asked for Spotify search → hit Spotify API first,
+      // then lazily resolve to YouTube at play time (same as Spotify links).
+      if (preferredSource === "spotify") {
+        if (!spotifyConfigured()) {
+          throw new SourceError(
+            "Spotify search needs SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET set on the bot. " +
+              "Falling back to YouTube: try `/music play youtube ${text}` or just omit the source.",
+          );
+        }
+        const spotifyMeta = await getSpotify().searchTracks(text, 1);
+        if (spotifyMeta.length === 0) {
+          throw new SourceError(`No Spotify track matched “${text}”. Try YouTube search instead.`);
+        }
+        const first = spotifyMeta[0]!;
+        log.info("spotify search resolved", { query: text, result: `${first.artists} – ${first.name}` });
+        return {
+          kind: "spotify-track",
+          origin: first.name,
+          tracks: [spotifyTrack(first, requestedBy, requestedByName)],
+          skipped: 0,
+        };
+      }
+
+      // Default / youtube preference → YouTube search.
       const video = await youtubeSearch(text);
       if (!video) throw new SourceError(`No YouTube video matched “${text}”.`);
       return { kind: "search", origin: video.title, tracks: [makeTrack(video, requestedBy, requestedByName)], skipped: 0 };

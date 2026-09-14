@@ -300,23 +300,35 @@ export const BURG_COMMANDS: CommandDoc[] = [
 export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music play",
-    usage: "/music play <link or search>",
-  prefixUsage: "!music play <link or search>",
+    usage: "/music play <link or search> [source:youtube|spotify]",
+  prefixUsage: "!music play <link or search> [youtube|spotify]",
   prefixAliases: ["play", "p"],
     group: "music",
-    summary: "Play or queue a song, playlist or album.",
+    summary: "Play or queue a song, playlist or album (pick YouTube or Spotify).",
     who: "everyone in a voice channel",
     details:
-      "Joins your voice channel (or queues if something is already playing) and starts playback. Accepts YouTube video links, YouTube playlist links, Spotify track/album/playlist links and plain search text. Search text and Spotify tracks are matched against YouTube at play time. If the bot is paused, /music play also unpauses.",
-    args: [{ name: "query", description: "A YouTube/Spotify link or a search phrase.", required: true }],
+      "Joins your voice channel (or queues if something is already playing) and starts playback. Accepts YouTube video links, YouTube playlist links, Spotify track/album/playlist links and plain search text. Search text and Spotify tracks are matched against YouTube at play time. If the bot is paused, /music play also unpauses. Use source to force where a plain search looks: youtube (default) searches YouTube, spotify searches Spotify first (needs Spotify API configured) and then plays via YouTube. Links are always honored regardless of source.",
+    args: [
+      { name: "query", description: "A YouTube/Spotify link or a search phrase.", required: true },
+      { name: "source", description: "Where to search: youtube (default) or spotify. Links ignore this." },
+    ],
     examples: [
       "/music play https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       "/music play https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M",
       "/music play daft punk around the world",
+      "/music play query:daft punk around the world source:spotify",
+      "/music play query:never gonna give you up source:youtube",
+      "!play never gonna give you up",
+      "!play never gonna give you up spotify",
+      "!play spotify never gonna give you up",
+      "!play youtube never gonna give you up",
+      "!p blinding lights spotify",
     ],
     notes: [
+      "Default search is YouTube. Use source:spotify or suffix 'spotify' to search Spotify first.",
       "Playlists are imported up to the queue limit; the reply tells you how many tracks made it in.",
-      "Spotify playback needs SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET on the bot — without them only YouTube and search work.",
+      "Spotify search and Spotify links need SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET on the bot — without them only YouTube and search work.",
+      "Prefix examples: !play <song> (youtube), !play <song> spotify, !play spotify <song>, !play yt <song>.",
     ],
   },
   {

@@ -20,6 +20,43 @@ import { SourceError, musicLimits, resolveQuery, spotifyConfigured } from "./sou
 
 const MUSIC_COLOR = 0xf5c542;
 
+export type MusicSourcePreference = "youtube" | "spotify";
+
+function normalizeSourceToken(raw: string | null | undefined): MusicSourcePreference | null {
+  if (!raw) return null;
+  const t = raw.trim().toLowerCase();
+  if (["spotify", "sp", "spot", "spotify.com", "open.spotify.com", "spoti"].includes(t)) return "spotify";
+  if (["youtube", "yt", "ytb", "ytmusic", "youtube.com", "youtu.be", "youtubemusic", "music.youtube.com", "youtube_music", "yt_music"].includes(t))
+    return "youtube";
+  return null;
+}
+
+/**
+ * Prefix helper: `!play never gonna give you up spotify` or `!play spotify never gonna...`
+ * Default is youtube. Returns query without the source token.
+ */
+function extractSourceFromArgs(args: readonly string[]): { query: string; source: MusicSourcePreference } {
+  if (args.length === 0) return { query: "", source: "youtube" };
+  const first = normalizeSourceToken(args[0]);
+  const last = normalizeSourceToken(args[args.length - 1]);
+
+  // Prefer trailing token (`!play song spotify`) but also accept leading (`!play spotify song`).
+  // If both first and last are source tokens and there is middle content, trailing wins.
+  if (args.length > 1 && last) {
+    const middle = args.slice(0, -1).join(" ").trim();
+    if (middle.length > 0) return { query: middle, source: last };
+  }
+  if (args.length > 1 && first) {
+    const rest = args.slice(1).join(" ").trim();
+    if (rest.length > 0) return { query: rest, source: first };
+  }
+  // Single word that is just a source token → no query.
+  if (args.length === 1 && (first ?? last)) {
+    return { query: "", source: (first ?? last)! };
+  }
+  return { query: args.join(" ").trim(), source: "youtube" };
+}
+
 export function musicCommandJSON() {
   return new SlashCommandBuilder()
     .setName("music")
@@ -35,6 +72,16 @@ export function musicCommandJSON() {
             .setDescription("A YouTube or Spotify link, or a search phrase")
             .setRequired(true)
             .setMaxLength(600),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("source")
+            .setDescription("Where to search (default: youtube). Links are always honored.")
+            .setRequired(false)
+            .addChoices(
+              { name: "YouTube (default)", value: "youtube" },
+              { name: "Spotify", value: "spotify" },
+            ),
         ),
     )
     .addSubcommand((s) => s.setName("pause").setDescription("Pause the current song"))
@@ -330,12 +377,40 @@ export class MusicCommands {
       await ctx.replyHidden("🔊 Join a voice channel first — I play where you are.");
       return;
     }
-    // Slash: the `query` option. Prefix: the whole rest of the message, so
-    // `!play daft punk around the world` keeps the search phrase intact.
-    const query = (ctx.getStringOption("query") ?? ctx.args.join(" ")).trim();
+
+    // ── source + query parsing ──────────────────────────────────────
+    // Slash: /music play query:<song> source:<youtube|spotify>  (default youtube)
+    // Prefix: !play <song>  (default youtube)
+    //         !play <song> spotify  /  !play spotify <song>  /  !play yt <song>
+    let query: string;
+    let source: MusicSourcePreference;
+
+    if (ctx.surface === "slash") {
+      query = (ctx.getStringOption("query") ?? "").trim();
+      const rawSource = ctx.getStringOption("source");
+      source = normalizeSourceToken(rawSource) ?? "youtube";
+    } else {
+      // Prefix surface — args may contain a trailing/leading source token.
+      const parsed = extractSourceFromArgs(ctx.args);
+      query = parsed.query;
+      // If user also typed `!play source:spotify query` style? Support explicit
+      // `source` option via second token? For now, also check getStringOption("source")
+      // which on prefix reads first arg, so if someone does `!play spotify` alone,
+      // getStringOption would have returned "spotify" — but we already handled it.
+      // If a separate `source` word was provided as first arg and query still
+      // contains it, normalize again from any explicit option.
+      const explicit = normalizeSourceToken(ctx.getStringOption("source") ?? ctx.getStringOption("query")?.split(" ")[0]);
+      if (explicit && query.toLowerCase() !== explicit) {
+        // If user typed `!play spotify never gonna...` we already stripped it,
+        // but if they typed `!play never gonna... source:spotify`? Keep parsed source.
+      }
+      source = parsed.source;
+    }
+
     if (query.length === 0) {
       await ctx.replyHidden(
-        `❓ What should I play? \`${ctx.commandPrefix}play <link or search>\` — YouTube and Spotify links, playlists, albums or just a song name.`,
+        `❓ What should I play? \`${ctx.commandPrefix}play <link or search>\` — YouTube and Spotify links, playlists, albums or just a song name.\n` +
+          `Pick a source: \`${ctx.commandPrefix}play <song> youtube\` (default) or \`${ctx.commandPrefix}play <song> spotify\` — slash: \`/music play query:<song> source:<youtube|spotify>\`.`,
       );
       return;
     }
@@ -343,7 +418,13 @@ export class MusicCommands {
 
     await ctx.defer();
 
-    const result = await resolveQuery(query, ctx.user.id, ctx.user.displayName ?? ctx.user.username, maxPlaylistTracks);
+    const result = await resolveQuery(
+      query,
+      ctx.user.id,
+      ctx.user.displayName ?? ctx.user.username,
+      maxPlaylistTracks,
+      source,
+    );
 
     await this.manager.connect(ctx.guildId, channel);
 
@@ -365,15 +446,16 @@ export class MusicCommands {
     }
 
     const startingNow = wasIdle;
+    const viaLabel = source === "spotify" ? "Spotify → YouTube" : "YouTube";
     if (result.tracks.length === 1) {
       await ctx.edit(
-        `🎶 Added **[${first.title}](${first.url})** by ${first.author} \`${formatDuration(first.durationMs)}\`` +
-          (startingNow ? " — **preparing playback**." : ` — position **#${queue.size}** in the queue.`),
+        `🎶 Added **[${first.title}](${first.url})** by ${first.author} \`${formatDuration(first.durationMs)}\` · _via ${viaLabel}_\n` +
+          (startingNow ? "— **preparing playback**." : `— position **#${queue.size}** in the queue.`),
       );
     } else {
       const capped = result.skipped;
       const summary =
-        `📚 Added **${added}** track${added === 1 ? "" : "s"} from **${result.origin}**` +
+        `📚 Added **${added}** track${added === 1 ? "" : "s"} from **${result.origin}** · _via ${viaLabel}_` +
         (dropped + capped > 0 ? ` (${dropped + capped} left out — queue/playlist limit is ${maxQueue}/${maxPlaylistTracks})` : "") +
         (startingNow ? " — **starting now**." : ` — starting at position **#${position}**.`);
       await ctx.edit(summary);
