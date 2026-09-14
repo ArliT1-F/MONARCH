@@ -31,6 +31,7 @@ import {
 import { ConfessionCooldowns, internalConfessionCooldownStore } from "./confession-cooldown.js";
 import { MonarchCommands } from "./monarch-commands.js";
 import { MusicCommands, musicCommandJSON } from "./music/commands.js";
+import { getLavalink } from "./music/lavalink.js";
 import { MusicManager } from "./music/player.js";
 import { handlePrefixMessage, type PrefixDispatcherDeps } from "./prefix/dispatch.js";
 import { internalPrefixStore, PrefixRegistry } from "./prefix/registry.js";
@@ -82,7 +83,9 @@ if (!ownerUserId) {
 }
 
 /**
- * Intents: Guilds for slash commands; GuildVoiceStates for the music player;
+ * Intents: Guilds for slash commands; GuildVoiceStates for the music player
+ * (the bot still joins voice channels itself and forwards the handshake to the
+ * Lavalink node — see apps/bot/src/music/lavalink.ts);
  * GuildMessages + MessageContent so the burg relay can read and
  * re-post messages, and so prefix (text) commands can be seen at all.
  * MessageContent is a *privileged* intent — enable it under Bot → Privileged
@@ -134,6 +137,12 @@ function getMusic(): MusicManager {
 function createClient(intents: number[]): Client {
   const c = new Client({ intents });
   c.once(Events.ClientReady, (ready) => {
+    // Open the Lavalink node connection(s) now rather than on the first
+    // /music play: a misconfigured node then shows in the boot log, and the
+    // first song doesn't pay for the handshake. Audio itself never runs here —
+    // the node talks to Discord's voice servers (see music/lavalink.ts).
+    const lavalink = getLavalink(ready.user.id);
+    lavalink.start(ready.user.id);
     log.info("bot ready", {
       user: ready.user.tag,
       // Which machine/container this is: two workers sharing one token each
@@ -144,6 +153,7 @@ function createClient(intents: number[]): Client {
       // The same flag gates the relay and text commands: both need to read
       // other people's message content.
       prefixCommands: messageContentEnabled,
+      music: lavalink.describe(),
     });
   });
   // Surface gateway trouble instead of letting an EventEmitter "error" event
@@ -155,6 +165,12 @@ function createClient(intents: number[]): Client {
   c.on(Events.InteractionCreate, onInteraction);
   c.on(Events.VoiceStateUpdate, (old: VoiceState, next: VoiceState) => {
     music?.handleVoiceStateUpdate(old, next);
+  });
+  // Lavalink needs two things discord.js has no typed event for: our own voice
+  // `session_id` and the voice server's `token`/`endpoint`. They arrive as raw
+  // gateway packets and are forwarded verbatim (see music/player.ts).
+  c.on(Events.Raw, (packet: unknown) => {
+    music?.handleRawPacket(packet as Parameters<MusicManager["handleRawPacket"]>[0]);
   });
   return c;
 }
@@ -177,10 +193,32 @@ function isDisallowedIntents(e: unknown): boolean {
  * forwards it.
  */
 let shuttingDown = false;
-function shutdown(signal: string) {
+
+/** Resolve when `p` settles, or after `ms` — whichever happens first. */
+function capWait(p: Promise<void>, ms: number): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    p.finally(() => clearTimeout(timer)),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms);
+    }),
+  ]);
+}
+
+async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info("shutting down", { signal });
+  try {
+    // Stops playback and destroys the node's players (so no guild is left with
+    // a silent bot in its voice channel), then closes the node sockets. Awaited
+    // — the deletes are REST calls, and exiting first would drop them — but
+    // capped well inside systemd's TimeoutStopSec / the container's grace
+    // period, so a wedged node cannot hold the worker up.
+    await capWait(music?.shutdown() ?? Promise.resolve(), 2_000);
+  } catch (e) {
+    log.warn("music shutdown failed", { error: String(e) });
+  }
   try {
     client.destroy(); // closes the gateway session cleanly
   } catch (e) {

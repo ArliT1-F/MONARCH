@@ -1,6 +1,10 @@
 FROM node:22-alpine AS base
 WORKDIR /app
-RUN apk add --no-cache ffmpeg
+# No ffmpeg, no yt-dlp, no opus/libsodium: audio decoding, Opus encoding and the
+# Discord voice socket all live in the Lavalink node (docker/docker-compose.yml
+# service `lavalink`), which the bot drives over websocket + REST. This image is
+# a plain Node process — nothing native to install and nothing that needs UDP
+# egress, so /music works from any host that can reach a node.
 COPY package.json package-lock.json* ./
 COPY apps/dashboard/package.json apps/dashboard/
 COPY apps/bot/package.json apps/bot/

@@ -1,21 +1,74 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { Readable } from "node:stream";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChatInputCommandInteraction } from "discord.js";
 import { MusicQueue, type Track } from "@monarch/music";
-import { evaluatePlayer } from "../src/music/javascript.js";
+
+/**
+ * Failure regressions — the bugs that used to be silent.
+ *
+ * Everything audio-related now runs through a Lavalink node, so "the stream
+ * died" became "the node refused the track" / "the node never answered". What
+ * must not regress is the behaviour *around* those failures: a failed track is
+ * skipped without wedging the queue, a stop wins the race against a slow
+ * resolve, a dead backend is named as such, and a deferred reply still carries
+ * the original human-readable error.
+ */
 
 vi.mock("../src/music/sources.js", async (original) => ({
   ...await original<typeof import("../src/music/sources.js")>(),
+  ensurePlayable: vi.fn(async (track: Track) => track),
   resolveQuery: vi.fn(),
-  audioStreamFor: vi.fn(),
 }));
-vi.mock("../src/music/ffmpeg.js", () => ({ resolveFfmpeg: vi.fn() }));
-import { audioStreamFor, resolveQuery, SourceError } from "../src/music/sources.js";
+
+import { SourceError, ensurePlayable, resolveQuery } from "../src/music/sources.js";
 import { MusicCommands } from "../src/music/commands.js";
 import { MusicManager } from "../src/music/player.js";
 import { SlashCommandContext } from "../src/slash-context.js";
-import type { Client, ChatInputCommandInteraction } from "discord.js";
+import { FakeLavalink, fakeClient, fakeGuild, fakeVoiceChannel, type FakeGuild } from "./music-fakes.js";
 
-const track = (id: string) => ({ id, title: id, videoId: id, requestedBy: "user" }) as Track;
+const track = (id: string, extra: Partial<Track> = {}): Track =>
+  ({
+    id,
+    title: id,
+    author: "Author",
+    videoId: id,
+    sourceKind: "youtube",
+    url: `https://www.youtube.com/watch?v=${id}`,
+    durationMs: 200_000,
+    requestedBy: "user",
+    requestedByName: "User",
+    thumbnail: null,
+    encoded: `enc-${id}`,
+    ...extra,
+  }) as Track;
+
+function setup() {
+  const lavalink = new FakeLavalink();
+  const guild = fakeGuild("guild");
+  const announce = vi.fn();
+  const manager = new MusicManager(fakeClient(guild), announce, undefined, lavalink as never);
+  return { lavalink, guild, announce, manager };
+}
+
+/** Join a channel the way the bot does, then deliver Discord's voice answers. */
+async function joinVoice(manager: MusicManager, guild: FakeGuild, channelId = "voice"): Promise<void> {
+  const pending = manager.connect("guild", fakeVoiceChannel(channelId, guild));
+  manager.handleRawPacket({
+    t: "VOICE_STATE_UPDATE",
+    d: { guild_id: "guild", user_id: "bot-user", session_id: "vs", channel_id: channelId },
+  });
+  manager.handleRawPacket({
+    t: "VOICE_SERVER_UPDATE",
+    d: { guild_id: "guild", token: "tok", endpoint: "ep.discord.gg" },
+  });
+  await pending;
+}
+
+const titles = (announce: ReturnType<typeof vi.fn>) =>
+  announce.mock.calls.map(([, embed]) => (embed as { title?: string }).title);
+
+beforeEach(() => {
+  vi.mocked(ensurePlayable).mockImplementation(async (t: Track) => t);
+});
 afterEach(() => vi.clearAllMocks());
 
 describe("music failure regressions", () => {
@@ -24,7 +77,7 @@ describe("music failure regressions", () => {
     const interaction = {
       inCachedGuild: () => true,
       guildId: "guild", channelId: "text",
-      guild: { members: { me: {}, }, channels: { cache: new Map() } },
+      guild: { members: { me: {} }, channels: { cache: new Map() } },
       member: { voice: { channel } }, user: { id: "user", displayName: "User" },
       options: { getSubcommand: () => "play", getString: () => "spotify link" },
       deferred: false, replied: false,
@@ -49,29 +102,38 @@ describe("music failure regressions", () => {
     expect(manager.connect).not.toHaveBeenCalled();
   });
 
-  it.each(["off", "track", "queue"] as const)("drains failed tracks without getting stuck in %s loop", async (mode) => {
-    const announce = vi.fn();
-    const manager = new MusicManager({} as Client, announce);
+  it.each(["off", "track", "queue"] as const)("drains tracks the node refuses without getting stuck in %s loop", async (mode) => {
+    const { lavalink, announce, manager } = setup();
     manager.queue("guild").setLoop(mode);
     await manager.enqueue("guild", [track("one"), track("two")]);
-    vi.mocked(audioStreamFor).mockRejectedValue(new SourceError("Unavailable"));
+    vi.mocked(ensurePlayable).mockRejectedValue(new SourceError("Unavailable"));
+
     await manager.startIfIdle("guild");
-    expect(audioStreamFor).toHaveBeenCalledTimes(2);
+
+    expect(ensurePlayable).toHaveBeenCalledTimes(2);
+    expect(lavalink.callsTo("play")).toHaveLength(0); // nothing unplayable reached the node
     expect(manager.queue("guild").isEmpty).toBe(true);
+    // Every refusal is announced, so a silent skip can't happen again.
+    expect(titles(announce).filter((t) => t === "⚠️ Track failed")).toHaveLength(2);
     manager.teardown("guild", false);
   });
 
-  it("does not start a resolved stream after stop", async () => {
-    const manager = new MusicManager({} as Client, vi.fn());
-    let resolve!: (stream: Readable) => void;
-    vi.mocked(audioStreamFor).mockReturnValue(new Promise((r) => { resolve = r; }));
-    await manager.enqueue("guild", [track("one")]);
-    const pending = manager.startIfIdle("guild");
-    manager.teardown("guild", false);
-    const stream = new Readable({ read() {} });
-    resolve(stream);
-    await pending;
-    expect(stream.destroyed).toBe(true);
+  it("does not hand a track to the node after stop", async () => {
+    const { lavalink, guild, manager } = setup();
+    await joinVoice(manager, guild);
+
+    const late = track("late");
+    let resolvePlayable!: (value: Track) => void;
+    vi.mocked(ensurePlayable).mockReturnValue(new Promise<Track>((resolve) => { resolvePlayable = resolve; }));
+
+    await manager.enqueue("guild", [late]);
+    const playing = manager.startIfIdle("guild");
+    manager.teardown("guild", false); // the user gave up while we were resolving
+    resolvePlayable(late);
+    await playing;
+
+    expect(lavalink.callsTo("play")).toHaveLength(0);
+    expect(lavalink.callsTo("destroyPlayer")).toHaveLength(1);
   });
 
   it("can skip a failed current track without changing the loop setting", () => {
@@ -82,14 +144,52 @@ describe("music failure regressions", () => {
     expect(queue.next(true)?.id).toBe("two");
     expect(queue.loopMode).toBe("track");
   });
-});
 
-describe("isolated player evaluator", () => {
-  it("returns decipher results without exposing Node globals", async () => {
-    expect(await evaluatePlayer({ output: '({sig: "decoded", node: typeof process, files: typeof require})' }))
-      .toEqual({ sig: "decoded", node: "undefined", files: "undefined" });
+  it("gives up after three consecutive failures instead of burning the whole queue", async () => {
+    const { lavalink, guild, announce, manager } = setup();
+    await joinVoice(manager, guild);
+    vi.mocked(ensurePlayable).mockRejectedValue(new SourceError("Unavailable"));
+    await manager.enqueue("guild", [track("a"), track("b"), track("c"), track("d")]);
+
+    await manager.startIfIdle("guild");
+
+    expect(ensurePlayable).toHaveBeenCalledTimes(3);
+    expect(titles(announce)).toContain("⏹ Giving up");
+    // Giving up means leaving: the node's player is destroyed, the channel freed.
+    expect(lavalink.callsTo("destroyPlayer").length).toBeGreaterThan(0);
+    expect(manager.connectedChannelId("guild")).toBeNull();
   });
-  it("interrupts runaway code", async () => {
-    await expect(evaluatePlayer({ output: "while (true) {}" })).rejects.toThrow("evaluation failed");
+
+  it("names a dead backend instead of blaming the song", async () => {
+    const { lavalink, guild, announce, manager } = setup();
+    await joinVoice(manager, guild);
+    await manager.enqueue("guild", [track("one")]);
+    lavalink.whenReadyHandler = async () => {
+      throw new SourceError("The music backend (Lavalink) isn't answering, so nothing can play right now.");
+    };
+
+    await manager.startIfIdle("guild");
+
+    const failure = announce.mock.calls.find(([, embed]) => (embed as { title?: string }).title === "⚠️ Track failed");
+    expect(String((failure?.[1] as { description?: string }).description)).toMatch(/Lavalink/);
+    expect(lavalink.callsTo("play")).toHaveLength(0);
+    manager.teardown("guild", false);
+  });
+
+  it("reports a node error as a track failure, without a stack trace in chat", async () => {
+    const { lavalink, guild, announce, manager } = setup();
+    await joinVoice(manager, guild);
+    await manager.enqueue("guild", [track("one"), track("two")]);
+    await manager.startIfIdle("guild");
+
+    lavalink.exception("guild", "This video is not available in your country", "one");
+    lavalink.endTrack("guild", "loadFailed", { userData: { id: "one" } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(titles(announce)).toContain("⚠️ Track failed");
+    expect(announce.mock.calls.map(([, e]) => String((e as { description?: string }).description)).join("\n"))
+      .toMatch(/not available in your country/);
+    expect(manager.queue("guild").nowPlaying()?.id).toBe("two");
+    manager.teardown("guild", false);
   });
 });

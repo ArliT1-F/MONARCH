@@ -8,8 +8,15 @@
  * engine / dashboard split.
  */
 
-/** Where a track came from. The player uses this to pick a stream strategy. */
-export type TrackSourceKind = "youtube" | "spotify";
+/**
+ * Where a track came from.
+ * - `youtube` — resolved by the Lavalink node from a YouTube link/search.
+ * - `spotify` — metadata from the Spotify Web API, matched to a YouTube track
+ *   lazily when it plays.
+ * - `other` — any other source the node has enabled (SoundCloud, Bandcamp,
+ *   a direct HTTP audio file…). `sourceName` says which.
+ */
+export type TrackSourceKind = "youtube" | "spotify" | "other";
 
 /**
  * A single playable item. Created by the bot's source resolver; consumed by
@@ -22,9 +29,17 @@ export interface Track {
   title: string;
   /** Channel / uploader / artist display name. */
   author: string;
-  /** The id the stream layer needs (YouTube video id today). */
+  /** The source's own id (a YouTube video id, a SoundCloud id…) — used in logs. */
   videoId: string;
   sourceKind: TrackSourceKind;
+  /** The node's source name (`youtube`, `soundcloud`, …) for `sourceKind: "other"`. */
+  sourceName?: string;
+  /**
+   * The Lavalink-encoded track (`GET /v4/loadtracks` → `encoded`) — what the
+   * node is told to play. Present for everything the node resolved up front;
+   * Spotify tracks get it lazily, when they actually start playing.
+   */
+  encoded?: string;
   /** Human-facing URL (watch page / Spotify link). */
   url: string;
   /** null for live streams and unknown lengths. */
@@ -37,8 +52,8 @@ export interface Track {
   thumbnail: string | null;
   /**
    * For Spotify tracks: the "Artist – Title" query used to find a playable
-   * YouTube video lazily, at play time (so queuing a 200-track playlist is
-   * fast — only played tracks hit YouTube).
+   * YouTube track lazily, at play time (so queuing a 200-track playlist is
+   * fast — only played tracks are matched).
    */
   youtubeSearch?: string;
 }
