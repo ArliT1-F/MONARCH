@@ -1,5 +1,5 @@
 import { evaluatePlayer } from "./javascript.js";
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { Readable } from "node:stream";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
@@ -314,7 +314,11 @@ async function ytdlpAvailable(bin: string): Promise<boolean> {
 }
 
 function ytdlpArgs(): string[] {
-  // Base args — tuned for voice pipeline robustness.
+  // Base args — tuned for voice pipeline robustness. Keep the preferred
+  // selector specific to WebM/Opus at Discord's native 48 kHz stereo rate:
+  // @discordjs/voice can demux that stream without asking ffmpeg to guess the
+  // container. The later selectors keep AAC/other audio formats as a fallback
+  // for videos that do not expose Opus.
   const base = [
     "--no-playlist",
     "--no-warnings",
@@ -327,9 +331,8 @@ function ytdlpArgs(): string[] {
     "10",
     "--concurrent-fragments",
     "4",
-    // Prefer opus/webm when available (smaller, better for voice), fallback to anything.
     "-f",
-    "bestaudio[ext=webm]/bestaudio/best",
+    "bestaudio[ext=webm+acodec=opus+asr=48000]/bestaudio[acodec=opus]/bestaudio",
     "-o",
     "-",
   ];
@@ -355,10 +358,78 @@ function ytdlpArgs(): string[] {
   return args;
 }
 
+const YTDLP_STARTUP_TIMEOUT_MS = 15_000;
+
+/**
+ * Wait until a child has produced at least one buffered byte. Spawning a
+ * yt-dlp process is not enough to prove that it can extract the video: a bad
+ * cookie path, an expired extractor, LOGIN_REQUIRED, or a blocked format can
+ * all produce a perfectly healthy child process that exits with an empty
+ * stdout. Returning that empty pipe to @discordjs/voice makes it enter Idle at
+ * 00:00, and the real yt-dlp error is otherwise easy to miss.
+ *
+ * `readable` is deliberately used instead of `data`, so the first bytes stay
+ * buffered for ffmpeg/demuxProbe when the caller receives the stream.
+ */
+function waitForYtdlpOutput(child: ChildProcess, output: Readable): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => finish(false), YTDLP_STARTUP_TIMEOUT_MS);
+    timer.unref?.();
+
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      output.off("readable", onReadable);
+      output.off("end", onEnd);
+      output.off("close", onClose);
+      output.off("error", onError);
+      child.off("close", onChildClose);
+    };
+
+    const finish = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(ok);
+    };
+
+    const onReadable = (): void => {
+      // A readable event is also emitted for EOF. Only accept it when there
+      // is data waiting; otherwise the process produced an empty stream.
+      if (output.readableLength > 0) finish(true);
+      else if (output.readableEnded || output.destroyed) finish(false);
+    };
+    const onEnd = (): void => finish(false);
+    const onClose = (): void => finish(output.readableLength > 0);
+    const onError = (): void => finish(false);
+    const onChildClose = (code: number | null): void => {
+      // If the child exits before the first byte, there is nothing useful to
+      // play. A zero exit code with buffered output is a valid tiny file.
+      finish(code === 0 && output.readableLength > 0);
+    };
+
+    output.on("readable", onReadable);
+    output.once("end", onEnd);
+    output.once("close", onClose);
+    output.once("error", onError);
+    child.once("close", onChildClose);
+  });
+}
+
+function killYtdlp(child: ChildProcess): void {
+  try {
+    if (!child.killed) child.kill("SIGKILL");
+  } catch {
+    // The process may have exited between the check and kill.
+  }
+}
+
 /**
  * Audio via yt-dlp: pipe `yt-dlp -o -` into the caller. Returns null when
- * yt-dlp isn't installed (or is disabled) so the caller can fall back to
- * InnerTube diagnostics.
+ * yt-dlp isn't installed, cannot start, or cannot produce the first bytes of
+ * audio. Returning null on an empty/failed pipe is important: the caller can
+ * then use the InnerTube fallback instead of handing @discordjs/voice a
+ * stream that immediately ends at 00:00.
  *
  * `isPreferred` controls log wording (preferred vs fallback) and whether we
  * log at info vs debug for availability checks.
@@ -391,11 +462,7 @@ async function ytdlpAudioStream(url: string, isPreferred = false): Promise<Reada
       });
     });
     if (!spawned || !child.stdout) {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // already gone
-      }
+      killYtdlp(child);
       if (stderrBuf) log.warn("yt-dlp stderr on spawn fail", { url, stderr: stderrBuf.slice(0, 500) });
       return null;
     }
@@ -405,9 +472,10 @@ async function ytdlpAudioStream(url: string, isPreferred = false): Promise<Reada
     });
 
     child.on("close", (code, signal) => {
-      // Normal close after stream finished is code 0 or null (killed on skip).
-      // Non-zero is worth logging — it often means extractor broke.
-      if (code !== 0 && code !== null) {
+      // Normal close after the stream finished is code 0. A signal is also
+      // expected when a user skips/stops and the stdout close handler kills
+      // the downloader; non-zero exits still carry useful extractor errors.
+      if (code !== 0 && code !== null && signal === null) {
         log.warn("yt-dlp exited non-zero", { url, code, signal, stderr: stderrBuf.slice(0, 800) });
       } else {
         log.info("yt-dlp process closed", { url, code, signal, bytesStderr: stderrBuf.length });
@@ -416,21 +484,23 @@ async function ytdlpAudioStream(url: string, isPreferred = false): Promise<Reada
 
     const out = child.stdout as unknown as Readable;
     // Don't leak a download process when the track is skipped or stopped.
-    out.once("close", () => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // already gone
-      }
-    });
+    out.once("close", () => killYtdlp(child));
     out.once("error", (err) => {
       log.warn("yt-dlp stdout error", { url, error: String(err).slice(0, 300), stderr: stderrBuf.slice(0, 500) });
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // already gone
-      }
+      killYtdlp(child);
     });
+
+    const hasOutput = await waitForYtdlpOutput(child, out);
+    if (!hasOutput) {
+      killYtdlp(child);
+      log.warn("yt-dlp produced no playable audio", {
+        url,
+        bin,
+        stderr: stderrBuf.slice(0, 800),
+        startupTimeoutMs: YTDLP_STARTUP_TIMEOUT_MS,
+      });
+      return null;
+    }
 
     log.info(isPreferred ? "using yt-dlp preferred for YouTube audio" : "using yt-dlp fallback for YouTube audio", {
       url,
