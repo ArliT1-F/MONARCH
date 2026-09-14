@@ -86,6 +86,22 @@ export class PrefixRegistry {
     return dedupeSorted(hit.prefix ? [hit.prefix, DEFAULT_COMMAND_PREFIX] : [DEFAULT_COMMAND_PREFIX]);
   }
 
+  /**
+   * The prefix to *display* in replies right now, without any I/O: the cached
+   * custom prefix, or the default when the cache is cold, stale or empty.
+   *
+   * Slash-command handling uses this instead of `get()` so a slow dashboard
+   * can never push `deferReply` past Discord's 3-second interaction window
+   * (see `slashContext` in ../index.ts) — the prefix only affects reply
+   * *wording*, so callers serve the cached value and `void get()` afterwards
+   * to refresh the cache in the background.
+   */
+  peekSingle(guildId: string): string {
+    const hit = this.cache.get(guildId);
+    if (hit && hit.expiresAt > this.now() && hit.prefix) return hit.prefix;
+    return DEFAULT_COMMAND_PREFIX;
+  }
+
   /** Every prefix a message could start with, longest first. */
   async candidates(guildId: string): Promise<string[]> {
     const custom = await this.resolve(guildId);

@@ -42,6 +42,33 @@ describe("PrefixRegistry", () => {
     expect(registry.peek("g1")).toEqual(["m!", DEFAULT_COMMAND_PREFIX]);
   });
 
+  it("peekSingle answers from cache without I/O (slash fast path)", async () => {
+    const { store, calls } = memoryStore({ g1: "m!" });
+    const registry = new PrefixRegistry({ store });
+
+    // Cold cache: the default, and no store call — slash handling must never
+    // await the network before Discord's 3-second interaction window.
+    expect(registry.peekSingle("g1")).toBe(DEFAULT_COMMAND_PREFIX);
+    expect(calls.load).not.toHaveBeenCalled();
+
+    registry.remember("g1", "m!");
+    expect(registry.peekSingle("g1")).toBe("m!");
+    expect(calls.load).not.toHaveBeenCalled();
+
+    registry.remember("g1", null);
+    expect(registry.peekSingle("g1")).toBe(DEFAULT_COMMAND_PREFIX);
+  });
+
+  it("peekSingle ignores stale cache entries", async () => {
+    const { store } = memoryStore();
+    let now = 1_000;
+    const registry = new PrefixRegistry({ store, ttlMs: 60, now: () => now });
+    registry.remember("g1", "m!");
+    expect(registry.peekSingle("g1")).toBe("m!");
+    now += 61;
+    expect(registry.peekSingle("g1")).toBe(DEFAULT_COMMAND_PREFIX);
+  });
+
   it("reads a stored prefix once and serves it from cache", async () => {
     const { store, calls } = memoryStore({ g1: "m!" });
     const registry = new PrefixRegistry({ store });

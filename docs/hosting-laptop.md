@@ -151,6 +151,18 @@ looks like from here:
 - `Cannot find module 'opusscript'` → stale `node_modules`: `npm ci`
 - `spawn ffmpeg ENOENT` → no ffmpeg and no bundled fallback
 - 401/403 on `PUT /applications/…/commands` → `DISCORD_CLIENT_ID`/token mismatch
+- `interaction expired before the bot answered` (code 10062) on the first
+  command after a boot → the dashboard was still cold-starting when Discord's
+  3-second interaction window passed; the next try works. If it repeats,
+  something is slow on every request (dashboard, network) — or a second
+  worker is racing this one (code 40060 means exactly that: pause the Render
+  worker, step 3).
+- `track resolution failed` / `YouTube only offered SABR streams` → YouTube
+  gave no direct audio URL on any InnerTube client. Install `yt-dlp` on the
+  laptop (`pip install yt-dlp` — the bot picks it up automatically as a
+  fallback); if tracks fail with `requires login`, export a `YOUTUBE_COOKIE`
+  from your browser into `.env` (see `.env.example`). A single failing track
+  while others play is just that video (blocked/removed) — not the worker.
 
 ## Day 2
 

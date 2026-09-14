@@ -141,6 +141,15 @@ if [[ -d "$REPO/apps/bot/node_modules" || -d "$REPO/node_modules" ]]; then
   else
     bad "  no ffmpeg anywhere — /music cannot decode anything. sudo apt install ffmpeg"
   fi
+  # Last-resort YouTube audio: when every InnerTube client fails, the bot pipes
+  # `yt-dlp -o -` into the voice pipeline (see apps/bot/src/music/sources.ts).
+  # Optional — InnerTube clients cover most tracks — but a 2-minute install
+  # that tracks YouTube's breakage on its own release cadence.
+  if command -v yt-dlp >/dev/null 2>&1; then
+    good "  yt-dlp on PATH ($(command -v yt-dlp)) — YouTube fallback available"
+  else
+    warn "  no yt-dlp — YouTube audio relies on InnerTube clients only (pip install yt-dlp for a fallback)"
+  fi
 else
   bad "no node_modules in $REPO — run: npm ci"
 fi
