@@ -1,36 +1,38 @@
-import { evaluatePlayer } from "./javascript.js";
-import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { Readable } from "node:stream";
 import { randomUUID } from "node:crypto";
-import { promisify } from "node:util";
 import { createLogger } from "@monarch/shared";
 import { classifySource, type SourceQuery, type Track } from "@monarch/music";
-import type { Innertube, Types, YT } from "youtubei.js";
+import {
+  LavalinkError,
+  getLavalink,
+  type LavalinkLoadResult,
+  type LavalinkTrack,
+} from "./lavalink.js";
 
 /**
  * Source resolution — turns a `/music play` query into playable tracks.
  *
- * - YouTube (watch / youtu.be / Shorts / playlists) resolves directly via
- *   the InnerTube API (youtubei.js), which is what also produces the audio
- *   stream at play time.
- * - Spotify has no public audio stream, so track/album/playlist links are
- *   resolved to *metadata* through the official Web API (client-credentials
- *   tokens) and matched to a YouTube video lazily — when the track actually
- *   starts playing. That keeps queuing a 200-song playlist instant.
- * - Anything else is a YouTube search.
+ * Everything audio-related goes through the **Lavalink node**: YouTube videos
+ * and playlists, plain searches, and any other source the node has enabled
+ * (SoundCloud, Bandcamp, direct HTTP audio). `GET /v4/loadtracks` answers with
+ * an *encoded* track plus its metadata, and the node resolves the actual audio
+ * when playback starts — so queuing a 250-track playlist is one request and no
+ * per-track scraping on our side.
+ *
+ * Spotify has no public audio stream, so track/album/playlist links are
+ * resolved to *metadata* through the official Web API (client-credentials
+ * tokens) and matched to a YouTube track lazily — when the track actually
+ * starts playing. That keeps queuing a 200-song playlist instant.
+ *
+ * Failure here always throws {@link SourceError}: the command layer turns it
+ * into a plain, human-readable reply instead of an error log.
  */
 
 const log = createLogger("bot.music");
 
 export const DEFAULT_MAX_QUEUE = 500;
 export const DEFAULT_MAX_PLAYLIST_TRACKS = 250;
-
-function envList(name: string): string[] {
-  return (process.env[name] ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+/** `ytsearch:` is the node's YouTube search; `ytmsearch:`/`scsearch:` also exist. */
+export const DEFAULT_SEARCH_PREFIX = "ytsearch";
 
 export function musicLimits() {
   return {
@@ -44,566 +46,131 @@ function positiveInt(name: string, fallback: number): number {
   return Number.isInteger(raw) && raw > 0 ? raw : fallback;
 }
 
+const SEARCH_PREFIXES = ["ytsearch", "ytmsearch", "scsearch"];
+
+/** Which node search prefix plain queries use (MUSIC_SEARCH_PREFIX). */
+export function searchPrefix(): string {
+  const raw = (process.env.MUSIC_SEARCH_PREFIX ?? "").trim().toLowerCase().replace(/:$/, "");
+  return SEARCH_PREFIXES.includes(raw) ? raw : DEFAULT_SEARCH_PREFIX;
+}
+
 export interface ResolveResult {
   tracks: Track[];
   /** Human label of what was resolved, e.g. the playlist title. */
   origin: string;
-  /** Non-fatal notes, e.g. "12 private videos skipped". */
+  /** Non-fatal count of what was left out, e.g. "12 unavailable videos". */
   skipped: number;
   kind: SourceQuery["kind"];
 }
 
 export class SourceError extends Error {}
 
-// ── YouTube (youtubei.js) ────────────────────────────────────────────
+// ── Lavalink track loading ─────────────────────────────────────────────
 
-let innertubePromise: Promise<Innertube> | null = null;
-
-// ── InnerTube client strategy ────────────────────────────────────────
-//
-// YouTube's InnerTube API hands different player clients different streams.
-// Since the SABR rollout the plain WEB client often returns *URL-less*
-// formats only (audio extraction then fails with "no usable audio stream"),
-// while the TV / music / mobile clients still hand out plain HTTPS URLs —
-// the same fallback chain yt-dlp uses. Audio extraction therefore tries
-// several clients in order and takes the first one with a downloadable
-// audio format; search and metadata keep the session default (they are
-// unaffected by SABR).
-//
-// Operators can tune this without a code change:
-// - YOUTUBE_CLIENTS="TV,ANDROID,WEB" overrides the order (uppercase,
-//   comma-separated; any InnerTubeClient name youtubei.js supports);
-// - YOUTUBE_COOKIE (alias YT_COOKIE) passes a browser-exported youtube.com
-//   cookie to the session — helps with LOGIN_REQUIRED answers and with
-//   IPs YouTube rate-limits;
-// - YOUTUBE_PO_TOKEN passes a Proof-of-Origin token to clients that demand
-//   attestation before releasing stream URLs.
-
-const DEFAULT_YOUTUBE_CLIENTS = [
-  "TV",
-  "YTMUSIC",
-  "ANDROID",
-  "IOS",
-  "YTMUSIC_ANDROID",
-  "MWEB",
-  "TV_EMBEDDED",
-  "WEB_EMBEDDED",
-  "WEB",
-] as const;
-
-export function youtubeClients(): string[] {
-  const raw = (process.env.YOUTUBE_CLIENTS ?? "")
-    .split(",")
-    .map((s) => s.trim().toUpperCase())
-    .filter(Boolean);
-  return raw.length > 0 ? [...new Set(raw)] : [...DEFAULT_YOUTUBE_CLIENTS];
+/**
+ * One `loadtracks` call, with every transport failure translated into
+ * something a person can act on. A dead node must never look like "that song
+ * doesn't exist".
+ */
+async function load(identifier: string): Promise<LavalinkLoadResult> {
+  try {
+    return await getLavalink().loadTracks(identifier);
+  } catch (error) {
+    throw new SourceError(backendFailureMessage(error));
+  }
 }
 
-function youtubeCookie(): string | undefined {
-  return process.env.YOUTUBE_COOKIE?.trim() || process.env.YT_COOKIE?.trim() || undefined;
+export function backendFailureMessage(error: unknown): string {
+  const detail = error instanceof LavalinkError ? error.message : String(error).slice(0, 200);
+  const unreachable =
+    error instanceof LavalinkError && (error.status === undefined || error.status >= 500);
+  if (unreachable) {
+    return (
+      "The music backend (Lavalink) isn't answering, so nothing can play right now. " +
+      `Node says: ${detail} ` +
+      "Check that the node is running and that LAVALINK_NODES / LAVALINK_PASSWORD match its application.yml."
+    );
+  }
+  return `The music node couldn't load that: ${detail}`;
 }
 
-function youtubePoToken(): string | undefined {
-  return process.env.YOUTUBE_PO_TOKEN?.trim() || undefined;
+/** Turn a node `loadType: "error"` answer into a readable failure. */
+function loadErrorMessage(data: { message: string | null; cause?: string }): string {
+  const message = data.message?.trim();
+  const cause = data.cause?.trim();
+  const detail = message || cause || "no reason given";
+  // Lavalink's own YouTube failures are worth naming: they're the thing an
+  // operator can fix on the node (plugin version, IPv6 rotation, cookies).
+  if (/isn't what was requested/i.test(detail)) {
+    return (
+      "YouTube refused this video for the node's IP (\"Video returned by YouTube isn't what was requested\"). " +
+      "It's a node-side rate limit, not a bot bug: update the youtube-source plugin, enable IPv6 rotation " +
+      "(`lavalink.server.ratelimit.ipBlocks`), or turn on OAuth / a poToken for YouTube. " +
+      "All three live in the node's application.yml — the repo's copy is docker/lavalink/application.yml."
+    );
+  }
+  return `The music node couldn't load that: ${detail}`;
 }
 
-export function getYoutube(): Promise<Innertube> {
-  innertubePromise ??= import("youtubei.js").then(({ Innertube, Platform }) => {
-    Platform.shim.eval = evaluatePlayer;
-    const cookie = youtubeCookie();
-    const po_token = youtubePoToken();
-    if (cookie) log.info("using YouTube cookie for InnerTube requests");
-    return Innertube.create({
-      generate_session_locally: true,
-      ...(cookie ? { cookie } : {}),
-      ...(po_token ? { po_token } : {}),
-    });
-  }).catch((error) => {
-    innertubePromise = null; // A transient initialization failure must not poison every request.
-    throw error;
-  });
-  return innertubePromise;
+/** The single track a `track`/`search`/`playlist` answer is about, if any. */
+function firstPlayable(result: LavalinkLoadResult): LavalinkTrack | null {
+  const list = playableList(result);
+  return list.find((track) => !track.info.isStream) ?? null;
 }
 
-interface VideoMeta {
-  videoId: string;
-  title: string;
-  author: string;
-  durationMs: number | null;
-  thumbnail: string | null;
-  isLive: boolean;
-  url: string;
+/** Every usable track in a load answer (live streams excluded). */
+function playableList(result: LavalinkLoadResult): LavalinkTrack[] {
+  switch (result.loadType) {
+    case "track":
+      return [result.data];
+    case "search":
+      return result.data;
+    case "playlist":
+      return result.data.tracks;
+    default:
+      return [];
+  }
 }
 
-/** Metadata-only lookup for one video (no streaming formats fetched). */
-export async function youtubeVideoMeta(videoId: string): Promise<VideoMeta> {
-  const yt = await getYoutube();
-  const info = await yt.getBasicInfo(videoId);
-  const basic = info.basic_info;
-  if (!basic.title) throw new SourceError("That video is unavailable (private, removed, or age-restricted).");
-  if (basic.is_live) throw new SourceError("Live streams can't be queued — try again once the stream has ended.");
+function toTrack(lv: LavalinkTrack, requestedBy: string, requestedByName: string): Track {
+  const info = lv.info;
+  const sourceKind = info.sourceName === "youtube" ? "youtube" : "other";
   return {
-    videoId: basic.id ?? videoId,
-    title: basic.title,
-    author: basic.author ?? "Unknown channel",
-    durationMs: typeof basic.duration === "number" ? basic.duration * 1000 : null,
-    thumbnail: basic.thumbnail?.[0]?.url ?? null,
-    isLive: Boolean(basic.is_live),
-    url: basic.url_canonical ?? `https://www.youtube.com/watch?v=${videoId}`,
+    id: randomUUID(),
+    title: info.title?.trim() || "Unknown title",
+    author: info.author?.trim() || "Unknown",
+    videoId: info.identifier ?? "",
+    sourceKind,
+    sourceName: info.sourceName ?? undefined,
+    url: info.uri ?? (info.identifier ? `https://www.youtube.com/watch?v=${info.identifier}` : ""),
+    // 0 means "the node doesn't know" (live, or a source without durations).
+    durationMs: info.isStream || !info.length ? null : info.length,
+    requestedBy,
+    requestedByName,
+    thumbnail: info.artworkUrl ?? null,
+    encoded: lv.encoded,
   };
 }
 
-function shouldPreferYtdlp(): boolean {
-  const raw = process.env.YTDLP_PREFER?.trim().toLowerCase();
-  if (raw === "0" || raw === "false" || raw === "no") return false;
-  if (raw === "1" || raw === "true" || raw === "yes") return true;
-  // Default: prefer yt-dlp when it's available — it handles throttling and
-  // SABR far better than a single InnerTube download. Operators can set
-  // YTDLP_PREFER=0 to force InnerTube-first if they want.
-  return true;
+function spotifyTrack(meta: SpotifyTrackMeta, requestedBy: string, requestedByName: string): Track {
+  const label = meta.artists ? `${meta.artists} – ${meta.name}` : meta.name;
+  return {
+    id: randomUUID(),
+    title: label,
+    author: "Spotify",
+    videoId: "", // matched against the node's YouTube search at play time
+    sourceKind: "spotify",
+    sourceName: "spotify",
+    url: meta.url,
+    durationMs: meta.durationMs,
+    requestedBy,
+    requestedByName,
+    thumbnail: meta.thumbnail,
+    youtubeSearch: label,
+  };
 }
 
-/** Best-effort audio stream for a YouTube video. */
-export async function youtubeAudioStream(videoId: string): Promise<Readable> {
-  // Prefer yt-dlp when available — it's the most robust against throttling
-  // (chunked, range requests, retries) and against SABR. This is why the
-  // Muharrem Ahmeti track stopped after ~3m: the ANDROID client stream was
-  // throttled and closed early with no error, so the player went Idle silently.
-  // yt-dlp handles that case.
-  if (shouldPreferYtdlp()) {
-    const preferred = await ytdlpAudioStream(`https://www.youtube.com/watch?v=${videoId}`, true);
-    if (preferred) return preferred;
-  }
-
-  const yt = await getYoutube();
-  const clients = youtubeClients();
-  const po_token = youtubePoToken();
-  let loginRequired = false;
-  let sawSabrOnly = false;
-  let lastDetail = "no InnerTube client returned a stream";
-  for (const client of clients) {
-    try {
-      const info = await yt.getBasicInfo(videoId, {
-        client: client as Types.InnerTubeClient,
-        ...(po_token ? { po_token } : {}),
-      });
-      const status = info.playability_status?.status;
-      if (status === "LOGIN_REQUIRED") {
-        loginRequired = true;
-        lastDetail = `${client}: login required`;
-        continue;
-      }
-      if (status === "UNPLAYABLE") {
-        lastDetail = `${client}: video unplayable (${info.playability_status?.reason ?? "no reason given"})`;
-        continue;
-      }
-      const streaming = info.streaming_data;
-      if (!streaming) {
-        lastDetail = `${client}: no streaming data`;
-        continue;
-      }
-      const adaptive = streaming.adaptive_formats ?? [];
-      const progressive = streaming.formats ?? [];
-      const candidates = [...adaptive, ...progressive];
-      if (candidates.length === 0 && streaming.server_abr_streaming_url) sawSabrOnly = true;
-      // Only formats the direct-download API can actually use (a plain URL
-      // or a cipher it can decipher). Prefer audio-only (itag 140/251/…);
-      // fall back to a progressive video+audio file (itag 18/…) — ffmpeg
-      // extracts the audio either way.
-      const downloadable = (list: typeof candidates) =>
-        list.filter((f) => f.has_audio && (f.url || f.signature_cipher || f.cipher));
-      const format =
-        downloadable(adaptive.filter((f) => !f.has_video)).sort((a, b) => b.bitrate - a.bitrate)[0] ??
-        downloadable(candidates).sort((a, b) => b.bitrate - a.bitrate)[0];
-      if (!format) {
-        // Formats exist but carry no URL — the SABR-only signature.
-        if (candidates.length > 0) sawSabrOnly = true;
-        lastDetail = `${client}: ${candidates.length} format(s) but no downloadable audio URL`;
-        continue;
-      }
-      const stream = await info.download({ itag: format.itag, type: "audio", quality: "best", format: "any" });
-      if (client !== clients[0]) log.info("YouTube audio client fallback worked", { videoId, client });
-      const nodeStream = Readable.fromWeb(stream as unknown as import("node:stream/web").ReadableStream);
-      // Attach a cheap error forwarder — if the underlying fetch aborts mid-track
-      // (throttling), the Node stream would otherwise just end cleanly and the
-      // player would think the track finished early with no log.
-      nodeStream.on("error", (err) => {
-        log.warn("InnerTube download stream error", { videoId, client, error: String(err).slice(0, 300) });
-      });
-      return nodeStream;
-    } catch (error) {
-      if (/login.required/i.test(String(error))) loginRequired = true;
-      lastDetail = `${client}: ${String(error).slice(0, 160)}`;
-      log.warn("YouTube audio client failed", { videoId, client, error: String(error).slice(0, 300) });
-    }
-  }
-  // Last resort / second chance: a system yt-dlp, which tracks YouTube's breakage on its own
-  // release cadence (SABR, PO tokens) independently of youtubei.js.
-  const fallback = await ytdlpAudioStream(`https://www.youtube.com/watch?v=${videoId}`, false);
-  if (fallback) return fallback;
-  log.warn("YouTube audio failed on every client", {
-    videoId,
-    clients: clients.join(","),
-    detail: lastDetail,
-    sabrOnly: sawSabrOnly,
-    loginRequired,
-  });
-  if (loginRequired) {
-    throw new SourceError(
-      "YouTube requires login for this video or the bot's hosting IP. " +
-        "Set YOUTUBE_COOKIE on the worker (a browser-exported youtube.com cookie) and try again; " +
-        "if all tracks fail, the host may be blocked by YouTube.",
-    );
-  }
-  if (sawSabrOnly) {
-    throw new SourceError(
-      "YouTube only offered SABR streams for this video (no direct audio URL). " +
-        "Install yt-dlp on the worker for automatic fallback, or set YOUTUBE_PO_TOKEN / YOUTUBE_COOKIE — " +
-        "and try another track meanwhile.",
-    );
-  }
-  throw new SourceError(
-    `YouTube did not provide a usable audio stream (${lastDetail}). ` +
-      "Installing yt-dlp on the worker enables automatic fallback; " +
-      "if this persists, the extractor or hosting access needs attention.",
-  );
-}
-
-// ── yt-dlp fallback ──────────────────────────────────────────────────
-//
-// Piped straight into the voice pipeline (`yt-dlp -o -`), so no disk, no
-// temp files. Enabled by presence: any yt-dlp binary on the PATH (or at
-// YTDLP_PATH) is used; YTDLP_DISABLED=1 turns the fallback off, and
-// YTDLP_COOKIES points at a Netscape cookies.txt for login-gated videos.
-//
-// yt-dlp is *far* more robust than a single InnerTube download:
-// - it does chunked/range requests to bypass YouTube's throttling,
-// - it retries fragments,
-// - it tracks YouTube's SABR / PO-token breakage independently.
-//
-// That's why we now try it *first* when YTDLP_PREFER=1 (default) — the
-// Muharrem Ahmeti premature stop was a classic throttled ANDROID stream
-// that ended after ~3m with no error, so the player went Idle silently.
-
-const execFileAsync = promisify(execFile);
-
-function ytdlpBin(): string | null {
-  if (process.env.YTDLP_DISABLED === "1") return null;
-  return process.env.YTDLP_PATH?.trim() || "yt-dlp";
-}
-
-let ytdlpAvailableCache: boolean | null = null;
-let ytdlpAvailableCacheAt = 0;
-const YTDLP_CACHE_MS = 60_000;
-
-async function ytdlpAvailable(bin: string): Promise<boolean> {
-  const now = Date.now();
-  if (ytdlpAvailableCache !== null && now - ytdlpAvailableCacheAt < YTDLP_CACHE_MS) {
-    return ytdlpAvailableCache;
-  }
-  try {
-    await execFileAsync(bin, ["--version"], { timeout: 8000 });
-    ytdlpAvailableCache = true;
-    ytdlpAvailableCacheAt = now;
-    return true;
-  } catch {
-    ytdlpAvailableCache = false;
-    ytdlpAvailableCacheAt = now;
-    return false;
-  }
-}
-
-function ytdlpArgs(): string[] {
-  // Base args — tuned for voice pipeline robustness. Keep the preferred
-  // selector specific to WebM/Opus at Discord's native 48 kHz stereo rate:
-  // @discordjs/voice can demux that stream without asking ffmpeg to guess the
-  // container. The later selectors keep AAC/other audio formats as a fallback
-  // for videos that do not expose Opus.
-  const base = [
-    "--no-playlist",
-    "--no-warnings",
-    "--no-cache-dir",
-    "--no-progress",
-    // Bypass throttling with multiple connections + retries.
-    "--retries",
-    "5",
-    "--fragment-retries",
-    "10",
-    "--concurrent-fragments",
-    "4",
-    "-f",
-    "bestaudio[ext=webm+acodec=opus+asr=48000]/bestaudio[acodec=opus]/bestaudio",
-    "-o",
-    "-",
-  ];
-  // Allow operator to inject extra args via YTDLP_ARGS (space-separated).
-  const extra = (process.env.YTDLP_ARGS ?? "")
-    .split(" ")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const args = [...base, ...extra];
-
-  const cookies = process.env.YTDLP_COOKIES?.trim();
-  if (cookies) args.push("--cookies", cookies);
-
-  // If operator set YOUTUBE_COOKIE for InnerTube, also pass it to yt-dlp
-  // when YTDLP_COOKIES isn't set — improves login-gated videos.
-  if (!cookies) {
-    const ytCookie = process.env.YOUTUBE_COOKIE?.trim() || process.env.YT_COOKIE?.trim();
-    // yt-dlp doesn't accept raw cookie string easily, so we only use file.
-    // Operators should set YTDLP_COOKIES for cookie-file usage.
-    void ytCookie;
-  }
-
-  return args;
-}
-
-const YTDLP_STARTUP_TIMEOUT_MS = 15_000;
-
-/**
- * Wait until a child has produced at least one buffered byte. Spawning a
- * yt-dlp process is not enough to prove that it can extract the video: a bad
- * cookie path, an expired extractor, LOGIN_REQUIRED, or a blocked format can
- * all produce a perfectly healthy child process that exits with an empty
- * stdout. Returning that empty pipe to @discordjs/voice makes it enter Idle at
- * 00:00, and the real yt-dlp error is otherwise easy to miss.
- *
- * `readable` is deliberately used instead of `data`, so the first bytes stay
- * buffered for ffmpeg/demuxProbe when the caller receives the stream.
- */
-function waitForYtdlpOutput(child: ChildProcess, output: Readable): Promise<boolean> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const timer = setTimeout(() => finish(false), YTDLP_STARTUP_TIMEOUT_MS);
-    timer.unref?.();
-
-    const cleanup = (): void => {
-      clearTimeout(timer);
-      output.off("readable", onReadable);
-      output.off("end", onEnd);
-      output.off("close", onClose);
-      output.off("error", onError);
-      child.off("close", onChildClose);
-    };
-
-    const finish = (ok: boolean): void => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(ok);
-    };
-
-    const onReadable = (): void => {
-      // A readable event is also emitted for EOF. Only accept it when there
-      // is data waiting; otherwise the process produced an empty stream.
-      if (output.readableLength > 0) finish(true);
-      else if (output.readableEnded || output.destroyed) finish(false);
-    };
-    const onEnd = (): void => finish(false);
-    const onClose = (): void => finish(output.readableLength > 0);
-    const onError = (): void => finish(false);
-    const onChildClose = (code: number | null): void => {
-      // If the child exits before the first byte, there is nothing useful to
-      // play. A zero exit code with buffered output is a valid tiny file.
-      finish(code === 0 && output.readableLength > 0);
-    };
-
-    output.on("readable", onReadable);
-    output.once("end", onEnd);
-    output.once("close", onClose);
-    output.once("error", onError);
-    child.once("close", onChildClose);
-  });
-}
-
-function killYtdlp(child: ChildProcess): void {
-  try {
-    if (!child.killed) child.kill("SIGKILL");
-  } catch {
-    // The process may have exited between the check and kill.
-  }
-}
-
-/**
- * Audio via yt-dlp: pipe `yt-dlp -o -` into the caller. Returns null when
- * yt-dlp isn't installed, cannot start, or cannot produce the first bytes of
- * audio. Returning null on an empty/failed pipe is important: the caller can
- * then use the InnerTube fallback instead of handing @discordjs/voice a
- * stream that immediately ends at 00:00.
- *
- * `isPreferred` controls log wording (preferred vs fallback) and whether we
- * log at info vs debug for availability checks.
- */
-async function ytdlpAudioStream(url: string, isPreferred = false): Promise<Readable | null> {
-  const bin = ytdlpBin();
-  if (!bin) return null;
-  if (!(await ytdlpAvailable(bin))) {
-    if (isPreferred) {
-      log.info("yt-dlp preferred but not available on PATH", { bin });
-    }
-    return null;
-  }
-  const args = [...ytdlpArgs(), url];
-  try {
-    const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-
-    let stderrBuf = "";
-    child.stderr?.on("data", (d: Buffer) => {
-      // Keep last ~2k for diagnostics.
-      stderrBuf += d.toString("utf8");
-      if (stderrBuf.length > 2048) stderrBuf = stderrBuf.slice(-2048);
-    });
-
-    const spawned = await new Promise<boolean>((resolve) => {
-      child.once("spawn", () => resolve(true));
-      child.once("error", (err) => {
-        log.warn("yt-dlp spawn failed", { bin, error: String(err).slice(0, 300) });
-        resolve(false);
-      });
-    });
-    if (!spawned || !child.stdout) {
-      killYtdlp(child);
-      if (stderrBuf) log.warn("yt-dlp stderr on spawn fail", { url, stderr: stderrBuf.slice(0, 500) });
-      return null;
-    }
-
-    child.on("error", (err) => {
-      log.warn("yt-dlp child error", { url, error: String(err).slice(0, 300) });
-    });
-
-    child.on("close", (code, signal) => {
-      // Normal close after the stream finished is code 0. A signal is also
-      // expected when a user skips/stops and the stdout close handler kills
-      // the downloader; non-zero exits still carry useful extractor errors.
-      if (code !== 0 && code !== null && signal === null) {
-        log.warn("yt-dlp exited non-zero", { url, code, signal, stderr: stderrBuf.slice(0, 800) });
-      } else {
-        log.info("yt-dlp process closed", { url, code, signal, bytesStderr: stderrBuf.length });
-      }
-    });
-
-    const out = child.stdout as unknown as Readable;
-    // Don't leak a download process when the track is skipped or stopped.
-    out.once("close", () => killYtdlp(child));
-    out.once("error", (err) => {
-      log.warn("yt-dlp stdout error", { url, error: String(err).slice(0, 300), stderr: stderrBuf.slice(0, 500) });
-      killYtdlp(child);
-    });
-
-    const hasOutput = await waitForYtdlpOutput(child, out);
-    if (!hasOutput) {
-      killYtdlp(child);
-      log.warn("yt-dlp produced no playable audio", {
-        url,
-        bin,
-        stderr: stderrBuf.slice(0, 800),
-        startupTimeoutMs: YTDLP_STARTUP_TIMEOUT_MS,
-      });
-      return null;
-    }
-
-    log.info(isPreferred ? "using yt-dlp preferred for YouTube audio" : "using yt-dlp fallback for YouTube audio", {
-      url,
-      bin,
-    });
-    return out;
-  } catch (err) {
-    log.warn("yt-dlp spawn exception", { url, error: String(err).slice(0, 300) });
-    return null;
-  }
-}
-
-/** YouTube search → first reasonable video result. */
-export async function youtubeSearch(query: string): Promise<VideoMeta | null> {
-  const yt = await getYoutube();
-  const results: YT.Search = await yt.search(query, { type: "video" });
-  const { YTNodes } = await import("youtubei.js");
-  for (const node of results.results ?? []) {
-    if (!node.is(YTNodes.Video)) continue;
-    const video = node as unknown as {
-      video_id: string;
-      title: { text: string };
-      author: { name: string };
-      duration: { seconds: number };
-      is_live?: boolean;
-      thumbnails: { url: string }[];
-    };
-    if (!video.video_id || video.is_live) continue;
-    return {
-      videoId: video.video_id,
-      title: video.title?.text ?? "Unknown title",
-      author: video.author?.name ?? "Unknown channel",
-      durationMs: video.duration?.seconds ? video.duration.seconds * 1000 : null,
-      thumbnail: video.thumbnails?.at(-1)?.url ?? null,
-      isLive: Boolean(video.is_live),
-      url: `https://www.youtube.com/watch?v=${video.video_id}`,
-    };
-  }
-  return null;
-}
-
-/** All (capped) videos of a YouTube playlist. */
-export async function youtubePlaylist(
-  playlistId: string,
-  cap: number,
-): Promise<{ title: string; videos: VideoMeta[]; skipped: number }> {
-  const yt = await getYoutube();
-  const playlist = await yt.getPlaylist(playlistId);
-  const title = playlist.info.title ?? "YouTube playlist";
-
-  const { YTNodes } = await import("youtubei.js");
-  const videos: VideoMeta[] = [];
-  let skipped = 0;
-
-  for await (const node of iterPlaylistItems(playlist)) {
-    if (videos.length >= cap) break;
-    // Duck-typed on purpose: youtubei.js renames parser classes between
-    // majors; PlaylistVideo's stable surface is id/title/author/duration.
-    const item = node as {
-      id?: unknown;
-      is_playable?: unknown;
-      title?: { text?: string };
-      author?: { name?: string };
-      duration?: { seconds?: number };
-      is_live?: unknown;
-      thumbnails?: { url: string }[];
-    };
-    if (typeof item.id !== "string" || item.is_playable === false) {
-      skipped += 1;
-      continue;
-    }
-    videos.push({
-      videoId: item.id,
-      title: item.title?.text ?? "Unknown title",
-      author: item.author?.name ?? "Unknown channel",
-      durationMs: item.duration?.seconds ? item.duration.seconds * 1000 : null,
-      thumbnail: item.thumbnails?.at(-1)?.url ?? null,
-      isLive: Boolean(item.is_live),
-      url: `https://www.youtube.com/watch?v=${item.id}`,
-    });
-  }
-  return { title, videos, skipped };
-}
-
-/** Walks a youtubei.js playlist feed through its continuations. */
-interface PlaylistPage {
-  items: unknown[];
-  has_continuation: boolean;
-  getContinuation(): Promise<PlaylistPage>;
-}
-
-async function* iterPlaylistItems(playlist: PlaylistPage): AsyncGenerator<unknown> {
-  let page: PlaylistPage | null = playlist;
-  let guard = 0;
-  while (page && guard < 25) {
-    guard += 1;
-    for (const item of page.items) yield item;
-    if (!page.has_continuation) break;
-    page = await page.getContinuation().catch(() => null);
-  }
-}
-
-// ── Spotify Web API ──────────────────────────────────────────────────
+// ── Spotify Web API (metadata only) ────────────────────────────────────
 
 interface SpotifyTrackMeta {
   name: string;
@@ -669,7 +236,7 @@ class SpotifyClient {
     };
   }
 
-  /** Search Spotify tracks — used when user forces `source: spotify` for a plain search. */
+  /** Search Spotify tracks — used when the user forces `source: spotify` for a plain search. */
   async searchTracks(query: string, limit = 5): Promise<SpotifyTrackMeta[]> {
     const q = encodeURIComponent(query);
     const data = await this.get<{
@@ -781,51 +348,15 @@ export function getSpotify(): SpotifyClient {
   return spotifyClient;
 }
 
-// ── The resolver facade ──────────────────────────────────────────────
+// ── The resolver facade ────────────────────────────────────────────────
 
 export type MusicSourcePreference = "youtube" | "spotify";
-
-function makeTrack(meta: VideoMeta, requestedBy: string, requestedByName: string): Track {
-  return {
-    id: randomUUID(),
-    title: meta.title,
-    author: meta.author,
-    videoId: meta.videoId,
-    sourceKind: "youtube",
-    url: meta.url,
-    durationMs: meta.durationMs,
-    requestedBy,
-    requestedByName,
-    thumbnail: meta.thumbnail,
-  };
-}
-
-function spotifyTrack(
-  meta: SpotifyTrackMeta,
-  requestedBy: string,
-  requestedByName: string,
-): Track {
-  const label = meta.artists ? `${meta.artists} – ${meta.name}` : meta.name;
-  return {
-    id: randomUUID(),
-    title: label,
-    author: "Spotify",
-    videoId: "", // resolved against YouTube at play time
-    sourceKind: "spotify",
-    url: meta.url,
-    durationMs: meta.durationMs,
-    requestedBy,
-    requestedByName,
-    thumbnail: meta.thumbnail,
-    youtubeSearch: label,
-  };
-}
 
 /**
  * Resolve any `/music play` input into a list of tracks.
  * `cap` bounds playlist imports.
- * `preferredSource` forces search to use YouTube or Spotify when the query
- * is a plain search phrase (links are always honored as-is).
+ * `preferredSource` forces search to use YouTube or Spotify when the query is
+ * a plain search phrase (links are always honored as-is).
  */
 export async function resolveQuery(
   query: string,
@@ -838,28 +369,36 @@ export async function resolveQuery(
 
   switch (source.kind) {
     case "youtube-video": {
-      const video = await youtubeVideoMeta(source.id!);
-      return { kind: source.kind, origin: video.title, tracks: [makeTrack(video, requestedBy, requestedByName)], skipped: 0 };
+      const url = source.url ?? `https://www.youtube.com/watch?v=${source.id}`;
+      const result = await load(url);
+      if (result.loadType === "error") throw new SourceError(loadErrorMessage(result.data));
+      const track = firstPlayable(result);
+      if (!track) {
+        if (playableList(result).length > 0) throw new SourceError("That's a live stream — queue it again once it has ended.");
+        throw new SourceError("That video is unavailable (private, removed, age-restricted, or blocked for the node's IP).");
+      }
+      const made = toTrack(track, requestedBy, requestedByName);
+      return { kind: source.kind, origin: made.title, tracks: [made], skipped: 0 };
     }
+
     case "youtube-playlist": {
-      const { title, videos, skipped } = await youtubePlaylist(source.id!, cap);
-      if (videos.length === 0) throw new SourceError(`The playlist “${title}” has no playable videos.`);
-      return {
-        kind: source.kind,
-        origin: title,
-        tracks: videos.map((v) => makeTrack(v, requestedBy, requestedByName)),
-        skipped,
-      };
+      const url = source.url ?? `https://www.youtube.com/playlist?list=${source.id}`;
+      const { title, tracks, skipped } = await loadPlaylist(url, cap, requestedBy, requestedByName);
+      if (tracks.length === 0) throw new SourceError(`The playlist “${title}” has no playable videos.`);
+      return { kind: source.kind, origin: title, tracks, skipped };
     }
+
     case "spotify-track": {
       const meta = await getSpotify().track(source.id!);
       return { kind: source.kind, origin: meta.name, tracks: [spotifyTrack(meta, requestedBy, requestedByName)], skipped: 0 };
     }
+
     case "spotify-album": {
       const { name, tracks } = await getSpotify().album(source.id!, cap);
       if (tracks.length === 0) throw new SourceError(`The album “${name}” has no playable tracks.`);
       return { kind: source.kind, origin: name, tracks: tracks.map((t) => spotifyTrack(t, requestedBy, requestedByName)), skipped: 0 };
     }
+
     case "spotify-playlist": {
       const { name, tracks, unavailable } = await getSpotify().playlist(source.id!, cap);
       if (tracks.length === 0) throw new SourceError(`The playlist “${name}” has no playable tracks.`);
@@ -870,12 +409,13 @@ export async function resolveQuery(
         skipped: unavailable,
       };
     }
+
     default: {
       const text = source.query?.trim();
       if (!text) throw new SourceError("Tell me what to play — a YouTube/Spotify link or a search phrase.");
 
-      // User explicitly asked for Spotify search → hit Spotify API first,
-      // then lazily resolve to YouTube at play time (same as Spotify links).
+      // The user explicitly asked for Spotify search → hit Spotify's API first,
+      // then match to a YouTube track lazily at play time (same as Spotify links).
       if (preferredSource === "spotify") {
         if (!spotifyConfigured()) {
           throw new SourceError(
@@ -897,29 +437,114 @@ export async function resolveQuery(
         };
       }
 
-      // Default / youtube preference → YouTube search.
-      const video = await youtubeSearch(text);
-      if (!video) throw new SourceError(`No YouTube video matched “${text}”.`);
-      return { kind: "search", origin: video.title, tracks: [makeTrack(video, requestedBy, requestedByName)], skipped: 0 };
+      // A link the classifier didn't recognize (SoundCloud, Bandcamp, a direct
+      // audio file…) is worth handing to the node first: it plays whatever
+      // sources its application.yml enables. Anything it can't load falls back
+      // to being a search phrase, exactly like before.
+      if (/^https?:\/\//i.test(text)) {
+        const direct = await loadDirectly(text, requestedBy, requestedByName, cap);
+        if (direct) return direct;
+      }
+
+      const track = await searchOne(text);
+      if (!track) throw new SourceError(`No track matched “${text}”.`);
+      const made = toTrack(track, requestedBy, requestedByName);
+      return { kind: "search", origin: made.title, tracks: [made], skipped: 0 };
     }
   }
 }
 
-/**
- * The player-facing piece: an audio stream for a track. Spotify tracks get
- * matched to YouTube here (lazily — only for tracks that actually play).
- */
-export async function audioStreamFor(track: Track): Promise<Readable> {
-  const videoId = await ensureVideoId(track);
-  return youtubeAudioStream(videoId);
+/** The node's own search → first non-live result. */
+async function searchOne(query: string): Promise<LavalinkTrack | null> {
+  const result = await load(`${searchPrefix()}:${query}`);
+  if (result.loadType === "error") throw new SourceError(loadErrorMessage(result.data));
+  return firstPlayable(result);
 }
 
-export async function ensureVideoId(track: Track): Promise<string> {
-  if (track.videoId) return track.videoId;
-  if (!track.youtubeSearch) throw new SourceError("I don't know how to stream that track.");
-  const video = await youtubeSearch(track.youtubeSearch);
-  if (!video) throw new SourceError(`Couldn't find a playable YouTube match for “${track.title}”.`);
-  track.videoId = video.videoId;
-  track.url = video.url;
-  return video.videoId;
+/** Load a playlist URL, capped, reporting how much was left out. */
+async function loadPlaylist(
+  url: string,
+  cap: number,
+  requestedBy: string,
+  requestedByName: string,
+): Promise<{ title: string; tracks: Track[]; skipped: number }> {
+  const result = await load(url);
+  if (result.loadType === "error") throw new SourceError(loadErrorMessage(result.data));
+  if (result.loadType === "empty") return { title: "playlist", tracks: [], skipped: 0 };
+
+  // A playlist URL can answer as a single track (a mix, or a node that only
+  // resolved the watch link) — honor whatever came back.
+  if (result.loadType !== "playlist") {
+    const track = firstPlayable(result);
+    return {
+      title: track?.info.title ?? "playlist",
+      tracks: track ? [toTrack(track, requestedBy, requestedByName)] : [],
+      skipped: 0,
+    };
+  }
+
+  const title = result.data.info.name?.trim() || "playlist";
+  const playable = result.data.tracks.filter((track) => !track.info.isStream);
+  const unavailable = result.data.tracks.length - playable.length;
+  const kept = playable.slice(0, cap);
+  const overCap = playable.length - kept.length;
+  return {
+    title,
+    tracks: kept.map((track) => toTrack(track, requestedBy, requestedByName)),
+    skipped: unavailable + overCap,
+  };
+}
+
+/**
+ * Try an unrecognized URL as a direct source. Returns null (not an error) when
+ * the node can't load it, so the caller can fall back to treating it as text.
+ */
+async function loadDirectly(
+  url: string,
+  requestedBy: string,
+  requestedByName: string,
+  cap: number,
+): Promise<ResolveResult | null> {
+  let result: LavalinkLoadResult;
+  try {
+    result = await getLavalink().loadTracks(url);
+  } catch (error) {
+    log.info("direct URL load failed, falling back to search", { url, error: String(error).slice(0, 200) });
+    return null;
+  }
+  if (result.loadType === "empty") return null;
+  if (result.loadType === "error") {
+    log.info("node refused the direct URL, falling back to search", { url, message: result.data.message });
+    return null;
+  }
+  if (result.loadType === "playlist") {
+    const { title, tracks, skipped } = await loadPlaylist(url, cap, requestedBy, requestedByName);
+    if (tracks.length === 0) return null;
+    return { kind: "search", origin: title, tracks, skipped };
+  }
+  const track = firstPlayable(result);
+  if (!track) return null;
+  const made = toTrack(track, requestedBy, requestedByName);
+  log.info("loaded a non-YouTube URL through the node", { url, source: made.sourceName, title: made.title });
+  return { kind: "search", origin: made.title, tracks: [made], skipped: 0 };
+}
+
+/**
+ * The player-facing piece: make sure a track has something the node can play.
+ * YouTube tracks arrive pre-encoded from `resolveQuery`; Spotify tracks are
+ * matched to YouTube here, lazily, only for the ones that actually play.
+ */
+export async function ensurePlayable(track: Track): Promise<Track> {
+  if (track.encoded) return track;
+  if (!track.youtubeSearch) throw new SourceError("I don't know how to play that track.");
+
+  const match = await searchOne(track.youtubeSearch);
+  if (!match) throw new SourceError(`Couldn't find a playable YouTube match for “${track.title}”.`);
+
+  track.encoded = match.encoded;
+  track.videoId = match.info.identifier ?? "";
+  track.durationMs = track.durationMs ?? (match.info.isStream || !match.info.length ? null : match.info.length);
+  track.thumbnail = track.thumbnail ?? match.info.artworkUrl ?? null;
+  log.info("spotify track matched on the node", { track: track.title, videoId: track.videoId });
+  return track;
 }

@@ -26,6 +26,35 @@ services:
       postgres:
         condition: service_healthy
 
+  # The music backend. A Lavalink node is a JVM process that holds the Discord
+  # voice socket, decodes audio, encodes Opus and does the YouTube/SoundCloud/
+  # Bandcamp fetching — the bot only tells it what to play over websocket+REST.
+  # That split is why this service exists at all: the bot image needs no ffmpeg,
+  # no yt-dlp and no UDP egress, and a container that cannot pass UDP (Render)
+  # can still run /music against a node hosted somewhere that can.
+  #
+  # First boot downloads the youtube-source plugin declared in application.yml,
+  # so give it a few seconds; the bot reconnects on its own until it answers.
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4
+    container_name: monarch-lavalink
+    restart: unless-stopped
+    environment:
+      # Heap ceiling for the JVM. 1 G is generous for a handful of guilds.
+      _JAVA_OPTIONS: -Xmx1G
+      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+      LAVALINK_PORT: 2333
+    volumes:
+      - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
+      # Named volume on purpose: a host bind mount for ./plugins is created
+      # root-owned and the JVM cannot write the downloaded plugin jars into it.
+      - lavalink-plugins:/opt/Lavalink/plugins
+    # Published only so you can poke it from the host (`curl localhost:2333/version`).
+    # The bot reaches it over the compose network as ws://lavalink:2333 —
+    # drop the ports mapping if this box is on an untrusted network.
+    ports:
+      - "${LAVALINK_PORT:-2333}:2333"
+
   dashboard:
     build:
       context: ..
@@ -57,12 +86,21 @@ services:
       # else (the worker logs a warning at boot).
       MONARCH_OWNER_USER_ID: ${MONARCH_OWNER_USER_ID:-}
 
+      # The node from the service above. Point LAVALINK_NODES at your own
+      # (comma-separated list, `[name@][ws|wss://]host[:port]`) to run the
+      # music backend elsewhere — or list several and the bot picks the
+      # least-loaded reachable one per guild.
+      LAVALINK_NODES: ${LAVALINK_NODES:-ws://lavalink:2333}
+      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
       MUSIC_DJ_ROLE_NAMES: ${MUSIC_DJ_ROLE_NAMES:-dj}
       MUSIC_STAFF_ROLE_NAMES: ${MUSIC_STAFF_ROLE_NAMES:-moderator,moderators,mod,mods,staff,admin,admins,administrator,administrators}
     depends_on:
       - dashboard
+      - lavalink
 
 volumes:
   pgdata:
+  lavalink-plugins:

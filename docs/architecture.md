@@ -64,6 +64,49 @@ Members, and can only burg members below their highest role; owners and bots
 can't be burg'd. Run bare on a burg'd member it toggles the gag off; run with
 options it updates the timer/style. `/monarch burged` lists who's burg'd.
 
+## Music playback (bot + Lavalink node)
+
+Music is two processes. The **bot** owns policy and Discord: queue ordering,
+loop modes, skip elections, DJ/staff role checks (all pure functions in
+`packages/music`), the voice-channel handshake, and the per-guild state machine
+in `apps/bot/src/music/player.ts`. A **Lavalink node** (configured in `docker/lavalink/application.yml`, run as a compose service or
+as a second systemd unit by `deploy/laptop-install.sh`) owns everything heavy: the Discord voice socket,
+audio fetching (YouTube through the `youtube-source` plugin), decoding and Opus
+encoding. The bot has no ffmpeg, no yt-dlp, no native audio modules — a track is
+an opaque `encoded` string plus metadata, and "play this" is an HTTP request.
+
+The protocol, because it decides the shape of `apps/bot/src/music/lavalink.ts`:
+Lavalink v4's websocket (`/v4/websocket`) is **receive-only** — it pushes
+`ready`, `stats`, `playerUpdate` and `event` frames and rejects anything sent to
+it. All control is REST, `PATCH /v4/sessions/{sessionId}/players/{guildId}`.
+Joining a channel is therefore: the bot sends gateway op 4, Discord answers with
+`VOICE_STATE_UPDATE` (the bot's own voice `session_id`) and `VOICE_SERVER_UPDATE`
+(`token` + `endpoint`) on the raw-packet listener, the bot PATCHes those into the
+player's `voice` field, then PATCHes `track.encoded` to start audio. Node choice
+is per guild and sticky: the least-penalty reachable node (players, CPU, frame
+loss, memory), with session resumption so a brief disconnect restores every
+guild instead of re-joining voice.
+
+Recovery paths all funnel into one `rehandshake(guildId, why)` in `player.ts`,
+because each of them is the same problem — the credentials the node holds are
+stale: the bot was moved to another channel, Discord closed the voice socket
+with 4006/4007/4009, or the node restarted without a resumable session (that one
+announces "🔁 Music node restarted" first). It clears the stored voice state and
+re-registers its waiter *before* any `await`, so fresh packets can't land against
+stale state, then resumes the same track at the last known position. Code 4014
+(Discord disconnected the bot: kicked, channel deleted) tears the player down
+instead. Empty channel → leave after 60 s, idle → after 5 min, three consecutive
+track failures → give up and say so.
+
+Sources (`sources.ts`) resolve links and searches through the node's
+`/v4/loadtracks` (`ytsearch:` by default, `MUSIC_SEARCH_PREFIX`), and Spotify
+through the Web API for **metadata only**: a Spotify track carries
+`youtubeSearch` and is matched to YouTube lazily at play time, so importing a
+250-track playlist stays instant and unavailable tracks are counted rather than
+queued. There is no non-Lavalink fallback — with no reachable node `/music`
+answers that the music backend is down, and a YouTube refusal is reported as the
+node-side fix it is (plugin version, IPv6 rotation, OAuth/poToken).
+
 ## Command surface: slash + prefix (two ways to type one command)
 
 Every bot command exists twice, and the second time is not a copy. Handlers
@@ -127,10 +170,13 @@ monarch/
 │   ├── validation/       validation engine + Discord limits (single source)
 │   ├── design-engine/    diff engine, apply planner, template detachment
 │   ├── renderer/         internal model ⇄ Discord API payloads
-│   └── discord/          DiscordGateway abstraction + REST/Mock impls,
-│                         target resolver, apply executor, error translation
+│   ├── discord/          DiscordGateway abstraction + REST/Mock impls,
+│   │                     target resolver, apply executor, error translation
+│   └── music/            pure music engine: queue, loop modes, skip policy,
+│                         role rules, source-URL classification, formatting
 ├── prisma/               PostgreSQL schema (production persistence target)
-├── docker/               compose + Dockerfiles (dashboard, bot, postgres)
+├── docker/               compose + Dockerfiles (dashboard, bot, postgres) and
+│                         lavalink/application.yml — the music node's config
 └── docs/
 ```
 

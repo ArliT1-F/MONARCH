@@ -22,9 +22,13 @@ export function parseVolume(input: string | number): number | null {
   return Math.min(150, Math.max(0, n));
 }
 
-/** 0–150 (user units) → 0–1.5 (AudioPlayer gain). */
-export function volumeToGain(percent: number): number {
-  return Math.min(1.5, Math.max(0, percent / 100));
+/**
+ * 0–150 (user units) → Lavalink player volume, which is a percentage of the
+ * track's own level (0–1000, 100 = unchanged). Monarch caps at 150 so nobody
+ * clips the mix; above 100 the node amplifies.
+ */
+export function lavalinkVolume(percent: number): number {
+  return Math.min(1000, Math.max(0, Math.round(percent)));
 }
 
 /** A simple `▬▬🔘▬▬` progress bar for the now-playing embed. */

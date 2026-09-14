@@ -105,10 +105,14 @@ async function boot(env: Record<string, string | undefined> = {}) {
   await Promise.resolve(); // let registerCommands().then(login) settle
 }
 
-/** Invoke a registered signal handler the way the kernel would. */
-function signal(name: "SIGTERM" | "SIGINT") {
+/**
+ * Invoke a registered signal handler the way the kernel would. The handler is
+ * async on purpose: it waits for the music manager to stop the node's players
+ * before the process exits, so tests have to wait with it.
+ */
+async function signal(name: "SIGTERM" | "SIGINT") {
   try {
-    handlers.get(name)![0]!();
+    await handlers.get(name)![0]!();
   } catch (e) {
     if (!(e instanceof ExitCalled)) throw e;
   }
@@ -209,7 +213,7 @@ describe("graceful shutdown", () => {
 
   it("closes the gateway session and exits 0 on SIGTERM", async () => {
     await boot();
-    signal("SIGTERM");
+    await signal("SIGTERM");
 
     expect(mocks.destroy).toHaveBeenCalledOnce();
     expect(exitSpy).toHaveBeenCalledWith(0);
@@ -218,8 +222,8 @@ describe("graceful shutdown", () => {
 
   it("shuts down once when the runtime signals twice", async () => {
     await boot();
-    signal("SIGTERM");
-    signal("SIGINT");
+    await signal("SIGTERM");
+    await signal("SIGINT");
 
     expect(mocks.destroy).toHaveBeenCalledOnce();
     expect(exitSpy).toHaveBeenCalledTimes(1);
@@ -230,7 +234,7 @@ describe("graceful shutdown", () => {
     mocks.destroy.mockImplementationOnce(() => {
       throw new Error("socket already gone");
     });
-    signal("SIGTERM");
+    await signal("SIGTERM");
 
     expect(find("gateway close failed")).toBeDefined();
     expect(exitSpy).toHaveBeenCalledWith(0);

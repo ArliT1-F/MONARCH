@@ -3,12 +3,14 @@
 The dashboard is a Next.js app and deploys cleanly to Vercel. The **bot**
 keeps a live Discord gateway connection and must run somewhere long-lived
 (the provided Docker Compose stack, a VM, or a container platform) — never
-on serverless. And if you want `/music`, "somewhere" additionally means a host
-that passes **outbound UDP**: Render doesn't, so a Render worker gets every
-command except voice. Reclaiming that hosting budget is what
-[hosting-laptop.md](hosting-laptop.md) is for — `deploy/laptop-install.sh`
-turns any always-on Linux box into the worker, with the dashboard still on
-Vercel.
+on serverless. `/music` additionally needs a **Lavalink node** the worker can
+reach: the node is what holds the Discord voice socket and does the audio, so
+outbound **UDP** is the *node's* requirement, not the worker's. `docker compose`
+runs one for you; a Render worker points `LAVALINK_NODES` at one running on a
+VM, a Fly.io machine or your own always-on box. Reclaiming that hosting budget
+entirely is what [hosting-laptop.md](hosting-laptop.md) is for —
+`deploy/laptop-install.sh` turns any Linux box into the worker *and* its music
+node (two systemd user units), with the dashboard still on Vercel.
 
 ```
 ┌────────────┐   HTTPS    ┌──────────────────────┐   pooled PG wire
@@ -188,15 +190,25 @@ Render worker.
    Without it those subcommands reply with setup guidance; `/monarch help`,
    `dashboard`, `status`, `/burg`, `/monarch burged` and every prefix command
    on the default `!` still work.
-5. In the Discord developer portal enable **Message Content** under
+5. For `/music`, set `LAVALINK_NODES` (for example
+   `wss://music.example.com` or `ws://10.0.0.5:2333`) and the matching
+   `LAVALINK_PASSWORD`. The node runs anywhere with outbound UDP — a $4 VM, a
+   Fly.io machine, a `docker compose up -d lavalink` on your own server — and
+   it must accept the worker's connection, so a node at home needs a tunnel or
+   a public address with TLS and a real password. Without a reachable node the
+   worker still deploys and every other command works; `/music` replies that
+   the music backend isn't answering. `docker/lavalink/application.yml` is the
+   node's config and [hosting-laptop.md](hosting-laptop.md) covers running it.
+6. In the Discord developer portal enable **Message Content** under
    Bot → Privileged Gateway Intents — `/burg` reads and
    re-posts messages, and **all prefix (text) commands** are message events. If
    it is off, the worker logs `Message Content intent is not enabled…`,
    reconnects with Guilds-only intents, the commands tell users they are
    disabled and text commands simply never fire. Slash commands keep working.
-6. Deploy and check the worker logs for `bot ready` (the log line includes
-   `"burg": true|false`). The same flag controls `/burg` and the prefix
-   command surface. Keep exactly one worker running; two Gateway
+7. Deploy and check the worker logs for `bot ready` (the log line includes
+   `"burg": true|false` and `"music": "node-1(host:port) ready:<sessionId>"` —
+   the node handshake seen from the worker's side). The `burg` flag controls
+   `/burg` and the prefix command surface. Keep exactly one worker running; two Gateway
    sessions with the same bot token can disconnect each other — and a
    second worker answers every command too, so a stale Render service (or a
    local dev bot on the same token) looks exactly like the bot "replying
@@ -206,7 +218,11 @@ Render worker.
 
 ### Reading the worker logs
 
-- `bot ready` — the Gateway session is live and slash commands work.
+- `bot ready` — the Gateway session is live and slash commands work. Its
+  `music` field is the node state: `ready:<sessionId>` means playback will
+  work, `down` or `reconnecting` means `/music` will say the backend isn't
+  answering until it comes back (the worker retries with backoff, so a node
+  that restarts heals on its own).
 - `shutting down {"signal":"SIGTERM"}` — the host is replacing this instance
   (redeploy, restart, scale-down). The bot closes its Gateway session and
   exits `0`.
@@ -283,5 +299,7 @@ re-run the invite link or grant it manually), and design away.
   production and deploy. Keep `lib/store.ts` records and the schema in
   sync (see the note at the top of the schema file).
 - **Local dev with Postgres:** `cd docker && docker compose up` boots
-  Postgres, applies migrations, and runs the dashboard + bot; or set
-  `DATABASE_URL` in `apps/dashboard/.env.local` and `npm run dev`.
+  Postgres, applies migrations, and runs the dashboard + bot + Lavalink music
+  node; or set `DATABASE_URL` in `apps/dashboard/.env.local` and
+  `npm run dev` — for `/music` locally, `docker compose up -d lavalink` and
+  leave `LAVALINK_NODES` unset (the bot then uses `ws://localhost:2333`).
