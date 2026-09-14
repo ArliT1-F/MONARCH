@@ -1,5 +1,6 @@
 import {
   AudioPlayerStatus,
+  NoSubscriberBehavior,
   StreamType,
   VoiceConnectionStatus,
   createAudioPlayer,
@@ -44,6 +45,9 @@ const log = createLogger("bot.music");
 const EMPTY_CHANNEL_LEAVE_MS = 60_000; // alone in voice → leave after this
 const IDLE_LEAVE_MS = 5 * 60_000; // nothing playing → leave after this
 const MAX_CONSECUTIVE_FAILURES = 3;
+// If a track ends more than this early, treat it as a premature stop (likely
+// throttled / truncated googlevideo stream, ffmpeg dying, etc.).
+const PREMATURE_EARLY_MS = 15_000;
 
 /** Announcements the manager posts to the guild's music text channel. */
 export type Announce = (guildId: string, embed: APIEmbed, content?: string) => void;
@@ -100,7 +104,14 @@ export class MusicManager {
     let s = this.sessions.get(guildId);
     if (s) return s;
 
-    const player = createAudioPlayer();
+    const player = createAudioPlayer({
+      behaviors: {
+        // Keep playing even if the voice connection momentarily has no
+        // subscriber (e.g. during a reconnect). Pausing would look like a
+        // premature stop to users.
+        noSubscriber: NoSubscriberBehavior.Play,
+      },
+    });
     s = {
       queue: new MusicQueue(),
       elector: new SkipElector(),
@@ -120,16 +131,91 @@ export class MusicManager {
     };
     this.sessions.set(guildId, s);
 
-    player.on(AudioPlayerStatus.Idle, () => {
+    player.on(AudioPlayerStatus.Idle, (oldState) => {
       if (s!.stopping) return; // stop() handles teardown
+
+      const wasSkipping = s!.skipping;
       s!.skipping = false;
-      void this.playNext(guildId, "finished");
+
+      // Detect premature endings: the player went Idle without a skip/stop,
+      // but far earlier than the track's known duration. This is the classic
+      // symptom of a throttled/truncated YouTube stream (especially ANDROID
+      // client) or ffmpeg exiting early. Previously this was silent — the bot
+      // just advanced to the next track, which looks like "song stopped for
+      // no reason" to users.
+      const finishedTrack = s!.queue.nowPlaying();
+      const elapsed = s!.startedAt !== null ? s!.pausedElapsed + (Date.now() - s!.startedAt) : s!.pausedElapsed;
+      const expected = finishedTrack?.durationMs ?? null;
+      const wasPremature =
+        !wasSkipping &&
+        expected !== null &&
+        elapsed > 0 &&
+        elapsed + PREMATURE_EARLY_MS < expected;
+
+      if (finishedTrack) {
+        if (wasPremature) {
+          log.warn("track ended prematurely", {
+            guildId,
+            track: finishedTrack.title,
+            videoId: finishedTrack.videoId,
+            elapsedMs: elapsed,
+            expectedMs: expected,
+            elapsed: formatDuration(elapsed),
+            expected: formatDuration(expected),
+            oldStatus: oldState.status,
+          });
+          this.announce(guildId, {
+            color: 0xed4245,
+            title: "⚠️ Track cut short",
+            description:
+              `**${finishedTrack.title}** stopped at \`${formatDuration(elapsed)}\` but should be \`${formatDuration(expected)}\`.\n` +
+              `This is usually YouTube throttling the audio stream (the ANDROID client is especially prone). ` +
+              `Installing **yt-dlp** on the worker and setting \`YTDLP_PREFER=1\` (or just ensuring yt-dlp is on PATH) makes playback far more robust, ` +
+              `or set \`YOUTUBE_COOKIE\` / \`YOUTUBE_PO_TOKEN\`. Skipping ahead.`,
+          });
+        } else {
+          log.info("track finished", {
+            guildId,
+            track: finishedTrack.title,
+            videoId: finishedTrack.videoId,
+            elapsedMs: elapsed,
+            expectedMs: expected,
+            skipped: wasSkipping,
+            oldStatus: oldState.status,
+          });
+        }
+      } else {
+        log.info("player idle with no current track", { guildId, oldStatus: oldState.status, why: "finished" });
+      }
+
+      void this.playNext(guildId, wasPremature ? "premature" : wasSkipping ? "skipped" : "finished");
     });
-    player.on(AudioPlayerStatus.Playing, () => {
+
+    player.on(AudioPlayerStatus.Buffering, (oldState) => {
+      log.info("player buffering", { guildId, oldStatus: oldState.status });
+    });
+
+    player.on(AudioPlayerStatus.Playing, (oldState) => {
       if (s!.startedAt === null) s!.startedAt = Date.now();
+      const now = s!.queue.nowPlaying();
+      log.info("player playing", {
+        guildId,
+        track: now?.title,
+        oldStatus: oldState.status,
+        elapsedMs: s!.pausedElapsed,
+      });
     });
+
+    player.on(AudioPlayerStatus.Paused, (oldState) => {
+      log.info("player paused", { guildId, oldStatus: oldState.status });
+    });
+
+    player.on(AudioPlayerStatus.AutoPaused, (oldState) => {
+      log.warn("player autopaused (no subscriber / connection issue)", { guildId, oldStatus: oldState.status });
+    });
+
     player.on("error", (e) => {
-      log.error("audio player error", { guildId, error: String(e) });
+      log.error("audio player error", { guildId, error: String(e), stack: (e as Error).stack?.slice(0, 500) });
       // The stream died mid-play. Don't advance here — the player also
       // transitions to Idle on error, and that handler advances exactly once.
       this.announceFailure(guildId, "Playback failed mid-track — skipping ahead.");
@@ -177,6 +263,7 @@ export class MusicManager {
           s.startedAt = null;
           s.pausedElapsed = 0;
           this.scheduleIdleLeave(guildId, s);
+          log.info("queue drained", { guildId, why });
           return;
         }
         this.cancelLeaveTimer(s);
@@ -188,7 +275,47 @@ export class MusicManager {
             stream.destroy();
             return;
           }
+
+          // Attach diagnostics to the raw YouTube stream so a truncated /
+          // throttled download is visible in logs instead of silent.
+          let bytes = 0;
+          stream.on("data", (chunk: Buffer) => {
+            bytes += chunk.length;
+          });
+          stream.on("error", (err) => {
+            log.error("source stream error", {
+              guildId,
+              track: track.title,
+              videoId: track.videoId,
+              bytes,
+              error: String(err),
+            });
+          });
+          stream.on("close", () => {
+            log.info("source stream closed", {
+              guildId,
+              track: track.title,
+              videoId: track.videoId,
+              bytes,
+            });
+          });
+
           resource = createAudioResource(stream, { inputType: StreamType.Arbitrary, inlineVolume: true });
+
+          // playStream is the ffmpeg transcoded PCM — errors here mean ffmpeg died.
+          (resource.playStream as any)?.on?.("error", (err: Error) => {
+            log.error("ffmpeg playStream error", {
+              guildId,
+              track: track.title,
+              videoId: track.videoId,
+              error: String(err),
+            });
+          });
+
+          // Silence 5s of padding is default; keep it but log when resource ends.
+          resource.playStream.on("close", () => {
+            log.info("ffmpeg playStream closed", { guildId, track: track.title });
+          });
         } catch (e) {
           if (s.stopping || this.sessions.get(guildId) !== s) return;
           s.failStreak += 1;
@@ -221,8 +348,12 @@ export class MusicManager {
         log.info("now playing", {
           guildId,
           track: track.title,
+          videoId: track.videoId,
+          durationMs: track.durationMs,
+          duration: track.durationMs ? formatDuration(track.durationMs) : "unknown",
           spotify: track.sourceKind === "spotify",
           last: this.isLastTrack(s),
+          why,
         });
         this.announce(guildId, nowPlayingEmbed(track, s, this.isLastTrack(s)));
         return;
@@ -307,12 +438,44 @@ export class MusicManager {
     });
     s.connection = connection;
     connection.subscribe(s.player);
+
+    connection.on(VoiceConnectionStatus.Connecting, () => {
+      log.info("voice connecting", { guildId, channelId: channel.id });
+    });
+    connection.on(VoiceConnectionStatus.Signalling, () => {
+      log.info("voice signalling", { guildId, channelId: channel.id });
+    });
+    connection.on(VoiceConnectionStatus.Ready, () => {
+      log.info("voice ready", { guildId, channelId: channel.id });
+    });
+    connection.on(VoiceConnectionStatus.Disconnected, async () => {
+      log.warn("voice disconnected", { guildId, channelId: channel.id, following: s.following });
+      if (s.following) return;
+      if (this.sessions.get(guildId) !== s) return;
+      // Try to re-enter Ready for 5s, otherwise tear down. This handles
+      // brief network blips without dropping the queue.
+      try {
+        await Promise.race([
+          entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+          entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+          entersState(connection, VoiceConnectionStatus.Ready, 5_000),
+        ]);
+        log.info("voice reconnected after disconnect", { guildId });
+      } catch {
+        log.warn("voice failed to reconnect after disconnect — tearing down", { guildId });
+        if (this.sessions.get(guildId) === s) this.teardown(guildId, false);
+      }
+    });
     connection.on(VoiceConnectionStatus.Destroyed, () => {
       // Discord kicked the bot or the channel was deleted — unless we're
       // mid-move (following) or mid-teardown (session already gone).
       if (s.following) return;
-      if (this.sessions.get(guildId) === s) this.teardown(guildId, false);
+      if (this.sessions.get(guildId) === s) {
+        log.info("voice destroyed", { guildId });
+        this.teardown(guildId, false);
+      }
     });
+
     await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
   }
 

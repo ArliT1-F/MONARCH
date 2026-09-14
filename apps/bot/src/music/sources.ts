@@ -153,8 +153,28 @@ export async function youtubeVideoMeta(videoId: string): Promise<VideoMeta> {
   };
 }
 
+function shouldPreferYtdlp(): boolean {
+  const raw = process.env.YTDLP_PREFER?.trim().toLowerCase();
+  if (raw === "0" || raw === "false" || raw === "no") return false;
+  if (raw === "1" || raw === "true" || raw === "yes") return true;
+  // Default: prefer yt-dlp when it's available — it handles throttling and
+  // SABR far better than a single InnerTube download. Operators can set
+  // YTDLP_PREFER=0 to force InnerTube-first if they want.
+  return true;
+}
+
 /** Best-effort audio stream for a YouTube video. */
 export async function youtubeAudioStream(videoId: string): Promise<Readable> {
+  // Prefer yt-dlp when available — it's the most robust against throttling
+  // (chunked, range requests, retries) and against SABR. This is why the
+  // Muharrem Ahmeti track stopped after ~3m: the ANDROID client stream was
+  // throttled and closed early with no error, so the player went Idle silently.
+  // yt-dlp handles that case.
+  if (shouldPreferYtdlp()) {
+    const preferred = await ytdlpAudioStream(`https://www.youtube.com/watch?v=${videoId}`, true);
+    if (preferred) return preferred;
+  }
+
   const yt = await getYoutube();
   const clients = youtubeClients();
   const po_token = youtubePoToken();
@@ -203,16 +223,23 @@ export async function youtubeAudioStream(videoId: string): Promise<Readable> {
       }
       const stream = await info.download({ itag: format.itag, type: "audio", quality: "best", format: "any" });
       if (client !== clients[0]) log.info("YouTube audio client fallback worked", { videoId, client });
-      return Readable.fromWeb(stream as unknown as import("node:stream/web").ReadableStream);
+      const nodeStream = Readable.fromWeb(stream as unknown as import("node:stream/web").ReadableStream);
+      // Attach a cheap error forwarder — if the underlying fetch aborts mid-track
+      // (throttling), the Node stream would otherwise just end cleanly and the
+      // player would think the track finished early with no log.
+      nodeStream.on("error", (err) => {
+        log.warn("InnerTube download stream error", { videoId, client, error: String(err).slice(0, 300) });
+      });
+      return nodeStream;
     } catch (error) {
       if (/login.required/i.test(String(error))) loginRequired = true;
       lastDetail = `${client}: ${String(error).slice(0, 160)}`;
       log.warn("YouTube audio client failed", { videoId, client, error: String(error).slice(0, 300) });
     }
   }
-  // Last resort: a system yt-dlp, which tracks YouTube's breakage on its own
+  // Last resort / second chance: a system yt-dlp, which tracks YouTube's breakage on its own
   // release cadence (SABR, PO tokens) independently of youtubei.js.
-  const fallback = await ytdlpAudioStream(`https://www.youtube.com/watch?v=${videoId}`);
+  const fallback = await ytdlpAudioStream(`https://www.youtube.com/watch?v=${videoId}`, false);
   if (fallback) return fallback;
   log.warn("YouTube audio failed on every client", {
     videoId,
@@ -248,6 +275,15 @@ export async function youtubeAudioStream(videoId: string): Promise<Readable> {
 // temp files. Enabled by presence: any yt-dlp binary on the PATH (or at
 // YTDLP_PATH) is used; YTDLP_DISABLED=1 turns the fallback off, and
 // YTDLP_COOKIES points at a Netscape cookies.txt for login-gated videos.
+//
+// yt-dlp is *far* more robust than a single InnerTube download:
+// - it does chunked/range requests to bypass YouTube's throttling,
+// - it retries fragments,
+// - it tracks YouTube's SABR / PO-token breakage independently.
+//
+// That's why we now try it *first* when YTDLP_PREFER=1 (default) — the
+// Muharrem Ahmeti premature stop was a classic throttled ANDROID stream
+// that ended after ~3m with no error, so the player went Idle silently.
 
 const execFileAsync = promisify(execFile);
 
@@ -256,33 +292,103 @@ function ytdlpBin(): string | null {
   return process.env.YTDLP_PATH?.trim() || "yt-dlp";
 }
 
+let ytdlpAvailableCache: boolean | null = null;
+let ytdlpAvailableCacheAt = 0;
+const YTDLP_CACHE_MS = 60_000;
+
 async function ytdlpAvailable(bin: string): Promise<boolean> {
+  const now = Date.now();
+  if (ytdlpAvailableCache !== null && now - ytdlpAvailableCacheAt < YTDLP_CACHE_MS) {
+    return ytdlpAvailableCache;
+  }
   try {
     await execFileAsync(bin, ["--version"], { timeout: 8000 });
+    ytdlpAvailableCache = true;
+    ytdlpAvailableCacheAt = now;
     return true;
   } catch {
+    ytdlpAvailableCache = false;
+    ytdlpAvailableCacheAt = now;
     return false;
   }
 }
 
-/**
- * Last-resort audio: pipe `yt-dlp -o -` into the caller. Returns null when
- * yt-dlp isn't installed (or is disabled) so the caller can throw its
- * InnerTube diagnostics instead.
- */
-async function ytdlpAudioStream(url: string): Promise<Readable | null> {
-  const bin = ytdlpBin();
-  if (!bin) return null;
-  if (!(await ytdlpAvailable(bin))) return null;
-  const args = ["--no-playlist", "--no-warnings", "--no-cache-dir", "-f", "bestaudio/best", "-o", "-"];
+function ytdlpArgs(): string[] {
+  // Base args — tuned for voice pipeline robustness.
+  const base = [
+    "--no-playlist",
+    "--no-warnings",
+    "--no-cache-dir",
+    "--no-progress",
+    // Bypass throttling with multiple connections + retries.
+    "--retries",
+    "5",
+    "--fragment-retries",
+    "10",
+    "--concurrent-fragments",
+    "4",
+    // Prefer opus/webm when available (smaller, better for voice), fallback to anything.
+    "-f",
+    "bestaudio[ext=webm]/bestaudio/best",
+    "-o",
+    "-",
+  ];
+  // Allow operator to inject extra args via YTDLP_ARGS (space-separated).
+  const extra = (process.env.YTDLP_ARGS ?? "")
+    .split(" ")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const args = [...base, ...extra];
+
   const cookies = process.env.YTDLP_COOKIES?.trim();
   if (cookies) args.push("--cookies", cookies);
-  args.push(url);
+
+  // If operator set YOUTUBE_COOKIE for InnerTube, also pass it to yt-dlp
+  // when YTDLP_COOKIES isn't set — improves login-gated videos.
+  if (!cookies) {
+    const ytCookie = process.env.YOUTUBE_COOKIE?.trim() || process.env.YT_COOKIE?.trim();
+    // yt-dlp doesn't accept raw cookie string easily, so we only use file.
+    // Operators should set YTDLP_COOKIES for cookie-file usage.
+    void ytCookie;
+  }
+
+  return args;
+}
+
+/**
+ * Audio via yt-dlp: pipe `yt-dlp -o -` into the caller. Returns null when
+ * yt-dlp isn't installed (or is disabled) so the caller can fall back to
+ * InnerTube diagnostics.
+ *
+ * `isPreferred` controls log wording (preferred vs fallback) and whether we
+ * log at info vs debug for availability checks.
+ */
+async function ytdlpAudioStream(url: string, isPreferred = false): Promise<Readable | null> {
+  const bin = ytdlpBin();
+  if (!bin) return null;
+  if (!(await ytdlpAvailable(bin))) {
+    if (isPreferred) {
+      log.info("yt-dlp preferred but not available on PATH", { bin });
+    }
+    return null;
+  }
+  const args = [...ytdlpArgs(), url];
   try {
     const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+
+    let stderrBuf = "";
+    child.stderr?.on("data", (d: Buffer) => {
+      // Keep last ~2k for diagnostics.
+      stderrBuf += d.toString("utf8");
+      if (stderrBuf.length > 2048) stderrBuf = stderrBuf.slice(-2048);
+    });
+
     const spawned = await new Promise<boolean>((resolve) => {
       child.once("spawn", () => resolve(true));
-      child.once("error", () => resolve(false));
+      child.once("error", (err) => {
+        log.warn("yt-dlp spawn failed", { bin, error: String(err).slice(0, 300) });
+        resolve(false);
+      });
     });
     if (!spawned || !child.stdout) {
       try {
@@ -290,10 +396,24 @@ async function ytdlpAudioStream(url: string): Promise<Readable | null> {
       } catch {
         // already gone
       }
+      if (stderrBuf) log.warn("yt-dlp stderr on spawn fail", { url, stderr: stderrBuf.slice(0, 500) });
       return null;
     }
-    child.stderr?.resume();
-    child.on("error", () => {});
+
+    child.on("error", (err) => {
+      log.warn("yt-dlp child error", { url, error: String(err).slice(0, 300) });
+    });
+
+    child.on("close", (code, signal) => {
+      // Normal close after stream finished is code 0 or null (killed on skip).
+      // Non-zero is worth logging — it often means extractor broke.
+      if (code !== 0 && code !== null) {
+        log.warn("yt-dlp exited non-zero", { url, code, signal, stderr: stderrBuf.slice(0, 800) });
+      } else {
+        log.info("yt-dlp process closed", { url, code, signal, bytesStderr: stderrBuf.length });
+      }
+    });
+
     const out = child.stdout as unknown as Readable;
     // Don't leak a download process when the track is skipped or stopped.
     out.once("close", () => {
@@ -303,9 +423,22 @@ async function ytdlpAudioStream(url: string): Promise<Readable | null> {
         // already gone
       }
     });
-    log.info("using yt-dlp fallback for YouTube audio", { url });
+    out.once("error", (err) => {
+      log.warn("yt-dlp stdout error", { url, error: String(err).slice(0, 300), stderr: stderrBuf.slice(0, 500) });
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+    });
+
+    log.info(isPreferred ? "using yt-dlp preferred for YouTube audio" : "using yt-dlp fallback for YouTube audio", {
+      url,
+      bin,
+    });
     return out;
-  } catch {
+  } catch (err) {
+    log.warn("yt-dlp spawn exception", { url, error: String(err).slice(0, 300) });
     return null;
   }
 }
