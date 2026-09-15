@@ -195,6 +195,13 @@ What each failure looks like from here:
 - node journal says it could not load the YouTube plugin → first boot needs
   egress to `maven.lavalink.dev`. Check `~/.local/share/monarch-lavalink/plugins`
   for the jar once it succeeds.
+- node **crash-loops** (Docker) with `java.io.FileNotFoundException:
+  ./plugins/youtube-plugin-…jar (Permission denied)` → the plugins volume is
+  root-owned and the node's uid 322 cannot write into it; it never reaches
+  `Lavalink is ready to accept connections`. `docker run --rm --volumes-from
+  monarch-lavalink busybox chown -R 322:322 /opt/Lavalink/plugins && docker
+  restart monarch-lavalink` (the compose file's `lavalink-perms` job does this on
+  a fresh stack — see the Docker section at the bottom).
 - `voice re-handshake failed` / a join that never starts → Discord never sent
   voice credentials, or the node refused them. The bot logs `voice credentials
   handed to the node` on success; if that line is missing after 15 s, look at
@@ -269,6 +276,9 @@ becomes instant.
 | bot process at 100 % CPU | something else — it does no audio work any more. Check whether a second worker is racing it (step 3). |
 | only works while your terminal is open | lingering is off: `sudo loginctl enable-linger $USER` |
 | replies arrive twice | there are two workers (Render). See step 3. |
+| **no** command answers, bot offline in Discord | the worker isn't logged in. `systemctl --user status monarch-bot` / `docker compose ps -a` — a bot container `Exited (0)` means compose interpolated an empty `DISCORD_BOT_TOKEN` (missing `--env-file .env`, see the Docker section) |
+| node container restarts every few seconds | plugins dir not writable by uid 322 → `Permission denied` on `./plugins/youtube-plugin-…jar`. `docker run --rm --volumes-from monarch-lavalink busybox chown -R 322:322 /opt/Lavalink/plugins` |
+| yt-dlp / ffmpeg errors in Discord | an **old worker** is still running and answering the gateway — this codebase has no yt-dlp path at all. Find and stop it (step 3), then `git pull && npm ci` and restart |
 
 ## Prefer Docker on the laptop?
 
@@ -277,22 +287,56 @@ has both services; `--no-deps` keeps it from dragging the dashboard and Postgres
 along when your dashboard lives on Vercel:
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d --no-deps bot lavalink
+cd ~/MONARCH
+docker compose --env-file .env -f docker/docker-compose.yml up -d lavalink
+docker compose --env-file .env -f docker/docker-compose.yml up -d --no-deps bot
 ```
+
+**`--env-file .env` is not optional.** Compose interpolates `${DISCORD_BOT_TOKEN}`
+&co. from a `.env` in the *project directory*, which defaults to the folder
+holding the compose file — `docker/`, not the repo root. Without it every value
+expands to empty, the worker logs `DISCORD_BOT_TOKEN is not set — bot not
+started.` and **exits 0**: a container that looks healthy and a bot that is
+simply never online, so *no* command answers (not even `!help`). Same trap from
+inside the folder: `cd docker && docker compose --env-file ../.env up -d`, or
+`ln -s ../.env docker/.env` once (`.env` is gitignored either way). The systemd
+units read `$REPO/.env` through `EnvironmentFile=` directly and have no such
+trap — one more reason to prefer them on a laptop.
+
+It also silently desyncs the password: the node falls back to
+`youshallnotpass` while a systemd bot sends the real `LAVALINK_PASSWORD` from
+`.env`, and the bot then logs `handshake refused (HTTP 401) — wrong
+LAVALINK_PASSWORD?`. Both sides must read the same file.
 
 Mix and match freely — they only need to reach each other on 2333:
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d lavalink   # node in Docker…
-./deploy/laptop-install.sh --no-lavalink                     # …bot as a unit
+docker compose --env-file .env -f docker/docker-compose.yml up -d lavalink  # node in Docker…
+./deploy/laptop-install.sh --no-lavalink                                    # …bot as a unit
 # .env: LAVALINK_NODES=ws://localhost:2333
 ```
 
 The compose node publishes 2333 on the host (so a systemd bot can reach it) and
-keeps its plugins in a named volume. Two notes: `--env-file`-style `.env`
-values reach both services through compose's `environment:` block, and the bot
-image is a plain `node:22-alpine` now — no ffmpeg layer, no native modules to
-compile, which is why musl stopped being a problem.
+keeps its plugins in a named volume, which a one-shot `lavalink-perms` service
+chowns to the node's uid 322 before the JVM starts: the official image runs as
+322 but has no `/opt/Lavalink/plugins` directory, so Docker creates that mount
+point **root-owned** and the node dies downloading its first plugin
+(`java.io.FileNotFoundException: ./plugins/youtube-plugin-…jar (Permission
+denied)`, then a `restart: unless-stopped` loop that never reaches `Lavalink is
+ready to accept connections`). If you hit that loop on a volume that already
+exists, fix it in place instead of recreating it:
+
+```bash
+docker run --rm --volumes-from monarch-lavalink busybox chown -R 322:322 /opt/Lavalink/plugins
+docker restart monarch-lavalink
+docker logs -f monarch-lavalink      # want: Loaded youtube-plugin…, Lavalink is ready to accept connections
+```
+
+(A panel-managed container with a *bind* mount for `plugins/` fails the same way:
+`sudo chown -R 322:322 /host/path/to/plugins`.)
+
+The bot image is a plain `node:22-alpine` now — no ffmpeg layer, no yt-dlp, no
+native modules to compile, which is why musl stopped being a problem.
 
 ## When the laptop stops being the right host
 
@@ -322,7 +366,7 @@ and can the host open outbound UDP to Discord (the node)?
 | your own box | same box (`deploy/laptop-install.sh`) | ✅ | free, and this page |
 | Render | a VPS / Fly.io / this laptop* | ✅ | set `LAVALINK_NODES`; the node cannot run *on* Render (no UDP egress) |
 | Fly.io, Railway, any VPS | same box | ✅ | same units, same `.env` |
-| Docker Compose on any server | the `lavalink` service | ✅ | `docker compose up -d bot lavalink` |
+| Docker Compose on any server | the `lavalink` service | ✅ | `docker compose --env-file .env … up -d bot lavalink` |
 | Vercel / Netlify / Cloudflare Workers | anywhere | ❌ | serverless can't hold a gateway connection at all |
 | Render | Render | ❌ | the bot is fine; there is nowhere for the node to send UDP |
 

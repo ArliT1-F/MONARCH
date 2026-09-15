@@ -1,3 +1,18 @@
+# ── Read this first: where Compose looks for `.env` ───────────────────────────
+# Compose interpolates ${VAR} from a `.env` in the *project directory*, which
+# defaults to the folder holding this file — `docker/`, not the repo root. Run
+# it from the root without `--env-file` and every value below expands to empty:
+# the bot logs "DISCORD_BOT_TOKEN is not set — bot not started." and exits 0, so
+# you get a container that looks fine and a bot that is simply never online.
+#
+#   docker compose --env-file .env -f docker/docker-compose.yml up -d lavalink
+#   docker compose --env-file .env -f docker/docker-compose.yml up -d --no-deps bot
+#
+# Equivalently `ln -s ../.env docker/.env` (`.env` is gitignored either way), or
+# `cd docker && docker compose --env-file ../.env up -d`. The systemd units that
+# deploy/laptop-install.sh writes read the repo's .env directly through
+# EnvironmentFile=, which is why they have no such trap.
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -26,6 +41,31 @@ services:
       postgres:
         condition: service_healthy
 
+  # One-shot: make the plugins volume writable by the node.
+  #
+  # ghcr.io/lavalink-devs/lavalink:4 runs as uid/gid 322 and chowns
+  # /opt/Lavalink during the build — but /opt/Lavalink/plugins does not exist in
+  # the image, so Docker creates that mount point *root-owned* (fresh named
+  # volume or bind mount, same result). The JVM then cannot write the plugin
+  # jars it downloads, PluginManager throws
+  #
+  #   java.io.FileNotFoundException: ./plugins/youtube-plugin-<ver>.jar (Permission denied)
+  #
+  # and the node crash-loops on `restart: unless-stopped` without ever printing
+  # "Lavalink is ready to accept connections" — so /music reports the backend is
+  # down while every other command keeps working. This job is idempotent, exits
+  # 0, and is what lets a first `up -d lavalink` succeed on a clean machine.
+  # Already stuck in the loop? Fix the existing volume without recreating it:
+  #   docker run --rm --volumes-from monarch-lavalink busybox \
+  #     chown -R 322:322 /opt/Lavalink/plugins && docker restart monarch-lavalink
+  lavalink-perms:
+    image: busybox:1.36
+    container_name: monarch-lavalink-perms
+    restart: "no"
+    command: sh -c "mkdir -p /opt/Lavalink/plugins && chown -R 322:322 /opt/Lavalink/plugins && ls -ld /opt/Lavalink/plugins"
+    volumes:
+      - lavalink-plugins:/opt/Lavalink/plugins
+
   # The music backend. A Lavalink node is a JVM process that holds the Discord
   # voice socket, decodes audio, encodes Opus and does the YouTube/SoundCloud/
   # Bandcamp fetching — the bot only tells it what to play over websocket+REST.
@@ -35,10 +75,16 @@ services:
   #
   # First boot downloads the youtube-source plugin declared in application.yml,
   # so give it a few seconds; the bot reconnects on its own until it answers.
+  #
+  # Its only dependency is `lavalink-perms` above, so `up -d lavalink` brings up
+  # exactly those two — no dashboard, no Postgres, no `--no-deps` needed.
   lavalink:
     image: ghcr.io/lavalink-devs/lavalink:4
     container_name: monarch-lavalink
     restart: unless-stopped
+    depends_on:
+      lavalink-perms:
+        condition: service_completed_successfully
     environment:
       # Heap ceiling for the JVM. 1 G is generous for a handful of guilds.
       _JAVA_OPTIONS: -Xmx1G
@@ -46,8 +92,9 @@ services:
       LAVALINK_PORT: 2333
     volumes:
       - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
-      # Named volume on purpose: a host bind mount for ./plugins is created
-      # root-owned and the JVM cannot write the downloaded plugin jars into it.
+      # Named volume, not a host bind mount: the jars should not land in the
+      # working tree, and a bind mount is root-owned on creation too. Neither is
+      # writable by the node's uid 322 on its own — hence `lavalink-perms`.
       - lavalink-plugins:/opt/Lavalink/plugins
     # Published only so you can poke it from the host (`curl localhost:2333/version`).
     # The bot reaches it over the compose network as ws://lavalink:2333 —
