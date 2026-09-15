@@ -1,3 +1,19 @@
+# ── Where Compose looks for `.env` ────────────────────────────────────────────
+# ${VAR} below interpolates from a `.env` in the *project directory* — the folder
+# holding this file (`docker/`), not the repo root. Without it every value
+# expands to empty and the bot logs "DISCORD_BOT_TOKEN is not set — bot not
+# started." and exits 0: a healthy-looking container and a worker that is never
+# online, so no command answers. The node silently falls back to
+# `youshallnotpass` the same way, and then refuses a systemd bot's real
+# LAVALINK_PASSWORD with a 401.
+#
+#   docker compose --env-file .env -f docker/docker-compose.yml up -d lavalink
+#   docker compose --env-file .env -f docker/docker-compose.yml up -d --no-deps bot
+#
+# Or `ln -s ../.env docker/.env` once (gitignored either way). The units that
+# deploy/laptop-install.sh writes read the repo's .env through EnvironmentFile=
+# and have no such trap — see docs/hosting-laptop.md.
+
 services:
   postgres:
     image: postgres:16-alpine

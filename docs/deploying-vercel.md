@@ -298,8 +298,11 @@ re-run the invite link or grant it manually), and design away.
   `prisma/migrations/*` folder, then `npm run db:migrate` against
   production and deploy. Keep `lib/store.ts` records and the schema in
   sync (see the note at the top of the schema file).
-- **Local dev with Postgres:** `cd docker && docker compose up` boots
-  Postgres, applies migrations, and runs the dashboard + bot + Lavalink music
-  node; or set `DATABASE_URL` in `apps/dashboard/.env.local` and
-  `npm run dev` — for `/music` locally, `docker compose up -d lavalink` and
+- **Local dev with Postgres:** `cd docker && docker compose --env-file ../.env up`
+  boots Postgres, applies migrations, and runs the dashboard + bot + Lavalink
+  music node (`--env-file` matters: Compose interpolates from the compose file's
+  own folder, and an empty `DISCORD_BOT_TOKEN` makes the bot exit 0 without ever
+  logging in); or set `DATABASE_URL` in `apps/dashboard/.env.local` and
+  `npm run dev` — for `/music` locally, `docker compose --env-file .env -f
+  docker/docker-compose.yml up -d lavalink` and
   leave `LAVALINK_NODES` unset (the bot then uses `ws://localhost:2333`).

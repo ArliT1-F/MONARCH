@@ -204,8 +204,14 @@ actually executes.
 Docker (dashboard + bot + PostgreSQL):
 
 ```bash
-cd docker && docker compose up --build
+cd docker && docker compose --env-file ../.env up --build
 ```
+
+Compose interpolates `${VAR}` from a `.env` in the **compose file's** folder, so
+from the repo root pass it explicitly —
+`docker compose --env-file .env -f docker/docker-compose.yml up -d`. Without it
+every value expands to empty and the bot logs `DISCORD_BOT_TOKEN is not set` and
+exits 0: a container that looks fine and a worker that is never online.
 
 Deploying to **Vercel + Postgres (Prisma)** — see
 [docs/deploying-vercel.md](docs/deploying-vercel.md). Vercel runs the dashboard;
