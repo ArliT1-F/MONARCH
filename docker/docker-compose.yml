@@ -1,17 +1,18 @@
-# ── Read this first: where Compose looks for `.env` ───────────────────────────
-# Compose interpolates ${VAR} from a `.env` in the *project directory*, which
-# defaults to the folder holding this file — `docker/`, not the repo root. Run
-# it from the root without `--env-file` and every value below expands to empty:
-# the bot logs "DISCORD_BOT_TOKEN is not set — bot not started." and exits 0, so
-# you get a container that looks fine and a bot that is simply never online.
+# ── Where Compose looks for `.env` ────────────────────────────────────────────
+# ${VAR} below interpolates from a `.env` in the *project directory* — the folder
+# holding this file (`docker/`), not the repo root. Without it every value
+# expands to empty and the bot logs "DISCORD_BOT_TOKEN is not set — bot not
+# started." and exits 0: a healthy-looking container and a worker that is never
+# online, so no command answers. The node silently falls back to
+# `youshallnotpass` the same way, and then refuses a systemd bot's real
+# LAVALINK_PASSWORD with a 401.
 #
 #   docker compose --env-file .env -f docker/docker-compose.yml up -d lavalink
 #   docker compose --env-file .env -f docker/docker-compose.yml up -d --no-deps bot
 #
-# Equivalently `ln -s ../.env docker/.env` (`.env` is gitignored either way), or
-# `cd docker && docker compose --env-file ../.env up -d`. The systemd units that
-# deploy/laptop-install.sh writes read the repo's .env directly through
-# EnvironmentFile=, which is why they have no such trap.
+# Or `ln -s ../.env docker/.env` once (gitignored either way). The units that
+# deploy/laptop-install.sh writes read the repo's .env through EnvironmentFile=
+# and have no such trap — see docs/hosting-laptop.md.
 
 services:
   postgres:
@@ -41,23 +42,7 @@ services:
       postgres:
         condition: service_healthy
 
-  # One-shot: make the plugins volume writable by the node.
-  #
-  # ghcr.io/lavalink-devs/lavalink:4 runs as uid/gid 322 and chowns
-  # /opt/Lavalink during the build — but /opt/Lavalink/plugins does not exist in
-  # the image, so Docker creates that mount point *root-owned* (fresh named
-  # volume or bind mount, same result). The JVM then cannot write the plugin
-  # jars it downloads, PluginManager throws
-  #
-  #   java.io.FileNotFoundException: ./plugins/youtube-plugin-<ver>.jar (Permission denied)
-  #
-  # and the node crash-loops on `restart: unless-stopped` without ever printing
-  # "Lavalink is ready to accept connections" — so /music reports the backend is
-  # down while every other command keeps working. This job is idempotent, exits
-  # 0, and is what lets a first `up -d lavalink` succeed on a clean machine.
-  # Already stuck in the loop? Fix the existing volume without recreating it:
-  #   docker run --rm --volumes-from monarch-lavalink busybox \
-  #     chown -R 322:322 /opt/Lavalink/plugins && docker restart monarch-lavalink
+  # One-shot: make the plugins volume writable by the Lavalink node.
   lavalink-perms:
     image: busybox:1.36
     container_name: monarch-lavalink-perms
@@ -66,18 +51,7 @@ services:
     volumes:
       - lavalink-plugins:/opt/Lavalink/plugins
 
-  # The music backend. A Lavalink node is a JVM process that holds the Discord
-  # voice socket, decodes audio, encodes Opus and does the YouTube/SoundCloud/
-  # Bandcamp fetching — the bot only tells it what to play over websocket+REST.
-  # That split is why this service exists at all: the bot image needs no ffmpeg,
-  # no yt-dlp and no UDP egress, and a container that cannot pass UDP (Render)
-  # can still run /music against a node hosted somewhere that can.
-  #
-  # First boot downloads the youtube-source plugin declared in application.yml,
-  # so give it a few seconds; the bot reconnects on its own until it answers.
-  #
-  # Its only dependency is `lavalink-perms` above, so `up -d lavalink` brings up
-  # exactly those two — no dashboard, no Postgres, no `--no-deps` needed.
+  # Music backend.
   lavalink:
     image: ghcr.io/lavalink-devs/lavalink:4
     container_name: monarch-lavalink
@@ -86,19 +60,13 @@ services:
       lavalink-perms:
         condition: service_completed_successfully
     environment:
-      # Heap ceiling for the JVM. 1 G is generous for a handful of guilds.
+      # Heap ceiling for the JVM.
       _JAVA_OPTIONS: -Xmx1G
       LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
       LAVALINK_PORT: 2333
     volumes:
       - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
-      # Named volume, not a host bind mount: the jars should not land in the
-      # working tree, and a bind mount is root-owned on creation too. Neither is
-      # writable by the node's uid 322 on its own — hence `lavalink-perms`.
       - lavalink-plugins:/opt/Lavalink/plugins
-    # Published only so you can poke it from the host (`curl localhost:2333/version`).
-    # The bot reaches it over the compose network as ws://lavalink:2333 —
-    # drop the ports mapping if this box is on an untrusted network.
     ports:
       - "${LAVALINK_PORT:-2333}:2333"
 
@@ -128,15 +96,9 @@ services:
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
       APP_URL: ${APP_URL:-http://localhost:3000}
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
-      # Your own Discord user id: targeting it with /burg uno-reverses onto
-      # the invoker instead. Without it the owner can be burg'd like anyone
-      # else (the worker logs a warning at boot).
       MONARCH_OWNER_USER_ID: ${MONARCH_OWNER_USER_ID:-}
 
-      # The node from the service above. Point LAVALINK_NODES at your own
-      # (comma-separated list, `[name@][ws|wss://]host[:port]`) to run the
-      # music backend elsewhere — or list several and the bot picks the
-      # least-loaded reachable one per guild.
+      # Lavalink node.
       LAVALINK_NODES: ${LAVALINK_NODES:-ws://lavalink:2333}
       LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
 
