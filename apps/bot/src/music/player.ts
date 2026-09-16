@@ -50,12 +50,34 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 /** How long Discord gets to hand out voice credentials after we join. */
 const VOICE_HANDSHAKE_TIMEOUT_MS = 15_000;
 /**
+ * Op 4 asks Discord for a voice *session*, and Discord only answers with a
+ * fresh `VOICE_SERVER_UPDATE` (the token/endpoint half) when it opens one.
+ * Asking for the channel the bot is already in changes nothing, so the answer
+ * is the state half alone — or nothing at all — and the server half we wait on
+ * never comes. Rather than sit out the whole handshake timeout and then blame
+ * permissions for a join that actually worked, give Discord this long and then
+ * ask for a genuinely new session (see `forceNewVoiceSession`).
+ */
+const VOICE_SERVER_GRACE_MS = 2_500;
+/** How long Discord gets to confirm the leave that precedes a forced re-join. */
+const VOICE_LEAVE_TIMEOUT_MS = 2_500;
+/** Beat between that leave and the re-join, so the two can't read as one no-op. */
+const VOICE_REJOIN_DELAY_MS = 750;
+/**
  * If a track ends more than this far before its known length, say so. With a
  * node doing the streaming this should not happen — when it does, the cause is
  * on the node (a throttled source, an old youtube-source plugin), and the
  * announcement points there instead of silently skipping ahead.
  */
 const PREMATURE_EARLY_MS = 15_000;
+
+/** Resolve after `ms`. Timers are unref'd: nothing pending here holds the loop open. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
+}
 
 /** Announcements the manager posts to the guild's music text channel. */
 export type Announce = (guildId: string, embed: APIEmbed, content?: string) => void;
@@ -102,6 +124,20 @@ interface GuildPlayback {
   voiceServer: { token: string; endpoint: string } | null;
   /** Signature of the voice payload already on the node, so we don't re-send. */
   voiceSent: string | null;
+  /** The channel a pending join is waiting for (null when no join is pending). */
+  voiceJoining: string | null;
+  /**
+   * Did the join put the bot in the channel — Discord's own answer, or (when it
+   * answered nothing) the channel the gateway cache has us sitting in? Three
+   * different failures share one 15 s timeout, and the reply has to say which.
+   */
+  voiceAnswered: boolean;
+  /** True while we deliberately leave to force a new voice session. */
+  voiceForcing: boolean;
+  /** Fires when Discord answered a join without the voice-server half. */
+  voiceRetry: NodeJS.Timeout | null;
+  /** Resolves when Discord confirms the leave that precedes a forced re-join. */
+  voiceLeaveWaiter: { resolve: () => void; timer: NodeJS.Timeout } | null;
   voiceWaiters: Array<{ resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>;
   /** Playback clock, seeded from the node's `playerUpdate` frames. */
   lastPosition: { position: number; time: number } | null;
@@ -146,6 +182,11 @@ export class MusicManager {
       voiceSessionId: null,
       voiceServer: null,
       voiceSent: null,
+      voiceJoining: null,
+      voiceAnswered: false,
+      voiceForcing: false,
+      voiceRetry: null,
+      voiceLeaveWaiter: null,
       voiceWaiters: [],
       lastPosition: null,
       playing: false,
@@ -239,9 +280,10 @@ export class MusicManager {
     this.lavalink.on("voiceSocketClosed", ({ guildId, code, reason, byRemote }) => {
       const s = this.sessions.get(guildId);
       log.warn("node lost the Discord voice socket", { guildId, code, reason, byRemote });
-      if (!s || s.stopping || s.following) return;
-      // Mid-rebuild (a channel move, a node restart) the old voice socket is
-      // *supposed* to die: `voiceSent` is null until the new handshake lands.
+      if (!s || s.stopping || s.following || s.voiceForcing) return;
+      // Mid-rebuild (a channel move, a node restart, a forced re-join) the old
+      // voice socket is *supposed* to die: `voiceSent` is null until the new
+      // handshake lands.
       if (!s.voiceSent) return;
       if (code === 4014 && byRemote) {
         // Disconnected by a human, or the channel went away.
@@ -568,7 +610,18 @@ export class MusicManager {
       return;
     }
 
-    this.sendVoiceState(guild, channel.id);
+    await this.joinVoice(guildId, s, channel.id, guild);
+  }
+
+  /**
+   * Ask Discord for a voice session in `channelId` and wait for the credentials
+   * it answers with. The waiter is registered before anything awaits, so the
+   * packets can't land against a state nobody is listening to.
+   */
+  private async joinVoice(guildId: string, s: GuildPlayback, channelId: string, guild: Guild): Promise<void> {
+    s.voiceJoining = channelId;
+    s.voiceAnswered = false;
+    this.sendVoiceState(guild, channelId);
     await this.waitForVoice(guildId, s);
   }
 
@@ -602,12 +655,13 @@ export class MusicManager {
 
     // Cleared before anything awaits: the old token is void, and the node's
     // voice socket dying while we do this is expected (see voiceSocketClosed).
+    // If Discord refuses to create a new session for a channel the bot is
+    // already in, `armVoiceRetry` forces one by leaving and re-joining.
     s.following = true;
     s.voiceServer = null;
     s.voiceSent = null;
-    this.sendVoiceState(guild, s.voiceChannelId);
     try {
-      await this.waitForVoice(guildId, s);
+      await this.joinVoice(guildId, s, s.voiceChannelId, guild);
       if (s.stopping) return;
       if (current?.encoded) await this.resumeTrack(guildId, s, current, resumeAt);
     } catch (error) {
@@ -662,28 +716,167 @@ export class MusicManager {
    * immediately when they're already there.
    */
   private waitForVoice(guildId: string, s: GuildPlayback): Promise<void> {
-    if (s.voiceSent && s.voiceSessionId && s.voiceServer) return Promise.resolve();
+    if (this.voiceReady(s)) return Promise.resolve();
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         s.voiceWaiters = s.voiceWaiters.filter((w) => w.timer !== timer);
-        reject(
-          new SourceError(
-            "Discord didn't hand out voice credentials in time — I can join the channel but not talk in it. " +
-              "Check the bot's Connect/Speak permissions, then try again.",
-          ),
-        );
+        this.endVoiceWait(s);
+        reject(this.voiceTimeoutError(s));
       }, VOICE_HANDSHAKE_TIMEOUT_MS);
       timer.unref?.();
       s.voiceWaiters.push({ resolve, reject, timer });
       // Credentials may already be complete but unsent (a node rebuild).
       void this.flushVoice(guildId, s);
+      this.armVoiceRetry(guildId, s);
     });
+  }
+
+  /** Do we hold both of Discord's halves — and has the node been given them? */
+  private voiceReady(s: GuildPlayback): boolean {
+    return Boolean(s.voiceSent && s.voiceSessionId && s.voiceServer && s.voiceChannelId);
+  }
+
+  /**
+   * A handshake that times out means two different things, and conflating them
+   * sends operators hunting for a permission problem that isn't there. If
+   * Discord answered with a session for the channel, the join itself worked —
+   * it just never offered a voice server, which is the half Discord skips when
+   * it has no new voice session to open.
+   */
+  private voiceTimeoutError(s: GuildPlayback): SourceError {
+    if (s.voiceAnswered && s.voiceChannelId) {
+      return new SourceError(
+        "Discord accepted the join but never handed over a voice server, so there were no credentials to give the music node. " +
+          "That is Discord's side of the handshake, not the bot's permissions — try again in a moment.",
+      );
+    }
+    return new SourceError(
+      "Discord didn't hand out voice credentials in time — I can join the channel but not talk in it. " +
+        "Check the bot's Connect/Speak permissions, then try again.",
+    );
+  }
+
+  /**
+   * Op 4 does not always produce both halves: when the bot is *already in that
+   * voice channel* Discord has no session to create, so it answers with the
+   * state half alone (or with nothing), and the `VOICE_SERVER_UPDATE` this
+   * waits on never arrives. Watch for that and ask for a genuinely new session
+   * instead of sitting out the handshake timeout.
+   */
+  private armVoiceRetry(guildId: string, s: GuildPlayback): void {
+    if (s.voiceRetry) return;
+    s.voiceRetry = setTimeout(() => {
+      s.voiceRetry = null;
+      if (s.stopping || this.sessions.get(guildId) !== s) return;
+      if (this.voiceReady(s) || s.voiceWaiters.length === 0 || !s.voiceJoining) return;
+      // Both halves are in hand and only the node's PATCH is outstanding: a new
+      // voice session would not make that any faster.
+      if (s.voiceSessionId && s.voiceServer) return;
+      void this.forceNewVoiceSession(guildId, s);
+    }, VOICE_SERVER_GRACE_MS);
+    s.voiceRetry.unref?.();
+  }
+
+  /**
+   * Leave the channel and join it again so Discord opens a *new* voice session
+   * and hands out a fresh token — the only way to get a `VOICE_SERVER_UPDATE`
+   * for a channel the bot is already sitting in.
+   *
+   * The leave is confirmed before the re-join: a join that races it leaves the
+   * net voice state unchanged, which is the exact no-op this exists to escape.
+   * The bot's own `VoiceStateUpdate` and the node's voice socket dying in the
+   * middle of it are expected (`voiceForcing`), not a disconnect to act on.
+   */
+  private async forceNewVoiceSession(guildId: string, s: GuildPlayback): Promise<void> {
+    const channelId = s.voiceJoining;
+    const guild = this.guild(guildId);
+    if (!guild || !channelId) return;
+    log.warn("Discord gave the join no voice server — forcing a new voice session", {
+      guildId,
+      channelId,
+      sessionId: s.voiceSessionId,
+      hadServer: Boolean(s.voiceServer),
+    });
+
+    // Whatever the node holds belongs to the session we are about to end.
+    s.voiceSent = null;
+    // Discord answered with the state half, or (when it answered nothing at all)
+    // the gateway cache knows the bot is in there: re-asking changes nothing, so
+    // the session has to be ended before a join can mean anything.
+    const alreadyThere = Boolean(s.voiceSessionId) || this.botVoiceChannelId(guildId) === channelId;
+    if (alreadyThere) {
+      s.voiceAnswered = true; // we are in the channel; this is not a permission problem
+      s.voiceForcing = true;
+      try {
+        await this.leaveVoice(guild, s);
+      } finally {
+        s.voiceForcing = false;
+      }
+      if (s.stopping || this.sessions.get(guildId) !== s) return;
+      // Someone gave up on the wait, or the bot is now joining somewhere else.
+      if (s.voiceWaiters.length === 0 || s.voiceJoining !== channelId || this.voiceReady(s)) return;
+      // The old session is gone: its session id, token and endpoint are void,
+      // and only the packets Discord sends for the new one will do.
+      s.voiceSessionId = null;
+      s.voiceServer = null;
+      await sleep(VOICE_REJOIN_DELAY_MS);
+      if (s.stopping || this.sessions.get(guildId) !== s) return;
+      if (s.voiceWaiters.length === 0 || s.voiceJoining !== channelId) return;
+    } else {
+      // Nothing came back and the bot isn't in that channel either, so there is
+      // no session to leave — the join request simply went unanswered. Ask again.
+      s.voiceServer = null;
+    }
+    log.info("re-joining the voice channel for fresh credentials", { guildId, channelId });
+    s.voiceChannelId = channelId;
+    this.sendVoiceState(guild, channelId);
+  }
+
+  /**
+   * Send "leave voice" and resolve once Discord confirms it — its own
+   * `VOICE_STATE_UPDATE` carrying a null channel id — or the cap runs out, so a
+   * silent Discord can't hang the caller.
+   */
+  private leaveVoice(guild: Guild, s: GuildPlayback): Promise<void> {
+    if (s.voiceLeaveWaiter) return Promise.resolve(); // a leave is already in flight
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(() => this.resolveLeaveWaiter(s), VOICE_LEAVE_TIMEOUT_MS);
+      timer.unref?.();
+      s.voiceLeaveWaiter = { resolve, timer };
+      this.sendVoiceState(guild, null);
+    });
+  }
+
+  private resolveLeaveWaiter(s: GuildPlayback): void {
+    const waiter = s.voiceLeaveWaiter;
+    if (!waiter) return;
+    s.voiceLeaveWaiter = null;
+    clearTimeout(waiter.timer);
+    waiter.resolve();
+  }
+
+  private cancelVoiceRetry(s: GuildPlayback): void {
+    if (!s.voiceRetry) return;
+    clearTimeout(s.voiceRetry);
+    s.voiceRetry = null;
+  }
+
+  /**
+   * The channel the gateway cache says the bot is sitting in. Discord's own
+   * packets are the better source, but they only arrive for a join it bothers
+   * to answer — this is what tells us to leave before re-joining when it
+   * answered nothing at all.
+   */
+  private botVoiceChannelId(guildId: string): string | null {
+    return this.guild(guildId)?.members?.me?.voice?.channelId ?? null;
   }
 
   /** Send the collected handshake to the node once it's complete. */
   private async flushVoice(guildId: string, s: GuildPlayback): Promise<void> {
     if (!s.voiceSessionId || !s.voiceServer || !s.voiceChannelId) return;
-    const signature = `${s.voiceSessionId}|${s.voiceServer.token}|${s.voiceServer.endpoint}`;
+    // The channel is part of the signature: a move that arrives with the same
+    // session and token still has to reach the node.
+    const signature = `${s.voiceSessionId}|${s.voiceChannelId}|${s.voiceServer.token}|${s.voiceServer.endpoint}`;
     if (s.voiceSent === signature) {
       this.resolveVoiceWaiters(s);
       return;
@@ -716,7 +909,15 @@ export class MusicManager {
     }
   }
 
+  /** The wait is over: forget the join attempt and let the waiters through. */
+  private endVoiceWait(s: GuildPlayback): void {
+    s.voiceJoining = null;
+    this.cancelVoiceRetry(s);
+    this.resolveLeaveWaiter(s);
+  }
+
   private resolveVoiceWaiters(s: GuildPlayback): void {
+    this.endVoiceWait(s);
     const waiters = s.voiceWaiters;
     s.voiceWaiters = [];
     for (const waiter of waiters) {
@@ -726,6 +927,7 @@ export class MusicManager {
   }
 
   private rejectVoiceWaiters(s: GuildPlayback, error: Error): void {
+    this.endVoiceWait(s);
     const waiters = s.voiceWaiters;
     s.voiceWaiters = [];
     for (const waiter of waiters) {
@@ -739,12 +941,11 @@ export class MusicManager {
    * Called on every track start so a lost handshake is rebuilt, not ignored.
    */
   private async ensureVoice(guildId: string, s: GuildPlayback): Promise<void> {
-    if (s.voiceSent && s.voiceSessionId && s.voiceServer) return;
+    if (this.voiceReady(s)) return;
     if (!s.voiceChannelId) throw new SourceError("I'm not in a voice channel — join one and run the command again.");
     const guild = this.guild(guildId);
     if (!guild) throw new SourceError("I lost sight of that server — try again in a moment.");
-    this.sendVoiceState(guild, s.voiceChannelId);
-    await this.waitForVoice(guildId, s);
+    await this.joinVoice(guildId, s, s.voiceChannelId, guild);
   }
 
   // ── public state ──────────────────────────────────────────────────
@@ -924,8 +1125,18 @@ export class MusicManager {
       if (botId && data.user_id && data.user_id !== botId) return;
       const s = this.sessions.get(guildId);
       if (!s || s.stopping) return;
+      if (!data.channel_id) {
+        // A null channel id is Discord answering a *leave*: either the one we
+        // asked for while forcing a new voice session, or our own disconnect.
+        // It is not a session to hand the node — see leaveVoice.
+        this.resolveLeaveWaiter(s);
+        return;
+      }
+      // Discord put us in a channel: this join attempt did work, whatever
+      // happens to the server half.
+      s.voiceAnswered = true;
       if (data.session_id) s.voiceSessionId = data.session_id;
-      if (data.channel_id && data.channel_id !== s.voiceChannelId) s.voiceChannelId = data.channel_id;
+      if (data.channel_id !== s.voiceChannelId) s.voiceChannelId = data.channel_id;
       void this.flushVoice(guildId, s);
       return;
     }
@@ -949,7 +1160,8 @@ export class MusicManager {
     // The bot itself moved or was disconnected.
     if (newState.id === botId) {
       if (!newState.channelId) {
-        if (!s.stopping && !s.following) {
+        // Leaving is what a forced re-join looks like from here (voiceForcing).
+        if (!s.stopping && !s.following && !s.voiceForcing) {
           log.info("the bot was disconnected from voice", { guildId });
           this.teardown(guildId, false);
         }
@@ -962,6 +1174,7 @@ export class MusicManager {
           to: newState.channelId,
         });
         s.voiceChannelId = newState.channelId; // follow the move
+        s.voiceJoining = newState.channelId; // …and wait on the new channel, not the old one
         s.voiceServer = null; // fresh credentials are on their way
         s.voiceSent = null; // …and the old voice socket dying is expected
       }

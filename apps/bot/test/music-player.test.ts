@@ -75,6 +75,40 @@ function deliverVoice(
   });
 }
 
+/**
+ * Discord's answer when it has no *new* voice session to open — the bot is
+ * already in that channel, so op 4 changes nothing and the gateway sends the
+ * state half alone. The token/endpoint half (VOICE_SERVER_UPDATE) never comes.
+ */
+function deliverVoiceStateOnly(manager: MusicManager, channelId = "voice", sessionId = "discord-session"): void {
+  manager.handleRawPacket({
+    t: "VOICE_STATE_UPDATE",
+    d: { guild_id: "guild", user_id: "bot-user", session_id: sessionId, channel_id: channelId },
+  });
+}
+
+/** Discord confirming the bot is out of voice (its answer to an op-4 leave). */
+function deliverVoiceLeave(manager: MusicManager): void {
+  manager.handleRawPacket({
+    t: "VOICE_STATE_UPDATE",
+    d: { guild_id: "guild", user_id: "bot-user", channel_id: null },
+  });
+}
+
+/** The two gateway packets behind a voice state change, as discord.js emits them. */
+function fakeVoiceState(channelId: string | null, id = "bot-user") {
+  return { id, channelId, guild: { id: "guild" } } as unknown as VoiceState;
+}
+
+const leavePayload = {
+  op: 4,
+  d: { guild_id: "guild", channel_id: null, self_mute: false, self_deaf: true },
+};
+const joinPayload = (channelId: string) => ({
+  op: 4,
+  d: { guild_id: "guild", channel_id: channelId, self_mute: false, self_deaf: true },
+});
+
 /** Join a channel, then deliver the voice packets Discord would answer with. */
 async function joinVoice(manager: MusicManager, guild: FakeGuild, channelId = "voice"): Promise<void> {
   const pending = manager.connect("guild", fakeVoiceChannel(channelId, guild));
@@ -160,6 +194,104 @@ describe("joining a voice channel", () => {
     );
     await vi.advanceTimersByTimeAsync(20_000);
     expect(await failure).toMatch(/voice credentials in time/);
+    // The unanswered join is asked again before giving up — there is no session
+    // to leave, so the request itself is simply repeated.
+    expect(guild.shard.send).toHaveBeenCalledTimes(2);
+    expect(guild.shard.send).toHaveBeenLastCalledWith(joinPayload("voice"));
+    manager.teardown("guild", false);
+  });
+
+  it("forces a new voice session when Discord answers the join without a voice server", async () => {
+    vi.useFakeTimers();
+    const { lavalink, guild, manager } = setup();
+    // The bot is already in that channel on Discord's side (someone dragged it
+    // there), so op 4 opens no new session: the state half comes back and the
+    // VOICE_SERVER_UPDATE the node needs never does.
+    const pending = manager.connect("guild", fakeVoiceChannel("voice", guild));
+    deliverVoiceStateOnly(manager);
+    expect(lavalink.callsTo("updateVoice")).toHaveLength(0);
+
+    // Leaving is what makes Discord open a *new* session — and the leave is
+    // confirmed before the re-join, so the two can't read as one no-op.
+    await vi.advanceTimersByTimeAsync(2_600);
+    expect(guild.shard.send).toHaveBeenLastCalledWith(leavePayload);
+
+    deliverVoiceLeave(manager);
+    await vi.advanceTimersByTimeAsync(800);
+    expect(guild.shard.send).toHaveBeenLastCalledWith(joinPayload("voice"));
+
+    // The credentials of the fresh session are what reaches the node.
+    deliverVoice(manager, { token: "token-2", endpoint: "voice2.discord.gg" });
+    await pending;
+    expect(lavalink.lastCall("updateVoice")?.args).toEqual([
+      "guild",
+      { token: "token-2", endpoint: "voice2.discord.gg", sessionId: "discord-session", channelId: "voice" },
+    ]);
+    manager.teardown("guild", false);
+  });
+
+  it("leaves before re-joining when Discord answers an identical join with nothing at all", async () => {
+    vi.useFakeTimers();
+    const { lavalink, guild, manager } = setup();
+    // Discord says nothing about the join, but the gateway already had the bot
+    // in that channel: re-asking is a no-op, so the session has to be ended.
+    guild.members.me = { voice: { channelId: "voice" } };
+    const pending = manager.connect("guild", fakeVoiceChannel("voice", guild));
+    await vi.advanceTimersByTimeAsync(2_600);
+    expect(guild.shard.send).toHaveBeenLastCalledWith(leavePayload);
+
+    deliverVoiceLeave(manager);
+    await vi.advanceTimersByTimeAsync(800);
+    expect(guild.shard.send).toHaveBeenLastCalledWith(joinPayload("voice"));
+
+    deliverVoice(manager, { token: "token-2", endpoint: "voice2.discord.gg" });
+    await pending;
+    expect(lavalink.lastCall("updateVoice")?.args[1]).toMatchObject({ token: "token-2" });
+    manager.teardown("guild", false);
+  });
+
+  it("doesn't tear the guild down while it forces that new session", async () => {
+    vi.useFakeTimers();
+    const { lavalink, guild, manager } = setup();
+    await playing(manager, guild, lavalink);
+
+    // The node's voice socket dies (4009 = session invalid) and the re-handshake
+    // gets the state half alone, because the bot is still in that channel.
+    lavalink.voiceClosed("guild", 4009);
+    deliverVoiceStateOnly(manager);
+    await vi.advanceTimersByTimeAsync(2_600);
+
+    // The forced leave is a real voice state change: Discord's own event lands,
+    // and the node loses the voice socket it was told to use. Neither is a
+    // disconnect to act on — the session and its queue must survive both.
+    manager.handleVoiceStateUpdate(fakeVoiceState("voice"), fakeVoiceState(null));
+    lavalink.voiceClosed("guild", 4014);
+    expect(lavalink.callsTo("destroyPlayer")).toHaveLength(0);
+    expect(manager.connectedChannelId("guild")).toBe("voice");
+
+    deliverVoiceLeave(manager);
+    await vi.advanceTimersByTimeAsync(800);
+    deliverVoice(manager, { token: "token-2", endpoint: "voice2.discord.gg" });
+    await vi.advanceTimersByTimeAsync(0); // let the re-handshake's awaits settle
+    expect(lavalink.lastCall("updateVoice")?.args[1]).toMatchObject({ token: "token-2" });
+    expect(manager.connectedChannelId("guild")).toBe("voice");
+    expect(manager.queue("guild").nowPlaying()?.title).toBe("Track one");
+    manager.teardown("guild", false);
+  });
+
+  it("says it is not a permissions problem when Discord joined us but sent no voice server", async () => {
+    vi.useFakeTimers();
+    const { guild, manager } = setup();
+    const pending = manager.connect("guild", fakeVoiceChannel("voice", guild));
+    deliverVoiceStateOnly(manager);
+    const failure = pending.then(
+      () => null,
+      (error: Error) => error.message,
+    );
+    await vi.advanceTimersByTimeAsync(20_000);
+    const message = await failure;
+    expect(message).toMatch(/never handed over a voice server/);
+    expect(message).toMatch(/not the bot's permissions/);
     manager.teardown("guild", false);
   });
 

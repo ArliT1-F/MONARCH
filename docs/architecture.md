@@ -95,7 +95,22 @@ announces "🔁 Music node restarted" first). It clears the stored voice state a
 re-registers its waiter *before* any `await`, so fresh packets can't land against
 stale state, then resumes the same track at the last known position. Code 4014
 (Discord disconnected the bot: kicked, channel deleted) tears the player down
-instead. Empty channel → leave after 60 s, idle → after 5 min, three consecutive
+instead.
+
+One wrinkle belongs to the protocol, not to us: op 4 asks Discord for a voice
+*session*, and Discord only answers with the `VOICE_SERVER_UPDATE` half (the
+token/endpoint the node authenticates with) when it actually opens one. Asking
+for the channel the bot is *already in* — re-asking after a 4006, or a bot that
+was dragged into a channel by hand — changes nothing, so the answer is the
+`VOICE_STATE_UPDATE` half alone and the token never comes. Rather than sit out
+the whole handshake timeout and then blame Connect/Speak permissions for a join
+that worked, `player.ts` waits `VOICE_SERVER_GRACE_MS`, then leaves the channel
+and joins it again (`forceNewVoiceSession`): the leave is confirmed by Discord
+before the re-join, because a re-join racing it would leave the net voice state
+unchanged — the exact no-op it exists to escape. Discord answering *nothing at
+all* counts the same way once the gateway cache puts the bot in that channel. Both the bot's own
+`VoiceStateUpdate` and the node losing its voice socket are expected during that
+window (`voiceForcing`), not disconnects. Empty channel → leave after 60 s, idle → after 5 min, three consecutive
 track failures → give up and say so.
 
 Sources (`sources.ts`) resolve links and searches through the node's

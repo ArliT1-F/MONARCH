@@ -170,7 +170,8 @@ export interface FakeGuild {
   id: string;
   shard: { send: ReturnType<typeof vi.fn> };
   channels: { cache: Map<string, unknown> };
-  members: { me: null };
+  /** The bot's own member, as far as the gateway cache knows it. */
+  members: { me: { voice: { channelId: string | null } } | null };
 }
 
 export function fakeGuild(id = "guild"): FakeGuild {
