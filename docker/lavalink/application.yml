@@ -93,8 +93,8 @@ plugins:
     # Queried in order; the first client that returns usable audio wins, so a
     # throttled or sign-in-gated one costs a retry rather than a dead track.
     clients:
-      - MUSIC
-      - ANDROID_VR
+      - ANDROID_MUSIC
+      - MWEB
       - WEB
       - WEBEMBEDDED
 
@@ -102,8 +102,8 @@ plugins:
     # burner account — this can get an account terminated. Set the log level
     # for dev.lavalink.youtube.http.YoutubeOauth2Handler to INFO (below) to
     # see the one-time refresh token printed on a successful flow.
-    #oauth:
-    #  enabled: true
+    oauth:
+      enabled: true
     #  refreshToken: ""
 
     # Alternative to OAuth: a Proof-of-Origin token from
