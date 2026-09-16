@@ -206,6 +206,14 @@ What each failure looks like from here:
   voice credentials, or the node refused them. The bot logs `voice credentials
   handed to the node` on success; if that line is missing after 15 s, look at
   the node journal for the same guild id.
+- `Discord gave the join no voice server — forcing a new voice session` → op 4
+  changed nothing on Discord's side (the bot was already in that channel), so
+  there was no fresh token/endpoint to send the node. The bot leaves the
+  channel, waits for Discord to confirm, and joins again, which opens a new
+  session; `/music play` then works without anyone touching permissions.
+  If the same line repeats for one guild, check for a **second worker** sharing
+  `DISCORD_BOT_TOKEN` (step 3) — two workers fighting over one voice state look
+  exactly like this.
 - `track exception on the node` / `track stuck on the node`, or a user-visible
   *"YouTube refused this video for the node's IP"* → the node's address is being
   rate-limited or the plugin is behind YouTube. Fix it node-side, in
@@ -268,7 +276,7 @@ becomes instant.
 |---|---|
 | works all day, dead at 3 am, logs just stop | the laptop slept. `journalctl -b -1 -n 40` will end mid-sentence. The `systemd-inhibit` lock covers idle suspend; `--headless` covers the lid; masking the targets covers everything. |
 | bot is online, `/music` says the backend is down | the node. `systemctl --user status monarch-lavalink`, then `curl -s localhost:2333/version`. |
-| bot joins the channel and nothing plays | voice credentials never reached the node, or the node has no UDP egress (step 4.2). The bot logs `voice credentials handed to the node` when its half worked. |
+| bot joins the channel and nothing plays | voice credentials never reached the node, or the node has no UDP egress (step 4.2). The bot logs `voice credentials handed to the node` when its half worked; when Discord never offered a voice server at all it says so (`forcing a new voice session`) and re-joins by itself — a retry then succeeds, and the `/music` reply stops pointing at Connect/Speak permissions. |
 | audio crackles / sounds like an intercom | Wi-Fi retransmits or a CPU-starved node. Ethernet first; then drop `opusEncodingQuality` to 8 and `resamplingQuality` to `LOW` in `application.yml`. |
 | `/burg` or `!help` do nothing, slash works | Message Content intent off in the developer portal. The bot falls back to Guilds+VoiceStates instead of crash-looping, and says so at boot. |
 | unit `failed` with exit 1, repeats every 10 s | bad token, or Discord unreachable at boot. `--check` first, then `journalctl -n 30`. |
