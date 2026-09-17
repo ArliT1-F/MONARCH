@@ -326,6 +326,7 @@ WorkingDirectory=$LL_DIR
 # from one place. The leading \`-\` means a missing file is not a start failure.
 EnvironmentFile=-$ENV_FILE
 Environment=PATH=$UNIT_PATH_ENV
+Environment=YOUTUBE_PLUGIN_VERSION=1.18.2
 # If java is not on PATH yet, install it and re-run this script: the fallback
 # below keeps the unit parseable but systemd will fail to start it.
 ExecStart=${JAVA_BIN:-/usr/bin/env java} -Xmx$LL_HEAP -jar $LL_DIR/Lavalink.jar
@@ -356,6 +357,28 @@ LLUNIT
     # trackStuckThresholdMs should reach a running install with one re-run.
     cp "$LL_CONFIG_SRC" "$LL_DIR/application.yml"
     good "application.yml → $LL_DIR/application.yml"
+    # Clean stale youtube plugins that were pulled via YOUTUBE_PLUGIN_VERSION env
+    # e.g. youtube-plugin-6579cdf.jar (snapshot hash that only exists in snapshots repo)
+    # The new config pins 1.18.2 with explicit releases repo.
+    if [[ -d "$LL_DIR/plugins" ]]; then
+      cleaned=0
+      for f in "$LL_DIR/plugins"/youtube-plugin-*.jar; do
+        [[ -e "$f" ]] || continue
+        bn=$(basename "$f")
+        # Empty file or not the pinned version
+        if [[ ! -s "$f" ]]; then
+          rm -f "$f"
+          echo "  cleaned empty plugin file: $bn"
+          cleaned=$((cleaned+1))
+        elif [[ "$bn" != *\"1.18.2\"* ]]; then
+          # Keep only 1.18.2, remove old snapshot hashes like 6579cdf
+          rm -f "$f"
+          echo "  cleaned stale youtube plugin: $bn (will re-download 1.18.2)"
+          cleaned=$((cleaned+1))
+        fi
+      done
+      [[ $cleaned -gt 0 ]] && good "cleaned $cleaned stale plugin(s) from $LL_DIR/plugins"
+    fi
   fi
 
   if [[ ! -f "$LL_DIR/Lavalink.jar" || "$(cat "$LL_DIR/.lavalink-version" 2>/dev/null)" != "$LAVALINK_VERSION" ]]; then

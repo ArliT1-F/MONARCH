@@ -199,8 +199,38 @@ If `curl` works but bot says fetch failed:
 
 If YouTube says "Video returned by YouTube isn't what was requested":
 
-- Update `youtube-source` plugin version in `docker/lavalink/application.yml` (YOUTUBE_PLUGIN_VERSION)
+- Update `youtube-source` plugin version in `docker/lavalink/application.yml` (now pinned to `1.18.2`)
 - Enable IP rotation / OAuth / poToken in same file — see comments there.
+
+### Lavalink crashes with `FileNotFoundException: .../youtube-plugin/6579cdf/...`
+
+You have a stale `YOUTUBE_PLUGIN_VERSION=6579cdf` (or similar 7-char hash) in your `.env`.
+That hash is a snapshot build that only exists in the `snapshots` Maven repo, not `releases`,
+so Lavalink tries `.../releases/.../6579cdf/...` and gets 404.
+
+**Fix:**
+
+1. Delete `YOUTUBE_PLUGIN_VERSION` from your `.env` (the config now pins `1.18.2` with explicit `releases` repo).
+2. Clean the broken plugin files:
+   ```bash
+   # Docker
+   docker volume rm monarch-lavalink-plugins  # or: docker compose -f docker/docker-compose.yml down -v
+   docker compose -f docker/docker-compose.yml up -d lavalink
+
+   # Local runner / systemd (paths from scripts/run-lavalink-local.mjs)
+   rm -rf ~/.local/share/monarch-lavalink/plugins/*youtube*
+   rm -rf .lavalink/plugins/*youtube*
+   # then restart:
+   npm run music:local
+   # or
+   systemctl --user restart monarch-lavalink
+   ```
+3. If you *really* want a snapshot, edit `docker/lavalink/application.yml`:
+   ```yaml
+   - dependency: "dev.lavalink.youtube:youtube-plugin:6579cdf"
+     repository: "https://maven.lavalink.dev/snapshots"
+     snapshot: true
+   ```
 
 ---
 
