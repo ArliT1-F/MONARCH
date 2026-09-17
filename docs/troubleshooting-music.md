@@ -74,9 +74,45 @@ The bot service defaults `LAVALINK_NODES=ws://lavalink:2333` (the Docker DNS nam
 
 ---
 
-## 3. Start the node on your own machine (systemd)
+## 3. Start the node WITHOUT Docker (your case — Docker crashes laptop)
 
-No Docker, needs Java 17+ (21 recommended):
+This is now the recommended way if Docker is heavy. It only needs Java 17+ (21 recommended) and ~512MB RAM.
+
+### Option A: One-command local runner (no systemd, no install)
+
+```bash
+# installs nothing system-wide, creates .lavalink/ in repo root
+npm run music:local
+# or
+node scripts/run-lavalink-local.mjs
+# or
+./scripts/run-lavalink-local.sh
+```
+
+What it does:
+1. Checks `java -version`
+2. Creates `.lavalink/` (or reuses `~/.local/share/monarch-lavalink/` if you already used laptop-install.sh)
+3. Downloads `Lavalink.jar` 4.2.2 if missing (~60MB)
+4. Copies `docker/lavalink/application.yml` next to it
+5. Runs `java -Xmx512M -jar Lavalink.jar` with your `.env` password/port
+
+First boot downloads `youtube-source` plugin into `./plugins` — give it ~30s.
+Then in another terminal:
+
+```bash
+npm run music:check
+curl http://localhost:2333/version
+npm run dev:bot   # your bot
+```
+
+Stop it with Ctrl+C.
+
+**Install Java if missing:**
+- Windows: https://adoptium.net → Temurin 21 JRE
+- macOS: `brew install --cask temurin@21`
+- Linux: `sudo apt install openjdk-21-jre-headless` / `sudo dnf install java-21-openjdk-headless`
+
+### Option B: Systemd user service (auto-restart, survives logout)
 
 ```bash
 ./deploy/laptop-install.sh --check   # preflight
@@ -86,6 +122,8 @@ journalctl --user -u monarch-lavalink -f
 ```
 
 See `docs/hosting-laptop.md` for full guide (linger, sleep masks, TLP, etc.).
+
+**Why Option A uses 512M not 1G?** Docker's default was 1G heap + overhead, which crashes low-RAM laptops. 512M is enough for 2-3 guilds playing. You can tune with `LAVALINK_HEAP=256M npm run music:local` or edit the script.
 
 ---
 

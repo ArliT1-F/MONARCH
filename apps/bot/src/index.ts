@@ -164,12 +164,12 @@ function createClient(intents: number[]): Client {
         log.warn("no Lavalink node connected after boot", {
           nodes: lavalink.describe(),
           hint:
-            `Couldn't reach ${nodes}. Start the bundled node with: ` +
-            `docker compose -f docker/docker-compose.yml up -d lavalink (from repo root) ` +
-            `or ./deploy/laptop-install.sh. Then curl http://localhost:2333/version and check ` +
-            `docker logs monarch-lavalink or journalctl --user -u monarch-lavalink. ` +
+            `Couldn't reach ${nodes}. No Docker? Run npm run music:local (needs Java 17+, 512M RAM) — ` +
+            `with Docker: docker compose -f docker/docker-compose.yml up -d lavalink (from repo root) ` +
+            `or ./deploy/laptop-install.sh. Then curl http://localhost:2333/version, ` +
+            `npm run music:check, and check docker logs monarch-lavalink or journalctl -u monarch-lavalink. ` +
             `If 401, LAVALINK_PASSWORD in .env must match docker/lavalink/application.yml. ` +
-            `Run npm run music:check for a full diagnosis.`,
+            `See docs/troubleshooting-music.md for no-Docker guide.`,
         });
       }
     }, 12_000).unref?.();
