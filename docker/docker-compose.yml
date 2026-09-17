@@ -1,14 +1,15 @@
 # ── Where Compose looks for `.env` ────────────────────────────────────────────
-# ${VAR} below interpolates from a `.env` in the *project directory* — the folder
-# holding this file (`docker/`), not the repo root. Without it every value
-# expands to empty and the bot logs "DISCORD_BOT_TOKEN is not set — bot not
-# started." and exits 0: a healthy-looking container and a worker that is never
-# online, so no command answers. The node silently falls back to
-# `youshallnotpass` the same way, and then refuses a systemd bot's real
-# LAVALINK_PASSWORD with a 401.
+# Compose interpolates ${VAR} from a `.env` in the *project directory* — the
+# folder holding this file (`docker/`), not the repo root. To make both
+# locations work, every service below declares `env_file: [../.env, .env]`,
+# so `docker compose -f docker/docker-compose.yml up` works from the repo root
+# AND from inside `docker/`:
 #
+#   docker compose -f docker/docker-compose.yml up -d lavalink          # repo root
+#   cd docker && docker compose up -d lavalink                          # inside docker/
+#
+# Explicit `--env-file` still wins if you pass it:
 #   docker compose --env-file .env -f docker/docker-compose.yml up -d lavalink
-#   docker compose --env-file .env -f docker/docker-compose.yml up -d --no-deps bot
 #
 # Or `ln -s ../.env docker/.env` once (gitignored either way). The units that
 # deploy/laptop-install.sh writes read the repo's .env through EnvironmentFile=
@@ -17,6 +18,9 @@
 services:
   postgres:
     image: postgres:16-alpine
+    env_file:
+      - ../.env
+      - .env
     environment:
       POSTGRES_USER: monarch
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monarch}
@@ -35,6 +39,9 @@ services:
       dockerfile: docker/dashboard.Dockerfile
     # One-shot: apply Prisma migrations before the dashboard boots.
     command: sh -c "npx prisma migrate deploy"
+    env_file:
+      - ../.env
+      - .env
     environment:
       DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:-monarch}@postgres:5432/monarch
       DIRECT_DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:-monarch}@postgres:5432/monarch
@@ -56,6 +63,9 @@ services:
     image: ghcr.io/lavalink-devs/lavalink:4
     container_name: monarch-lavalink
     restart: unless-stopped
+    env_file:
+      - ../.env
+      - .env
     depends_on:
       lavalink-perms:
         condition: service_completed_successfully
@@ -72,11 +82,20 @@ services:
       - lavalink-plugins:/opt/Lavalink/plugins
     ports:
       - "${LAVALINK_PORT:-2333}:2333"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:2333/version || wget -qO- http://localhost:${LAVALINK_PORT:-2333}/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
 
   dashboard:
     build:
       context: ..
       dockerfile: docker/dashboard.Dockerfile
+    env_file:
+      - ../.env
+      - .env
     environment:
       DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:-monarch}@postgres:5432/monarch
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
@@ -94,6 +113,9 @@ services:
     build:
       context: ..
       dockerfile: docker/bot.Dockerfile
+    env_file:
+      - ../.env
+      - .env
     environment:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}

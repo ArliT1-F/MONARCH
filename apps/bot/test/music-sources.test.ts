@@ -405,8 +405,9 @@ describe("when the node is down", () => {
 
     await expect(resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250))
       .rejects.toThrow(/music backend \(Lavalink\) isn't answering/);
+    // New message includes actionable fix: docker compose command + password hint + music:check
     await expect(resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250))
-      .rejects.toThrow(/LAVALINK_NODES/);
+      .rejects.toThrow(/LAVALINK_NODES|LAVALINK_PASSWORD|music:check|docker compose/);
   });
 
   it("still refuses to play a track with nothing to play", async () => {
