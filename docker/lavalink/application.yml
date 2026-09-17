@@ -29,6 +29,13 @@ lavalink:
     # writable and is worth keeping across restarts (compose uses a volume).
     - dependency: "dev.lavalink.youtube:youtube-plugin:${YOUTUBE_PLUGIN_VERSION:1.18.2}"
       snapshot: false
+    # LavaSrc adds Spotify, Apple Music, Deezer etc. as first-class sources.
+    # The bot already resolves Spotify links via its own Web API client, but
+    # having LavaSrc on the node means the node can also resolve spsearch:
+    # queries and Spotify URLs directly, bypassing YouTube entirely when the
+    # source is Spotify.
+    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
+      snapshot: false
   pluginsDir: "./plugins"
 
   server:
@@ -92,8 +99,15 @@ plugins:
     allowDirectPlaylistIds: true
     # Queried in order; the first client that returns usable audio wins, so a
     # throttled or sign-in-gated one costs a retry rather than a dead track.
+    #
+    # ANDROID_MUSIC and IOS don't need the player script (no signature cipher),
+    # so they bypass the most common breakage: YouTube changing the script and
+    # the cipher extractor failing to find the sig function. Put them first.
+    # MWEB / WEB / WEBEMBEDDED do need the script and serve as fallbacks when
+    # the mobile clients hit age-gated or login-gated videos.
     clients:
       - ANDROID_MUSIC
+      - IOS
       - MWEB
       - WEB
       - WEBEMBEDDED
@@ -112,6 +126,25 @@ plugins:
     #pot:
     #  token: ""
     #  visitorData: ""
+
+  # LavaSrc — Spotify, Apple Music, Deezer etc.
+  # Credentials come from the same env vars the bot uses (SPOTIFY_CLIENT_ID /
+  # SPOTIFY_CLIENT_SECRET). Set them in your .env and restart.
+  lavasrc:
+    providers:
+      - "ytsearch:\"%ISRC%\""   # ISRC match on YouTube (best quality)
+      - "ytsearch:%QUERY%"      # YouTube text search fallback
+      - "scsearch:%QUERY%"      # SoundCloud fallback
+    sources:
+      spotify: true
+      applemusic: false
+      deezer: false
+    spotify:
+      clientId: "${SPOTIFY_CLIENT_ID:}"
+      clientSecret: "${SPOTIFY_CLIENT_SECRET:}"
+      countryCode: "US"
+      playlistLoadLimit: 6
+      albumLoadLimit: 6
 
 metrics:
   prometheus:
