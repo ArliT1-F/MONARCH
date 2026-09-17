@@ -27,7 +27,15 @@ lavalink:
     # mode that used to cut tracks short mid-song.
     # Downloaded into pluginsDir on first boot; that directory needs to stay
     # writable and is worth keeping across restarts (compose uses a volume).
-    - dependency: "dev.lavalink.youtube:youtube-plugin:${YOUTUBE_PLUGIN_VERSION:1.18.2}"
+    #
+    # NOTE: We pin to a stable release (1.18.2) with explicit repository.
+    # Previous versions used ${YOUTUBE_PLUGIN_VERSION} which allowed a stale
+    # snapshot hash like 6579cdf to be injected via .env, causing:
+    #   FileNotFoundException: .../youtube-plugin/6579cdf/youtube-plugin-6579cdf.jar
+    # because snapshot hashes only exist in the snapshots repo, not releases.
+    # If you need a snapshot, set repository to snapshots and snapshot: true.
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
+      repository: "https://maven.lavalink.dev/releases"
       snapshot: false
     # LavaSrc adds Spotify, Apple Music, Deezer etc. as first-class sources.
     # The bot already resolves Spotify links via its own Web API client, but
@@ -35,6 +43,7 @@ lavalink:
     # queries and Spotify URLs directly, bypassing YouTube entirely when the
     # source is Spotify.
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
+      repository: "https://maven.lavalink.dev/releases"
       snapshot: false
   pluginsDir: "./plugins"
 

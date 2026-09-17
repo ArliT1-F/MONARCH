@@ -47,7 +47,7 @@ function loadEnv() {
     const eq = t.indexOf("=");
     if (eq === -1) continue;
     const k = t.slice(0, eq).trim();
-    const v = t.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+    const v = t.slice(eq + 1).trim().replace(/^[\"']|[\"']$/g, "");
     if (!(k in process.env)) process.env[k] = v;
   }
 }
@@ -110,6 +110,49 @@ if (!fs.existsSync(CONFIG_SRC)) {
 fs.copyFileSync(CONFIG_SRC, CONFIG_DST);
 console.log(`✓ Config copied: ${CONFIG_SRC} → ${CONFIG_DST}`);
 
+// ── Clean up stale / broken plugins ───────────────────────────────────────
+// Previous versions of application.yml used ${YOUTUBE_PLUGIN_VERSION} which
+// could be set to a snapshot hash like 6579cdf via .env. That hash only exists
+// in the snapshots repo, not releases, so Lavalink crashes with:
+//   FileNotFoundException: .../youtube-plugin/6579cdf/youtube-plugin-6579cdf.jar
+// We now pin to 1.18.2 in application.yml and explicitly remove any old
+// snapshot-named jars and empty files to allow a clean re-download.
+try {
+  const pluginsDir = path.join(LL_DIR, "plugins");
+  if (fs.existsSync(pluginsDir)) {
+    const files = fs.readdirSync(pluginsDir);
+    let cleaned = 0;
+    for (const f of files) {
+      const fp = path.join(pluginsDir, f);
+      try {
+        const stat = fs.statSync(fp);
+        // Empty file (failed download) → delete
+        if (stat.size === 0) {
+          fs.unlinkSync(fp);
+          console.log(`  cleaned empty plugin file: ${f}`);
+          cleaned++;
+          continue;
+        }
+        // Old snapshot hash pattern: youtube-plugin-<7-char-hash>.jar or similar
+        // e.g. youtube-plugin-6579cdf.jar
+        if (/youtube-plugin-.*\.jar$/i.test(f)) {
+          // Keep only the pinned stable version
+          if (!f.includes("1.18.2")) {
+            fs.unlinkSync(fp);
+            console.log(`  cleaned stale youtube plugin: ${f} (will re-download 1.18.2)`);
+            cleaned++;
+          }
+        }
+      } catch {}
+    }
+    if (cleaned > 0) {
+      console.log(`✓ Cleaned ${cleaned} stale plugin file(s) from ${pluginsDir}`);
+    }
+  }
+} catch (e) {
+  console.warn(`⚠ Could not clean plugins dir: ${e.message}`);
+}
+
 async function downloadJar() {
   if (fs.existsSync(JAR_PATH)) {
     const verFile = path.join(LL_DIR, ".lavalink-version");
@@ -146,12 +189,21 @@ console.log("Logs:      ./logs/ inside lavalink dir");
 console.log("Stop:      Ctrl+C");
 console.log("");
 
+// Explicitly strip YOUTUBE_PLUGIN_VERSION so a stale .env value like
+// 6579cdf (a snapshot commit that no longer exists in releases) doesn't
+// override the pinned version in application.yml via Spring's ${VAR:default}
+// placeholder. The config now hardcodes 1.18.2, but we also guard here.
+const cleanEnv = { ...process.env };
+delete cleanEnv.YOUTUBE_PLUGIN_VERSION;
+
 const child = spawn("java", [`-Xmx${HEAP}`, "-jar", JAR_PATH], {
   cwd: LL_DIR,
   env: {
-    ...process.env,
+    ...cleanEnv,
     LAVALINK_PASSWORD: PASSWORD,
     LAVALINK_PORT: PORT,
+    // Force the stable version for this process even if .env contains a hash
+    YOUTUBE_PLUGIN_VERSION: "1.18.2",
   },
   stdio: "inherit",
 });

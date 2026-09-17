@@ -202,6 +202,12 @@ What each failure looks like from here:
   monarch-lavalink busybox chown -R 322:322 /opt/Lavalink/plugins && docker
   restart monarch-lavalink` (the compose file's `lavalink-perms` job does this on
   a fresh stack — see the Docker section at the bottom).
+- node crash-loops with `FileNotFoundException: .../youtube-plugin/6579cdf/...jar` →
+  stale `YOUTUBE_PLUGIN_VERSION=6579cdf` in `.env` (snapshot hash that only exists
+  in snapshots repo). Delete that var from `.env`, clean plugins (`rm -rf
+  ~/.local/share/monarch-lavalink/plugins/*youtube*` or `docker volume rm
+  monarch-lavalink-plugins`), and restart. Config now pins `1.18.2` with explicit
+  `releases` repo.
 - `voice re-handshake failed` / a join that never starts → Discord never sent
   voice credentials, or the node refused them. The bot logs `voice credentials
   handed to the node` on success; if that line is missing after 15 s, look at
@@ -217,7 +223,7 @@ What each failure looks like from here:
 - `track exception on the node` / `track stuck on the node`, or a user-visible
   *"YouTube refused this video for the node's IP"* → the node's address is being
   rate-limited or the plugin is behind YouTube. Fix it node-side, in
-  `docker/lavalink/application.yml`: update `YOUTUBE_PLUGIN_VERSION`, reorder
+  `docker/lavalink/application.yml`: update youtube plugin version (now pinned to `1.18.2`), reorder
   `plugins.youtube.clients`, enable `lavalink.server.ratelimit` with an IPv6
   block, or turn on OAuth / a poToken (all commented out there, with links).
   A single failing track while others play is just that video (blocked,
