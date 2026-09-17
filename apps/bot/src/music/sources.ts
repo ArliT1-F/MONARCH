@@ -85,10 +85,24 @@ export function backendFailureMessage(error: unknown): string {
   const unreachable =
     error instanceof LavalinkError && (error.status === undefined || error.status >= 500);
   if (unreachable) {
+    const host = process.env.LAVALINK_HOST?.trim() || "localhost";
+    const port = process.env.LAVALINK_PORT?.trim() || "2333";
+    const nodes = process.env.LAVALINK_NODES?.trim() || `ws://${host}:${port}`;
+    const isLocal = nodes.includes("localhost") || nodes.includes("127.0.0.1") || host === "localhost" || nodes.includes("lavalink");
+    const fix = isLocal
+      ? `Start it with: \`docker compose -f docker/docker-compose.yml up -d lavalink\` (from repo root), ` +
+        `or \`cd docker && docker compose up -d lavalink\`. ` +
+        `Then check \`curl http://localhost:${port}/version\` and \`docker logs monarch-lavalink\`. ` +
+        `If 401, LAVALINK_PASSWORD in .env must match docker/lavalink/application.yml. ` +
+        `Run \`npm run music:check\` — docs/troubleshooting-music.md has the full checklist.`
+      : `The bot is configured for ${nodes} but can't reach it. ` +
+        `Make sure the node is up, reachable, and LAVALINK_NODES / LAVALINK_PASSWORD match its application.yml. ` +
+        `Run \`npm run music:check\` for diagnosis.`;
+
     return (
       "The music backend (Lavalink) isn't answering, so nothing can play right now. " +
       `Node says: ${detail} ` +
-      "Check that the node is running and that LAVALINK_NODES / LAVALINK_PASSWORD match its application.yml."
+      fix
     );
   }
   return `The music node couldn't load that: ${detail}`;

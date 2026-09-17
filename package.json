@@ -18,7 +18,11 @@
     "db:migrate": "prisma migrate deploy",
     "db:dev": "prisma migrate dev",
     "db:push": "prisma db push",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "music:check": "node scripts/check-lavalink.mjs",
+    "music:up": "docker compose -f docker/docker-compose.yml up -d lavalink",
+    "music:logs": "docker logs monarch-lavalink -f",
+    "music:down": "docker compose -f docker/docker-compose.yml down"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",

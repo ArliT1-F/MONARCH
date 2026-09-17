@@ -484,8 +484,12 @@ export class LavalinkNode extends EventEmitter {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
     } catch (error) {
+      const hint =
+        this.host === "localhost" || this.host === "127.0.0.1" || this.host === "lavalink"
+          ? ` Start it with: docker compose -f docker/docker-compose.yml up -d lavalink (repo root) or deploy/laptop-install.sh. Check curl http://localhost:${this.port}/version and docker logs monarch-lavalink.`
+          : ` Check that ${this.host}:${this.port} is reachable and LAVALINK_PASSWORD matches its application.yml.`;
       throw new LavalinkError(
-        `Couldn't reach the Lavalink node at ${this.host}:${this.port} (${String(error).slice(0, 120)}).`,
+        `Couldn't reach the Lavalink node at ${this.host}:${this.port} (${String(error).slice(0, 120)}).${hint}`,
         undefined,
         this.name,
       );
@@ -669,10 +673,14 @@ export class LavalinkManager extends EventEmitter {
     return new Promise<LavalinkNode>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.off("nodeReady", onReady);
+        const hint =
+          this.nodes.some((n) => n.host === "localhost" || n.host === "127.0.0.1" || n.host === "lavalink") ||
+          this.nodes.length === 0
+            ? " Start it: docker compose -f docker/docker-compose.yml up -d lavalink (repo root) or ./deploy/laptop-install.sh. Then curl http://localhost:2333/version and check docker logs monarch-lavalink / journalctl -u monarch-lavalink. Also verify LAVALINK_PASSWORD matches docker/lavalink/application.yml."
+            : " Check LAVALINK_NODES / LAVALINK_PASSWORD and that the node is reachable.";
         reject(
           new LavalinkError(
-            `No Lavalink node answered within ${Math.round(timeoutMs / 1000)}s (${this.describe()}). ` +
-              "Is the node running, and do LAVALINK_NODES / LAVALINK_PASSWORD match its application.yml?",
+            `No Lavalink node answered within ${Math.round(timeoutMs / 1000)}s (${this.describe()}).` + hint,
           ),
         );
       }, timeoutMs);

@@ -415,6 +415,7 @@ describe("node selection", () => {
     await vi.advanceTimersByTimeAsync(600);
     const error = await pending;
     expect(error).toBeInstanceOf(LavalinkError);
-    expect(String(error)).toMatch(/Is the node running/);
+    // Message now includes actionable docker command; keep assertion flexible.
+    expect(String(error)).toMatch(/No Lavalink node answered|Start it:|LAVALINK_NODES/);
   });
 });

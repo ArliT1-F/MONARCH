@@ -155,6 +155,24 @@ function createClient(intents: number[]): Client {
       prefixCommands: messageContentEnabled,
       music: lavalink.describe(),
     });
+
+    // If no node comes up, surface the exact fix in logs — the /music command
+    // already says it in Discord, but operators tailing the bot logs need it too.
+    setTimeout(() => {
+      if (lavalink.connectedNodes.length === 0) {
+        const nodes = lavalink.nodes.map((n) => `${n.host}:${n.port}`).join(", ");
+        log.warn("no Lavalink node connected after boot", {
+          nodes: lavalink.describe(),
+          hint:
+            `Couldn't reach ${nodes}. Start the bundled node with: ` +
+            `docker compose -f docker/docker-compose.yml up -d lavalink (from repo root) ` +
+            `or ./deploy/laptop-install.sh. Then curl http://localhost:2333/version and check ` +
+            `docker logs monarch-lavalink or journalctl --user -u monarch-lavalink. ` +
+            `If 401, LAVALINK_PASSWORD in .env must match docker/lavalink/application.yml. ` +
+            `Run npm run music:check for a full diagnosis.`,
+        });
+      }
+    }, 12_000).unref?.();
   });
   // Surface gateway trouble instead of letting an EventEmitter "error" event
   // take the whole worker down (discord.js reconnects on its own).
