@@ -3,7 +3,6 @@ import {
   SkipElector,
   canForceSkip,
   formatDuration,
-  lavalinkVolume,
   progressBar,
   DEFAULT_DJ_ROLE_NAMES,
   DEFAULT_STAFF_ROLE_NAMES,
@@ -11,73 +10,40 @@ import {
   type Track,
 } from "@monarch/music";
 import { createLogger } from "@monarch/shared";
-import type {
-  APIEmbed,
-  Client,
-  Guild,
-  GuildMember,
-  VoiceBasedChannel,
-  VoiceState,
-} from "discord.js";
+import type { APIEmbed, Client, Guild, GuildMember, VoiceBasedChannel, VoiceState } from "discord.js";
 import {
-  LavalinkError,
-  getLavalink,
-  type LavalinkManager,
-  type LavalinkNode,
+  AudioError,
+  DiscordAudioBackend,
+  type AudioBackend,
   type TrackEndReason,
-} from "./lavalink.js";
-import { SourceError, backendFailureMessage, ensurePlayable, musicLimits } from "./sources.js";
+} from "./audio.js";
+import { SourceError, ensurePlayable, isDownloaderFailure, musicLimits } from "./sources.js";
 
 /**
- * The voice layer: one Lavalink player per guild, driven by the pure
+ * The voice layer: one audio session per guild, driven by the pure
  * `MusicQueue` from @monarch/music.
  *
- * This process never touches audio. It joins the voice channel on Discord's
- * gateway (op 4), hands the resulting voice credentials to a Lavalink node,
- * and then tells that node what to play. The node owns the UDP socket, the
- * source extraction and the decoding — which is why a song no longer stops
- * early when *this* process hiccups, and why the worker needs no ffmpeg, no
- * Opus encoder and no outbound UDP of its own.
+ * Audio runs *in this process* — yt-dlp fetches the bytes, ffmpeg (when
+ * present) turns them into PCM so volume works, and @discordjs/voice owns the
+ * UDP socket to Discord. There is no Lavalink node, no Java and no second
+ * service to babysit: `npm install` plus the bot token is the whole setup.
  *
  * The queue rules, skip votes and role policy stay in @monarch/music; this
- * file is the adapter between them and the node's REST/WebSocket protocol.
+ * file is the adapter that turns them into Discord voice, and {@link AudioBackend}
+ * is the seam that keeps that adapter testable without a voice socket.
  */
 const log = createLogger("bot.music");
 
 const EMPTY_CHANNEL_LEAVE_MS = 60_000; // alone in voice → leave after this
 const IDLE_LEAVE_MS = 5 * 60_000; // nothing playing → leave after this
 const MAX_CONSECUTIVE_FAILURES = 3;
-/** How long Discord gets to hand out voice credentials after we join. */
-const VOICE_HANDSHAKE_TIMEOUT_MS = 15_000;
-/**
- * Op 4 asks Discord for a voice *session*, and Discord only answers with a
- * fresh `VOICE_SERVER_UPDATE` (the token/endpoint half) when it opens one.
- * Asking for the channel the bot is already in changes nothing, so the answer
- * is the state half alone — or nothing at all — and the server half we wait on
- * never comes. Rather than sit out the whole handshake timeout and then blame
- * permissions for a join that actually worked, give Discord this long and then
- * ask for a genuinely new session (see `forceNewVoiceSession`).
- */
-const VOICE_SERVER_GRACE_MS = 2_500;
-/** How long Discord gets to confirm the leave that precedes a forced re-join. */
-const VOICE_LEAVE_TIMEOUT_MS = 2_500;
-/** Beat between that leave and the re-join, so the two can't read as one no-op. */
-const VOICE_REJOIN_DELAY_MS = 750;
 /**
  * If a track ends more than this far before its known length, say so. With a
- * node doing the streaming this should not happen — when it does, the cause is
- * on the node (a throttled source, an old youtube-source plugin), and the
- * announcement points there instead of silently skipping ahead.
+ * local downloader this is rare — when it does happen the cause is almost
+ * always on the source side (a throttle, a blocked IP, an expired extractor),
+ * and the announcement points there instead of silently skipping ahead.
  */
 const PREMATURE_EARLY_MS = 15_000;
-
-/** Resolve after `ms`. Timers are unref'd: nothing pending here holds the loop open. */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
-  });
-}
 
 /** Announcements the manager posts to the guild's music text channel. */
 export type Announce = (guildId: string, embed: APIEmbed, content?: string) => void;
@@ -98,55 +64,16 @@ export function musicManagerConfigFromEnv(): MusicManagerConfig {
   };
 }
 
-/** A gateway packet we forward to the node (VOICE_*_UPDATE). */
-export interface RawVoicePacket {
-  t?: string | null;
-  d?: {
-    guild_id?: string;
-    channel_id?: string | null;
-    user_id?: string;
-    session_id?: string;
-    token?: string;
-    endpoint?: string | null;
-  } | null;
-}
-
 interface GuildPlayback {
   queue: MusicQueue;
   elector: SkipElector;
-  /** The node this guild plays through (kept stable for the whole session). */
-  node: LavalinkNode | null;
   voiceChannelId: string | null;
   textChannelId: string | null;
   volume: number; // 0–150
-  /** Discord voice handshake, collected from the gateway and sent to the node. */
-  voiceSessionId: string | null;
-  voiceServer: { token: string; endpoint: string } | null;
-  /** Signature of the voice payload already on the node, so we don't re-send. */
-  voiceSent: string | null;
-  /** The channel a pending join is waiting for (null when no join is pending). */
-  voiceJoining: string | null;
-  /**
-   * Did the join put the bot in the channel — Discord's own answer, or (when it
-   * answered nothing) the channel the gateway cache has us sitting in? Three
-   * different failures share one 15 s timeout, and the reply has to say which.
-   */
-  voiceAnswered: boolean;
-  /** True while we deliberately leave to force a new voice session. */
-  voiceForcing: boolean;
-  /** Fires when Discord answered a join without the voice-server half. */
-  voiceRetry: NodeJS.Timeout | null;
-  /** Resolves when Discord confirms the leave that precedes a forced re-join. */
-  voiceLeaveWaiter: { resolve: () => void; timer: NodeJS.Timeout } | null;
-  voiceWaiters: Array<{ resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>;
-  /** Playback clock, seeded from the node's `playerUpdate` frames. */
-  lastPosition: { position: number; time: number } | null;
   playing: boolean;
   paused: boolean;
   skipping: boolean;
   stopping: boolean;
-  /** true while we intentionally re-join to follow a channel move or a node restart. */
-  following: boolean;
   advancing: boolean;
   failStreak: number;
   leaveTimer: NodeJS.Timeout | null;
@@ -154,16 +81,14 @@ interface GuildPlayback {
 
 export class MusicManager {
   private readonly sessions = new Map<string, GuildPlayback>();
-  /** Player deletions still in flight; `shutdown()` waits for these. */
-  private readonly pendingDestroys = new Set<Promise<void>>();
 
   constructor(
     private readonly client: Client,
     private readonly announce: Announce,
     private readonly config: MusicManagerConfig = musicManagerConfigFromEnv(),
-    private readonly lavalink: LavalinkManager = getLavalink(),
+    private readonly backend: AudioBackend = new DiscordAudioBackend(),
   ) {
-    this.wireLavalink();
+    this.wireBackend();
   }
 
   // ── session plumbing ──────────────────────────────────────────────
@@ -175,25 +100,13 @@ export class MusicManager {
     const s: GuildPlayback = {
       queue: new MusicQueue(),
       elector: new SkipElector(),
-      node: null,
       voiceChannelId: null,
       textChannelId: null,
       volume: 100,
-      voiceSessionId: null,
-      voiceServer: null,
-      voiceSent: null,
-      voiceJoining: null,
-      voiceAnswered: false,
-      voiceForcing: false,
-      voiceRetry: null,
-      voiceLeaveWaiter: null,
-      voiceWaiters: [],
-      lastPosition: null,
       playing: false,
       paused: false,
       skipping: false,
       stopping: false,
-      following: false,
       advancing: false,
       failStreak: 0,
       leaveTimer: null,
@@ -202,119 +115,39 @@ export class MusicManager {
     return s;
   }
 
-  /** Route the node's events into this manager. Wired once, in the constructor. */
-  private wireLavalink(): void {
-    this.lavalink.on("trackStart", ({ guildId, track }) => {
-      const s = this.sessions.get(guildId);
-      if (!s) return;
-      s.playing = true;
-      s.paused = false;
-      s.lastPosition = { position: track.info.position ?? 0, time: Date.now() };
-      log.info("track started on the node", {
-        guildId,
-        track: track.info.title,
-        identifier: track.info.identifier,
-        source: track.info.sourceName,
-        durationMs: track.info.length,
-      });
-    });
-
-    this.lavalink.on("trackEnd", ({ guildId, track, reason, node }) => {
+  /** Route the audio backend's events into this manager. Wired once, in the constructor. */
+  private wireBackend(): void {
+    this.backend.on("trackEnd", ({ guildId, trackId, reason, elapsedMs, error }) => {
       const s = this.sessions.get(guildId);
       if (!s) return; // torn down; a late event is not our business
-      s.playing = false;
       const current = s.queue.nowPlaying();
-      const userId = (track?.userData as { id?: string } | undefined)?.id;
-      // Ignore the tail of a track we already moved on from (a `loadFailed`
-      // arriving after the next one started, for example).
-      if (current && userId && userId !== current.id) {
-        log.info("ignoring a stale track end", { guildId, reason, stale: userId, current: current.id });
+      // Ignore the tail of a track we already moved on from (a failure event
+      // arriving after the next track started, for example).
+      if (current && trackId && trackId !== current.id) {
+        log.info("ignoring a stale track end", { guildId, reason, stale: trackId, current: current.id });
         return;
       }
-      log.info("track ended", { guildId, node: node.name, reason, track: track?.info?.title ?? current?.title ?? null });
-      void this.onTrackEnd(guildId, s, reason);
-    });
-
-    this.lavalink.on("trackException", ({ guildId, track, exception }) => {
-      const s = this.sessions.get(guildId);
-      if (!s) return;
-      log.warn("track exception on the node", {
+      s.playing = false;
+      log.info("track ended", {
         guildId,
-        track: track?.info?.title ?? s.queue.nowPlaying()?.title,
-        severity: exception?.severity,
-        message: exception?.message?.slice(0, 300),
-        cause: exception?.cause?.slice(0, 300),
+        reason,
+        track: current?.title ?? null,
+        elapsedMs: Math.round(elapsedMs),
+        ...(reason === "finished" ? {} : { error: error ?? null }),
       });
-      // The node follows an exception with TrackEndEvent(loadFailed), which is
-      // where the queue advances — announcing here, advancing there, keeps it
-      // to exactly one skip.
-      const message = exception?.message?.trim();
-      this.announceFailure(
-        guildId,
-        message && message.length > 0
-          ? `**${track?.info?.title ?? s.queue.nowPlaying()?.title ?? "That track"}** couldn't be played: ${message}`
-          : "That track couldn't be played (the node reported an error).",
-      );
+      void this.onTrackEnd(guildId, s, reason, elapsedMs, error);
     });
 
-    this.lavalink.on("trackStuck", ({ guildId, track, thresholdMs }) => {
+    this.backend.on("voiceClosed", ({ guildId, reason }) => {
       const s = this.sessions.get(guildId);
-      if (!s) return;
-      log.warn("track stuck on the node", { guildId, track: track?.info?.title ?? null, thresholdMs });
-      // Stuck means no frames are going out: the node ends the track too, but
-      // don't leave a silent voice channel waiting on that — advance now.
-      this.announceFailure(guildId, "Playback stalled (the node stopped sending audio) — skipping ahead.");
-      s.skipping = true;
-      void this.playNext(guildId, "stuck");
-    });
-
-    this.lavalink.on("playerUpdate", ({ guildId, state }) => {
-      const s = this.sessions.get(guildId);
-      if (!s) return;
-      s.lastPosition = { position: state.position, time: state.time || Date.now() };
-      if (state.connected === false && s.playing) {
-        log.warn("node reports the voice connection is down", { guildId, position: state.position });
-      }
-    });
-
-    this.lavalink.on("voiceSocketClosed", ({ guildId, code, reason, byRemote }) => {
-      const s = this.sessions.get(guildId);
-      log.warn("node lost the Discord voice socket", { guildId, code, reason, byRemote });
-      if (!s || s.stopping || s.following || s.voiceForcing) return;
-      // Mid-rebuild (a channel move, a node restart, a forced re-join) the old
-      // voice socket is *supposed* to die: `voiceSent` is null until the new
-      // handshake lands.
-      if (!s.voiceSent) return;
-      if (code === 4014 && byRemote) {
-        // Disconnected by a human, or the channel went away.
-        log.info("the node was disconnected from voice", { guildId, code, reason });
-        this.teardown(guildId, false);
-        return;
-      }
-      if (code === 4006 || code === 4007 || code === 4009) {
-        // Session invalid / expired handshake: join again and resume where we were.
-        void this.rehandshake(guildId, `voice socket closed (${code})`);
-      }
-    });
-
-    this.lavalink.on("nodeDisconnect", ({ node }) => {
-      log.warn("lavalink node disconnected", { node: node.name, guilds: node.assignedGuilds.size });
-    });
-
-    this.lavalink.on("nodeReconnect", ({ node, resumed }) => {
-      log.info("lavalink node reconnected", { node: node.name, resumed, guilds: node.assignedGuilds.size });
-      if (resumed) return; // the node kept our players; nothing to rebuild
-      // A fresh session means every player on it is gone: rebuild them, or the
-      // guilds on that node sit in a silent voice channel forever.
-      for (const guildId of [...this.sessions.keys()]) {
-        const s = this.sessions.get(guildId);
-        if (!s || s.stopping || s.node?.name !== node.name) continue;
-        void this.recover(guildId, node);
-      }
-    });
-
-    this.lavalink.on("nodeError", ({ node, error }) => {
-      log.warn("lavalink node error", { node: node.name, error: String(error).slice(0, 300) });
+      log.warn("voice connection lost", { guildId, reason, wasActive: Boolean(s) });
+      if (!s || s.stopping) return;
+      this.announce(guildId, {
+        color: 0xed4245,
+        title: "🔌 Voice connection lost",
+        description: `${reason} — run \`/music play\` to start again.`,
+      });
+      this.teardown(guildId, false);
     });
   }
 
@@ -341,38 +174,37 @@ export class MusicManager {
   // ── track endings ──────────────────────────────────────────────────
 
   /**
-   * One place decides what a track ending means. Lavalink's `reason` is the
-   * whole story: `finished` and `loadFailed` move the queue on, `stopped` is
-   * ours (a skip or a teardown), `replaced`/`cleanup` are bookkeeping.
+   * One place decides what a track ending means: `finished` and `failed` move
+   * the queue on, `stopped` is ours (a skip or a teardown).
    */
-  private async onTrackEnd(guildId: string, s: GuildPlayback, reason: TrackEndReason): Promise<void> {
+  private async onTrackEnd(
+    guildId: string,
+    s: GuildPlayback,
+    reason: TrackEndReason,
+    elapsedMs: number,
+    error?: string,
+  ): Promise<void> {
     const wasSkipping = s.skipping;
     s.skipping = false;
 
-    if (reason === "replaced" || reason === "cleanup") return;
     if (reason === "stopped") {
-      if (!wasSkipping) return; // teardown or a node rebuild already owns this
+      if (!wasSkipping) return; // teardown already owns this
       await this.playNext(guildId, "skipped");
       return;
     }
 
     const finishedTrack = s.queue.nowPlaying();
-    const elapsed = this.positionMs(guildId);
     const expected = finishedTrack?.durationMs ?? null;
 
-    if (reason === "loadFailed") {
+    if (reason === "failed") {
       s.failStreak += 1;
       this.announceFailure(
         guildId,
-        `**${finishedTrack?.title ?? "That track"}** couldn't be loaded by the music node — skipping ahead.`,
+        error ??
+          `**${finishedTrack?.title ?? "That track"}** couldn't be played — skipping ahead.`,
       );
       if (s.failStreak >= MAX_CONSECUTIVE_FAILURES) {
-        this.announce(guildId, {
-          color: 0xed4245,
-          title: "⏹ Giving up",
-          description: `${MAX_CONSECUTIVE_FAILURES} tracks in a row failed. Use \`/music play\` to start again.`,
-        });
-        this.teardown(guildId, false);
+        await this.giveUp(guildId);
         return;
       }
       await this.playNext(guildId, "load-failed");
@@ -380,6 +212,7 @@ export class MusicManager {
     }
 
     // `finished`.
+    const elapsed = Math.round(elapsedMs);
     const wasPremature = expected !== null && elapsed > 0 && elapsed + PREMATURE_EARLY_MS < expected;
     if (finishedTrack) {
       if (wasPremature) {
@@ -391,15 +224,15 @@ export class MusicManager {
           expectedMs: expected,
           elapsed: formatDuration(elapsed),
           expected: formatDuration(expected),
-          reason,
         });
         this.announce(guildId, {
           color: 0xed4245,
           title: "⚠️ Track cut short",
           description:
             `**${finishedTrack.title}** stopped at \`${formatDuration(elapsed)}\` but should be \`${formatDuration(expected)}\`.\n` +
-            "The audio node reported the track as finished, so this is on its side: update the node and its " +
-            "youtube-source plugin, or enable IP rotation / a YouTube cookie in its `application.yml`. Skipping ahead.",
+            "The stream ended early on the source's side — usually YouTube throttling or blocking the bot's IP. " +
+            "A `cookies.txt` for YouTube (`YTDLP_COOKIES`), an up-to-date yt-dlp, or a different host fixes it " +
+            "(see `docs/troubleshooting-music.md`). Skipping ahead.",
         });
       } else {
         log.info("track finished", {
@@ -418,11 +251,20 @@ export class MusicManager {
     await this.playNext(guildId, wasSkipping ? "skipped" : "finished");
   }
 
+  private async giveUp(guildId: string): Promise<void> {
+    this.announce(guildId, {
+      color: 0xed4245,
+      title: "⏹ Giving up",
+      description: `${MAX_CONSECUTIVE_FAILURES} tracks in a row failed. Use \`/music play\` to start again.`,
+    });
+    this.teardown(guildId, false);
+  }
+
   // ── playback ───────────────────────────────────────────────────────
 
   /**
-   * Pull the next track and hand it to the node. `why` only feeds the logs.
-   * When the queue runs dry the bot stays connected for a few minutes
+   * Pull the next track and hand it to the audio backend. `why` only feeds the
+   * logs. When the queue runs dry the bot stays connected for a few minutes
    * (IDLE_LEAVE_MS) in case someone queues more, then leaves.
    */
   private async playNext(guildId: string, why: string): Promise<void> {
@@ -438,7 +280,6 @@ export class MusicManager {
           s.playing = false;
           s.paused = false;
           s.queue.setPaused(false);
-          s.lastPosition = null;
           this.scheduleIdleLeave(guildId, s);
           log.info("queue drained", { guildId, why });
           return;
@@ -450,33 +291,23 @@ export class MusicManager {
           // queuing a 200-track playlist stayed instant.
           await ensurePlayable(track);
           if (s.stopping || this.sessions.get(guildId) !== s) return;
-          await this.lavalink.whenReady(VOICE_HANDSHAKE_TIMEOUT_MS);
           await this.ensureVoice(guildId, s);
           if (s.stopping || this.sessions.get(guildId) !== s) return;
 
-          s.node = this.lavalink.nodeOf(guildId) ?? s.node;
-          await this.lavalink.play(guildId, track.encoded!, {
-            volume: lavalinkVolume(s.volume),
-            userData: { id: track.id, requestedBy: track.requestedBy },
-          });
+          await this.backend.play(guildId, track);
         } catch (e) {
           if (s.stopping || this.sessions.get(guildId) !== s) return;
           s.failStreak += 1;
-          log.warn("track could not be handed to the node", { guildId, track: track.title, error: String(e) });
+          log.warn("track could not be played", { guildId, track: track.title, error: String(e).slice(0, 300) });
           const message =
-            e instanceof SourceError
+            e instanceof SourceError || e instanceof AudioError
               ? e.message
-              : e instanceof LavalinkError
-                ? backendFailureMessage(e)
+              : isDownloaderFailure(e)
+                ? String(e instanceof Error ? e.message : e)
                 : `**${track.title}** couldn't be played.`;
           this.announceFailure(guildId, message);
           if (s.failStreak >= MAX_CONSECUTIVE_FAILURES) {
-            this.announce(guildId, {
-              color: 0xed4245,
-              title: "⏹ Giving up",
-              description: `${MAX_CONSECUTIVE_FAILURES} tracks in a row failed. Use \`/music play\` to start again.`,
-            });
-            this.teardown(guildId, false);
+            await this.giveUp(guildId);
             return;
           }
           // Keep the advancement lock, but never loop an unavailable track.
@@ -488,13 +319,11 @@ export class MusicManager {
         s.playing = true;
         s.paused = false;
         s.queue.setPaused(false);
-        s.lastPosition = { position: 0, time: Date.now() };
         log.info("now playing", {
           guildId,
           track: track.title,
           videoId: track.videoId,
           source: track.sourceName ?? track.sourceKind,
-          node: s.node?.name,
           durationMs: track.durationMs,
           duration: track.durationMs ? formatDuration(track.durationMs) : "unknown",
           spotify: track.sourceKind === "spotify",
@@ -525,26 +354,20 @@ export class MusicManager {
     s.leaveTimer.unref?.();
   }
 
-  /** Stop everything, free the node's player and disconnect. Announces unless `silent`. */
+  /** Stop everything, close the voice connection and clear the queue. */
   teardown(guildId: string, announceLeft = true): void {
     const s = this.sessions.get(guildId);
     if (!s) return;
     s.stopping = true;
     this.cancelLeaveTimer(s);
-    this.rejectVoiceWaiters(s, new SourceError("Playback was stopped."));
     s.queue.clear();
     s.elector.reset(guildId);
     s.playing = false;
     s.paused = false;
-    // A /music stop must not block on the node, so this is fire-and-forget —
-    // but it is *tracked*: shutdown() waits for the deletes to leave the
-    // process before the worker exits (see below).
-    const destroy = this.lavalink.destroyPlayer(guildId).catch(() => undefined);
-    this.pendingDestroys.add(destroy);
-    void destroy.finally(() => this.pendingDestroys.delete(destroy));
-    const guild = this.guild(guildId);
-    if (guild && !s.following) this.sendVoiceState(guild, null); // leave the channel on Discord
+    // Leave synchronously (Discord must see the disconnect promptly) …
+    this.backend.leave(guildId);
     this.sessions.delete(guildId);
+    // … and let shutdown() know there is nothing left to wait on.
     if (announceLeft) {
       this.announce(guildId, {
         color: 0x99aab5,
@@ -555,16 +378,13 @@ export class MusicManager {
   }
 
   /**
-   * Worker shutdown: every guild stops, the node drops their players, and only
-   * then do the node sockets close. The SIGTERM handler awaits this (with a
-   * cap) because `process.exit()` right after `teardown()` would cut the REST
-   * deletes and the op-4 "leave voice" frames off mid-flight, leaving a player
-   * on the node per guild.
+   * Worker shutdown: every guild stops and the voice sockets close before the
+   * process exits. The SIGTERM handler awaits this (with a cap) so a redeploy
+   * doesn't leave the bot "in" a voice channel.
    */
   async shutdown(): Promise<void> {
     for (const guildId of [...this.sessions.keys()]) this.teardown(guildId, false);
-    await Promise.allSettled([...this.pendingDestroys]);
-    this.lavalink.stop();
+    await this.backend.shutdown();
   }
 
   // ── voice connection ──────────────────────────────────────────────
@@ -573,386 +393,50 @@ export class MusicManager {
     return this.client.guilds?.cache.get(guildId) ?? null;
   }
 
-  /**
-   * Join (or move to) a voice channel the Discord way — op 4 on the guild's
-   * shard. The node then gets the credentials Discord answers with; this
-   * process never opens a voice socket of its own.
-   */
-  private sendVoiceState(guild: Guild, channelId: string | null): void {
-    try {
-      guild.shard?.send({
-        op: 4,
-        d: { guild_id: guild.id, channel_id: channelId, self_mute: false, self_deaf: true },
-      });
-    } catch (error) {
-      log.error("could not send the voice state update", { guildId: guild.id, channelId, error: String(error) });
-    }
+  private channel(guildId: string): VoiceBasedChannel | null {
+    const channelId = this.sessions.get(guildId)?.voiceChannelId;
+    if (!channelId) return null;
+    const channel = this.client.channels?.cache.get(channelId);
+    if (!channel || !channel.isVoiceBased()) return null;
+    return channel;
   }
 
-  /** Join (or stay joined to) the member's voice channel, node-ready. */
+  /** Join (or stay in) the member's voice channel. */
   async connect(guildId: string, channel: VoiceBasedChannel): Promise<void> {
     const s = this.session(guildId);
     this.cancelLeaveTimer(s);
-    this.lavalink.start(this.client.user?.id ?? process.env.LAVALINK_USER_ID ?? "");
+    if (this.connectedChannelId(guildId) === channel.id && this.backend.isConnected(guildId)) return;
 
-    const guild = channel.guild ?? this.guild(guildId);
-    if (!guild) throw new SourceError("I can't see that server's gateway connection — try again in a moment.");
-
-    const moving = s.voiceChannelId !== null && s.voiceChannelId !== channel.id;
-    const alreadyJoined = !moving && s.voiceChannelId === channel.id && s.voiceSent !== null;
     s.voiceChannelId = channel.id;
-    if (alreadyJoined) return;
-
-    if (moving) {
-      // A channel move voids the voice credentials the node is holding: get
-      // fresh ones and put the current track back where it was.
-      await this.rehandshake(guildId, "channel move");
-      return;
-    }
-
-    await this.joinVoice(guildId, s, channel.id, guild);
-  }
-
-  /**
-   * Ask Discord for a voice session in `channelId` and wait for the credentials
-   * it answers with. The waiter is registered before anything awaits, so the
-   * packets can't land against a state nobody is listening to.
-   */
-  private async joinVoice(guildId: string, s: GuildPlayback, channelId: string, guild: Guild): Promise<void> {
-    s.voiceJoining = channelId;
-    s.voiceAnswered = false;
-    this.sendVoiceState(guild, channelId);
-    await this.waitForVoice(guildId, s);
-  }
-
-  /**
-   * Redo Discord's voice handshake and put the current track back where it was.
-   *
-   * One path for the three things that invalidate a voice connection: the bot
-   * was moved to another channel, Discord closed the node's voice socket with a
-   * dead-session code (4006/4007/4009), or the node restarted without resuming
-   * our session. In every case the answer is the same — join again on the
-   * gateway, hand the node the fresh credentials, and resume at the last known
-   * position instead of starting the song over. The player on the node is left
-   * alone on purpose: destroying it first would race the credentials we are
-   * about to send it.
-   */
-  private async rehandshake(guildId: string, why: string): Promise<void> {
-    const s = this.sessions.get(guildId);
-    if (!s || s.stopping || !s.voiceChannelId) return;
-    const guild = this.guild(guildId);
-    if (!guild) return;
-
-    const resumeAt = this.positionMs(guildId);
-    const current = s.queue.nowPlaying();
-    log.info("re-handshaking voice", {
-      guildId,
-      why,
-      channelId: s.voiceChannelId,
-      track: current?.title ?? null,
-      resumeAtMs: Math.round(resumeAt),
-    });
-
-    // Cleared before anything awaits: the old token is void, and the node's
-    // voice socket dying while we do this is expected (see voiceSocketClosed).
-    // If Discord refuses to create a new session for a channel the bot is
-    // already in, `armVoiceRetry` forces one by leaving and re-joining.
-    s.following = true;
-    s.voiceServer = null;
-    s.voiceSent = null;
     try {
-      await this.joinVoice(guildId, s, s.voiceChannelId, guild);
-      if (s.stopping) return;
-      if (current?.encoded) await this.resumeTrack(guildId, s, current, resumeAt);
+      await this.backend.join(guildId, channel);
     } catch (error) {
-      log.warn("voice re-handshake failed", { guildId, why, error: String(error).slice(0, 300) });
-      this.announceFailure(
-        guildId,
-        error instanceof Error ? error.message : "The voice connection dropped and couldn't be re-established.",
-      );
-      this.teardown(guildId, false);
-    } finally {
-      s.following = false;
-    }
-  }
-
-  /** Rebuild a guild's player after its node came back without resuming. */
-  private async recover(guildId: string, node: LavalinkNode): Promise<void> {
-    const s = this.sessions.get(guildId);
-    if (!s || s.stopping) return;
-    log.warn("node session was lost — rebuilding the player", {
-      guildId,
-      node: node.name,
-      track: s.queue.nowPlaying()?.title ?? null,
-      resumeAtMs: Math.round(this.positionMs(guildId)),
-    });
-    this.announce(guildId, {
-      color: 0x99aab5,
-      title: "🔁 Music node restarted",
-      description: s.queue.nowPlaying()
-        ? `Reconnecting — **${s.queue.nowPlaying()!.title}** picks back up where it left off.`
-        : "Reconnecting to the voice channel.",
-    });
-    s.node = node;
-    await this.rehandshake(guildId, "node session lost");
-  }
-
-  /** Put a track back on at `positionMs` (used after a move / node restart). */
-  private async resumeTrack(guildId: string, s: GuildPlayback, track: Track, positionMs: number): Promise<void> {
-    const position = Math.max(0, Math.round(positionMs));
-    await this.lavalink.updatePlayer(guildId, {
-      track: { encoded: track.encoded!, userData: { id: track.id, requestedBy: track.requestedBy } },
-      position: track.durationMs !== null && position >= track.durationMs ? 0 : position,
-      volume: lavalinkVolume(s.volume),
-      paused: s.paused,
-    });
-    s.playing = !s.paused;
-    s.lastPosition = { position, time: Date.now() };
-    log.info("resumed a track after a voice rebuild", { guildId, track: track.title, positionMs: position });
-  }
-
-  /**
-   * Wait until Discord's voice credentials have reached the node. Resolves
-   * immediately when they're already there.
-   */
-  private waitForVoice(guildId: string, s: GuildPlayback): Promise<void> {
-    if (this.voiceReady(s)) return Promise.resolve();
-    return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        s.voiceWaiters = s.voiceWaiters.filter((w) => w.timer !== timer);
-        this.endVoiceWait(s);
-        reject(this.voiceTimeoutError(s));
-      }, VOICE_HANDSHAKE_TIMEOUT_MS);
-      timer.unref?.();
-      s.voiceWaiters.push({ resolve, reject, timer });
-      // Credentials may already be complete but unsent (a node rebuild).
-      void this.flushVoice(guildId, s);
-      this.armVoiceRetry(guildId, s);
-    });
-  }
-
-  /** Do we hold both of Discord's halves — and has the node been given them? */
-  private voiceReady(s: GuildPlayback): boolean {
-    return Boolean(s.voiceSent && s.voiceSessionId && s.voiceServer && s.voiceChannelId);
-  }
-
-  /**
-   * A handshake that times out means two different things, and conflating them
-   * sends operators hunting for a permission problem that isn't there. If
-   * Discord answered with a session for the channel, the join itself worked —
-   * it just never offered a voice server, which is the half Discord skips when
-   * it has no new voice session to open.
-   */
-  private voiceTimeoutError(s: GuildPlayback): SourceError {
-    if (s.voiceAnswered && s.voiceChannelId) {
-      return new SourceError(
-        "Discord accepted the join but never handed over a voice server, so there were no credentials to give the music node. " +
-          "That is Discord's side of the handshake, not the bot's permissions — try again in a moment.",
-      );
-    }
-    return new SourceError(
-      "Discord didn't hand out voice credentials in time — I can join the channel but not talk in it. " +
-        "Check the bot's Connect/Speak permissions, then try again.",
-    );
-  }
-
-  /**
-   * Op 4 does not always produce both halves: when the bot is *already in that
-   * voice channel* Discord has no session to create, so it answers with the
-   * state half alone (or with nothing), and the `VOICE_SERVER_UPDATE` this
-   * waits on never arrives. Watch for that and ask for a genuinely new session
-   * instead of sitting out the handshake timeout.
-   */
-  private armVoiceRetry(guildId: string, s: GuildPlayback): void {
-    if (s.voiceRetry) return;
-    s.voiceRetry = setTimeout(() => {
-      s.voiceRetry = null;
-      if (s.stopping || this.sessions.get(guildId) !== s) return;
-      if (this.voiceReady(s) || s.voiceWaiters.length === 0 || !s.voiceJoining) return;
-      // Both halves are in hand and only the node's PATCH is outstanding: a new
-      // voice session would not make that any faster.
-      if (s.voiceSessionId && s.voiceServer) return;
-      void this.forceNewVoiceSession(guildId, s);
-    }, VOICE_SERVER_GRACE_MS);
-    s.voiceRetry.unref?.();
-  }
-
-  /**
-   * Leave the channel and join it again so Discord opens a *new* voice session
-   * and hands out a fresh token — the only way to get a `VOICE_SERVER_UPDATE`
-   * for a channel the bot is already sitting in.
-   *
-   * The leave is confirmed before the re-join: a join that races it leaves the
-   * net voice state unchanged, which is the exact no-op this exists to escape.
-   * The bot's own `VoiceStateUpdate` and the node's voice socket dying in the
-   * middle of it are expected (`voiceForcing`), not a disconnect to act on.
-   */
-  private async forceNewVoiceSession(guildId: string, s: GuildPlayback): Promise<void> {
-    const channelId = s.voiceJoining;
-    const guild = this.guild(guildId);
-    if (!guild || !channelId) return;
-    log.warn("Discord gave the join no voice server — forcing a new voice session", {
-      guildId,
-      channelId,
-      sessionId: s.voiceSessionId,
-      hadServer: Boolean(s.voiceServer),
-    });
-
-    // Whatever the node holds belongs to the session we are about to end.
-    s.voiceSent = null;
-    // Discord answered with the state half, or (when it answered nothing at all)
-    // the gateway cache knows the bot is in there: re-asking changes nothing, so
-    // the session has to be ended before a join can mean anything.
-    const alreadyThere = Boolean(s.voiceSessionId) || this.botVoiceChannelId(guildId) === channelId;
-    if (alreadyThere) {
-      s.voiceAnswered = true; // we are in the channel; this is not a permission problem
-      s.voiceForcing = true;
-      try {
-        await this.leaveVoice(guild, s);
-      } finally {
-        s.voiceForcing = false;
-      }
-      if (s.stopping || this.sessions.get(guildId) !== s) return;
-      // Someone gave up on the wait, or the bot is now joining somewhere else.
-      if (s.voiceWaiters.length === 0 || s.voiceJoining !== channelId || this.voiceReady(s)) return;
-      // The old session is gone: its session id, token and endpoint are void,
-      // and only the packets Discord sends for the new one will do.
-      s.voiceSessionId = null;
-      s.voiceServer = null;
-      await sleep(VOICE_REJOIN_DELAY_MS);
-      if (s.stopping || this.sessions.get(guildId) !== s) return;
-      if (s.voiceWaiters.length === 0 || s.voiceJoining !== channelId) return;
-    } else {
-      // Nothing came back and the bot isn't in that channel either, so there is
-      // no session to leave — the join request simply went unanswered. Ask again.
-      s.voiceServer = null;
-    }
-    log.info("re-joining the voice channel for fresh credentials", { guildId, channelId });
-    s.voiceChannelId = channelId;
-    this.sendVoiceState(guild, channelId);
-  }
-
-  /**
-   * Send "leave voice" and resolve once Discord confirms it — its own
-   * `VOICE_STATE_UPDATE` carrying a null channel id — or the cap runs out, so a
-   * silent Discord can't hang the caller.
-   */
-  private leaveVoice(guild: Guild, s: GuildPlayback): Promise<void> {
-    if (s.voiceLeaveWaiter) return Promise.resolve(); // a leave is already in flight
-    return new Promise<void>((resolve) => {
-      const timer = setTimeout(() => this.resolveLeaveWaiter(s), VOICE_LEAVE_TIMEOUT_MS);
-      timer.unref?.();
-      s.voiceLeaveWaiter = { resolve, timer };
-      this.sendVoiceState(guild, null);
-    });
-  }
-
-  private resolveLeaveWaiter(s: GuildPlayback): void {
-    const waiter = s.voiceLeaveWaiter;
-    if (!waiter) return;
-    s.voiceLeaveWaiter = null;
-    clearTimeout(waiter.timer);
-    waiter.resolve();
-  }
-
-  private cancelVoiceRetry(s: GuildPlayback): void {
-    if (!s.voiceRetry) return;
-    clearTimeout(s.voiceRetry);
-    s.voiceRetry = null;
-  }
-
-  /**
-   * The channel the gateway cache says the bot is sitting in. Discord's own
-   * packets are the better source, but they only arrive for a join it bothers
-   * to answer — this is what tells us to leave before re-joining when it
-   * answered nothing at all.
-   */
-  private botVoiceChannelId(guildId: string): string | null {
-    return this.guild(guildId)?.members?.me?.voice?.channelId ?? null;
-  }
-
-  /** Send the collected handshake to the node once it's complete. */
-  private async flushVoice(guildId: string, s: GuildPlayback): Promise<void> {
-    if (!s.voiceSessionId || !s.voiceServer || !s.voiceChannelId) return;
-    // The channel is part of the signature: a move that arrives with the same
-    // session and token still has to reach the node.
-    const signature = `${s.voiceSessionId}|${s.voiceChannelId}|${s.voiceServer.token}|${s.voiceServer.endpoint}`;
-    if (s.voiceSent === signature) {
-      this.resolveVoiceWaiters(s);
-      return;
-    }
-    try {
-      await this.lavalink.updateVoice(guildId, {
-        token: s.voiceServer.token,
-        endpoint: s.voiceServer.endpoint,
-        sessionId: s.voiceSessionId,
-        channelId: s.voiceChannelId,
-      });
-      s.voiceSent = signature;
-      s.node = this.lavalink.nodeOf(guildId) ?? s.node;
-      log.info("voice credentials handed to the node", {
-        guildId,
-        node: s.node?.name,
-        channelId: s.voiceChannelId,
-        endpoint: s.voiceServer.endpoint,
-      });
-      this.resolveVoiceWaiters(s);
-    } catch (error) {
-      s.voiceSent = null;
-      log.error("could not hand voice credentials to the node", { guildId, error: String(error).slice(0, 300) });
-      this.rejectVoiceWaiters(
-        s,
-        new SourceError(
-          error instanceof LavalinkError ? backendFailureMessage(error) : "The music node refused the voice connection.",
-        ),
-      );
-    }
-  }
-
-  /** The wait is over: forget the join attempt and let the waiters through. */
-  private endVoiceWait(s: GuildPlayback): void {
-    s.voiceJoining = null;
-    this.cancelVoiceRetry(s);
-    this.resolveLeaveWaiter(s);
-  }
-
-  private resolveVoiceWaiters(s: GuildPlayback): void {
-    this.endVoiceWait(s);
-    const waiters = s.voiceWaiters;
-    s.voiceWaiters = [];
-    for (const waiter of waiters) {
-      clearTimeout(waiter.timer);
-      waiter.resolve();
-    }
-  }
-
-  private rejectVoiceWaiters(s: GuildPlayback, error: Error): void {
-    this.endVoiceWait(s);
-    const waiters = s.voiceWaiters;
-    s.voiceWaiters = [];
-    for (const waiter of waiters) {
-      clearTimeout(waiter.timer);
-      waiter.reject(error);
+      // The command layer shows SourceError text to the user verbatim.
+      throw error instanceof AudioError ? new SourceError(error.message) : error;
     }
   }
 
   /**
-   * Make sure the node has a voice connection before we ask it to play.
-   * Called on every track start so a lost handshake is rebuilt, not ignored.
+   * Make sure voice is up before a track starts. Called on every track start,
+   * so a dropped connection is rebuilt instead of silently swallowing audio.
    */
   private async ensureVoice(guildId: string, s: GuildPlayback): Promise<void> {
-    if (this.voiceReady(s)) return;
+    if (this.backend.isConnected(guildId)) return;
     if (!s.voiceChannelId) throw new SourceError("I'm not in a voice channel — join one and run the command again.");
-    const guild = this.guild(guildId);
-    if (!guild) throw new SourceError("I lost sight of that server — try again in a moment.");
-    await this.joinVoice(guildId, s, s.voiceChannelId, guild);
+    const channel = this.channel(guildId);
+    if (!channel) throw new SourceError("I lost sight of that voice channel — join one and try again.");
+    try {
+      await this.backend.join(guildId, channel);
+    } catch (error) {
+      throw error instanceof AudioError ? new SourceError(error.message) : error;
+    }
   }
 
   // ── public state ──────────────────────────────────────────────────
 
   /** The voice channel the bot is (or is about to be) in for this guild. */
   connectedChannelId(guildId: string): string | null {
-    return this.sessions.get(guildId)?.voiceChannelId ?? null;
+    return this.backend.connectedChannelId(guildId) ?? this.sessions.get(guildId)?.voiceChannelId ?? null;
   }
 
   /** Is anything playing or queued here? */
@@ -970,9 +454,14 @@ export class MusicManager {
     return this.sessions.get(guildId)?.textChannelId ?? null;
   }
 
-  /** Which node a guild is playing through — for logs and diagnostics. */
-  nodeName(guildId: string): string | null {
-    return this.sessions.get(guildId)?.node?.name ?? null;
+  /** One line about the audio pipeline — for logs and `/music status`. */
+  audioDescription(): string {
+    return this.backend.describe();
+  }
+
+  /** Can this bot change volume while a track plays? */
+  get supportsVolume(): boolean {
+    return this.backend.supportsVolume;
   }
 
   // ── playback controls ─────────────────────────────────────────────
@@ -997,20 +486,20 @@ export class MusicManager {
   pause(guildId: string): boolean {
     const s = this.sessions.get(guildId);
     if (!s || !s.playing || s.paused) return false;
+    if (!this.backend.pause(guildId, true)) return false;
     s.paused = true;
     s.playing = false;
     s.queue.setPaused(true);
-    void this.lavalink.pause(guildId, true).catch((error) => this.controlFailed(guildId, "pause", error));
     return true;
   }
 
   resume(guildId: string): boolean {
     const s = this.sessions.get(guildId);
     if (!s || !s.paused) return false;
+    if (!this.backend.pause(guildId, false)) return false;
     s.paused = false;
     s.playing = true;
     s.queue.setPaused(false);
-    void this.lavalink.pause(guildId, false).catch((error) => this.controlFailed(guildId, "resume", error));
     return true;
   }
 
@@ -1024,22 +513,23 @@ export class MusicManager {
     if (!s || !s.queue.nowPlaying()) return false;
     s.elector.reset(guildId);
     s.skipping = true;
-    // The node answers with TrackEndEvent(stopped), which advances the queue.
-    void this.lavalink.stopTrack(guildId).catch(async (error) => {
-      log.warn("skip did not reach the node", { guildId, error: String(error).slice(0, 300) });
-      const session = this.sessions.get(guildId);
-      if (!session) return;
-      session.skipping = false;
-      await this.playNext(guildId, "skip-after-error");
-    });
+    // The backend answers with a `stopped` end event, which advances the queue.
+    // If the stop somehow doesn't land (no live player), advance directly.
+    const playing = s.playing || s.paused;
+    this.backend.stop(guildId);
+    if (!playing) {
+      s.skipping = false;
+      void this.playNext(guildId, "skip-no-player");
+    }
     return true;
   }
 
-  setVolume(guildId: string, percent: number): void {
+  /** Records the volume. Returns false when the pipeline can't apply it. */
+  setVolume(guildId: string, percent: number): boolean {
     const s = this.session(guildId);
     s.volume = percent;
-    // Applied live to whatever the node is playing.
-    void this.lavalink.setVolume(guildId, lavalinkVolume(percent)).catch((error) => this.controlFailed(guildId, "volume", error));
+    this.backend.setVolume(guildId, percent);
+    return this.backend.supportsVolume;
   }
 
   getVolume(guildId: string): number {
@@ -1050,21 +540,9 @@ export class MusicManager {
     return this.session(guildId).queue;
   }
 
-  /** How far into the current track we are, from the node's own clock. */
+  /** How far into the current track we are (the backend owns the clock). */
   positionMs(guildId: string): number {
-    const s = this.sessions.get(guildId);
-    if (!s) return 0;
-    const base = s.lastPosition?.position ?? 0;
-    if (!s.lastPosition || s.paused || !s.playing) return base;
-    return base + Math.max(0, Date.now() - s.lastPosition.time);
-  }
-
-  private controlFailed(guildId: string, what: string, error: unknown): void {
-    log.warn("playback control did not reach the node", { guildId, what, error: String(error).slice(0, 300) });
-    this.announceFailure(
-      guildId,
-      error instanceof LavalinkError ? backendFailureMessage(error) : `The music node didn't accept the ${what} command.`,
-    );
+    return this.backend.positionMs(guildId);
   }
 
   // ── skip votes ────────────────────────────────────────────────────
@@ -1108,47 +586,10 @@ export class MusicManager {
   // ── gateway events (wired from index.ts) ──────────────────────────
 
   /**
-   * Raw gateway packets carry the two things Lavalink needs and discord.js
-   * doesn't expose as events: our voice `session_id` and the voice server's
-   * `token`/`endpoint`. Everything else about voice states comes through the
-   * typed handler below.
+   * Voice states drive two things: the empty-room timer, and noticing that
+   * Discord moved the bot somewhere (the connection follows on its own; this
+   * keeps our bookkeeping, and `/music play`'s "join me there" check, honest).
    */
-  handleRawPacket(packet: RawVoicePacket): void {
-    const type = packet?.t;
-    const data = packet?.d;
-    if (!type || !data?.guild_id) return;
-    const guildId = data.guild_id;
-
-    if (type === "VOICE_STATE_UPDATE") {
-      // Only *our* voice state carries the session id the node authenticates with.
-      const botId = this.client.user?.id ?? process.env.LAVALINK_USER_ID;
-      if (botId && data.user_id && data.user_id !== botId) return;
-      const s = this.sessions.get(guildId);
-      if (!s || s.stopping) return;
-      if (!data.channel_id) {
-        // A null channel id is Discord answering a *leave*: either the one we
-        // asked for while forcing a new voice session, or our own disconnect.
-        // It is not a session to hand the node — see leaveVoice.
-        this.resolveLeaveWaiter(s);
-        return;
-      }
-      // Discord put us in a channel: this join attempt did work, whatever
-      // happens to the server half.
-      s.voiceAnswered = true;
-      if (data.session_id) s.voiceSessionId = data.session_id;
-      if (data.channel_id !== s.voiceChannelId) s.voiceChannelId = data.channel_id;
-      void this.flushVoice(guildId, s);
-      return;
-    }
-
-    if (type === "VOICE_SERVER_UPDATE") {
-      const s = this.sessions.get(guildId);
-      if (!s || s.stopping || !data.token || !data.endpoint) return;
-      s.voiceServer = { token: data.token, endpoint: data.endpoint };
-      void this.flushVoice(guildId, s);
-    }
-  }
-
   handleVoiceStateUpdate(oldState: VoiceState, newState: VoiceState): void {
     const guildId = newState.guild?.id ?? oldState.guild?.id;
     if (!guildId) return;
@@ -1160,8 +601,9 @@ export class MusicManager {
     // The bot itself moved or was disconnected.
     if (newState.id === botId) {
       if (!newState.channelId) {
-        // Leaving is what a forced re-join looks like from here (voiceForcing).
-        if (!s.stopping && !s.following && !s.voiceForcing) {
+        // Leaving is what we asked for during a teardown; anything else means
+        // a human (or Discord) disconnected us.
+        if (!s.stopping) {
           log.info("the bot was disconnected from voice", { guildId });
           this.teardown(guildId, false);
         }
@@ -1173,10 +615,7 @@ export class MusicManager {
           from: s.voiceChannelId,
           to: newState.channelId,
         });
-        s.voiceChannelId = newState.channelId; // follow the move
-        s.voiceJoining = newState.channelId; // …and wait on the new channel, not the old one
-        s.voiceServer = null; // fresh credentials are on their way
-        s.voiceSent = null; // …and the old voice socket dying is expected
+        s.voiceChannelId = newState.channelId;
       }
       return;
     }
@@ -1209,7 +648,7 @@ const MUSIC_COLOR = 0xf5c542; // Monarch gold
 export function sourceLabel(track: Track): string {
   if (track.sourceKind === "spotify") return "Spotify → YouTube";
   if (track.sourceKind === "youtube") return "YouTube";
-  const name = track.sourceName ?? "the music node";
+  const name = track.sourceName ?? "a direct link";
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 

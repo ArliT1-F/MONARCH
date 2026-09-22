@@ -1,36 +1,31 @@
-# Running the bot worker (and the music node) on your own machine, 24/7
+# Running the bot worker on your own machine, 24/7
 
-Zero hosting cost, and it still fixes the thing your provider can't: **Discord
-voice is UDP**. What changed is *who* needs it. Audio no longer runs inside the
-bot — it runs in a **Lavalink node**, a small JVM service that owns the Discord
-voice socket, fetches the audio (YouTube through the `youtube-source` plugin),
-decodes it and encodes Opus. The bot just tells it what to play, over a
-websocket on `localhost:2333` plus REST.
+Zero hosting cost, and it fixes the thing your provider can't: **Discord voice
+is UDP**, and `@discordjs/voice` has no TCP fallback. Render's containers have
+no UDP egress, so `/music` joins the channel, sits in `signalling`, and times
+out. A laptop on your home network sends outbound UDP without asking anyone.
 
 ```
-laptop (two units)                              Vercel (unchanged)
-  monarch-bot        gateway WSS ──────▶ Discord   dashboard + OAuth + Prisma
-                     ws + REST ────┐                    │
-  monarch-lavalink   ◀─────────────┘                    │
-                     voice UDP ────▶ Discord            │
-                     HTTPS ────────────────────────────▶ /api/internal/* ──▶ Postgres/Neon
+laptop (this worker)                     Vercel (unchanged)
+  gateway WSS  ───────▶ Discord           dashboard + OAuth + Prisma
+  voice UDP    ───────▶ Discord                │
+  HTTPS ─────────────────────────────────────▶ /api/internal/*  ──▶ Postgres/Neon
 ```
 
-Nothing connects *to* the laptop as long as both units run on it:
-`apps/bot/src/index.ts` starts no HTTP listener and the node binds 2333 for the
-bot next door. So there is no port forwarding, no DDNS, no TLS certificate, and
-your home IP stays private. That asymmetry is the whole reason self-hosting the
+Nothing connects *to* the laptop. `apps/bot/src/index.ts` starts no HTTP
+listener, so there is no port forwarding, no DDNS, no TLS certificate, and your
+home IP stays private. That asymmetry is the whole reason self-hosting the
 worker is easy while self-hosting the dashboard is not.
 
-`deploy/laptop-install.sh` writes **systemd user units** — no sudo, no Docker
+`deploy/laptop-install.sh` writes a **systemd user unit** — no sudo, no Docker
 daemon, no root — and checks your setup before it touches anything.
 
-| | Laptop, both units | Render worker + a node elsewhere |
+| | Laptop 24/7 | Render worker |
 |---|---|---|
-| `/music` | ✅ | ✅ (see the caveat at the bottom of this page) |
-| Cost | ~2–4 €/month electricity | free tier + ~4 €/month for the node's host |
-| Survives your ISP/power | ❌ (self-heals after) | ✅ for the bot, ❌ for a home node |
-| Needs a public address | ❌ | the node does, or a tunnel |
+| `/music` (UDP) | ✅ | ❌ silently broken |
+| Cost | ~2–4 €/month electricity | free tier |
+| Survives your ISP/power | ❌ (self-heals after) | ✅ |
+| Needs a public address | ❌ | ❌ |
 | Restarts on crash/boot | ✅ `Restart=always` | ✅ |
 
 ## 1. The machine, once
@@ -41,19 +36,28 @@ daemon, no root — and checks your setup before it touches anything.
 # it bakes an absolute path to the binary it found.
 node -v
 
-# Java 17 or newer for the music node (21 recommended). Nothing else: the bot
-# has no native dependencies left, so `npm ci` needs no compiler and no ffmpeg.
-sudo apt install openjdk-21-jre-headless
-java -version
+# yt-dlp is what actually fetches the audio. The bot downloads the official
+# build into .monarch/bin on first use — installing your own keeps extractor
+# updates on your schedule (YouTube breaks them every few weeks):
+pipx install yt-dlp     # or: pip install --user -U yt-dlp
 
-# start both units at BOOT instead of at login, and keep them alive when you log
+# optional, recommended. Without it /music plays YouTube's Opus straight
+# through (no volume, and non-Opus sources refuse). With it, apps/bot/src/
+# music/audio.ts decodes to PCM and re-encodes Opus — volume control works.
+# The bot also falls back to the static build bundled with
+# @ffmpeg-installer/ffmpeg if this is missing.
+sudo apt install ffmpeg
+
+# verify the whole chain (also does --probe to ask YouTube for a track):
+npm run music:setup && npm run music:check
+
+# start the worker at BOOT instead of at login, and keep it alive when you log
 # out. One time, needs sudo.
 sudo loginctl enable-linger $USER
 
-# belt and braces on sleep: the bot unit already holds a systemd-inhibit sleep
-# lock while it runs (which covers the node too — same machine), masking the
-# targets makes it absolute (lid-close then also does nothing — see the bag
-# warning below).
+# belt and braces on sleep: the unit already holds a systemd-inhibit sleep lock
+# while it runs, masking the targets makes it absolute (lid-close then also does
+# nothing — see the bag warning below).
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 
 # keep a 24/7 service from filling the disk with JSON logs
@@ -70,41 +74,25 @@ Two things that eat laptops run 24/7 and cost €0 to fix:
   Lenovo, ASUS; `tlp-stat -b` tells you if your firmware supports it) and
   `sudo tlp fullcharge && sudo tlp setcharge`.
 - **Heat/dust.** Blow the vents out twice a year, keep it off fabric, and if the
-  fan screams, `sudo apt install thermald`. The node's Opus encoding is the
-  warmest thing Monarch runs; `opusEncodingQuality` and `resamplingQuality` in
-  `docker/lavalink/application.yml` trade that heat for audio quality.
+  fan screams, `sudo apt install thermald`.
 
-Use **Ethernet** if you can. Voice is ~60–100 kbps of tiny datagrams leaving the
-node, so bandwidth is a non-issue — but Wi-Fi retransmits are exactly the "bot
-sounds like a drive-through intercom" failure, and a laptop's power-saving
-Wi-Fi driver dropping packets overnight is a classic.
+Use **Ethernet** if you can. Voice is ~60 kbps of tiny datagrams, so bandwidth
+is a non-issue — but Wi-Fi retransmits are exactly the "bot sounds like a
+drive-through intercom" failure, and a laptop's power-saving Wi-Fi driver
+dropping packets overnight is a classic.
 
-## 2. Both units
+## 2. The worker
 
 ```bash
 git clone <your-fork> ~/MONARCH && cd ~/MONARCH
-cp .env.example .env && $EDITOR .env      # see the keys below
+cp .env.example .env && $EDITOR .env      # see the four keys below
 chmod 600 .env                            # it holds the bot token
 npm ci
 ./deploy/laptop-install.sh --check        # preflight only, touches nothing
-./deploy/laptop-install.sh                # writes + enables + starts both units
+./deploy/laptop-install.sh                # writes + enables + starts the unit
 ```
 
-What the installer does beyond writing the bot unit:
-
-- downloads `Lavalink.jar` **4.2.2** (pinned by `LAVALINK_VERSION` at the top of
-  the script) into `~/.local/share/monarch-lavalink/`;
-- copies the repo's `docker/lavalink/application.yml` next to it, so the node
-  config is version-controlled and one `git pull` + re-run updates it;
-- writes `monarch-lavalink.service` and orders the bot unit after it. On its
-  first boot the node downloads the `youtube-source` plugin into `./plugins` —
-  give it ~30 s, the bot reconnects on its own until it answers.
-
-Already run a node somewhere else? Set `LAVALINK_NODES` in `.env` and the
-installer skips all of the above (`--no-lavalink` says the same thing without
-editing `.env`).
-
-The keys that actually matter for a laptop worker:
+The four that actually matter for a laptop worker:
 
 | Key | Why it's different here |
 |---|---|
@@ -112,8 +100,6 @@ The keys that actually matter for a laptop worker:
 | `DISCORD_CLIENT_ID` | slash command registration happens at **every boot** |
 | `APP_URL` | must be the **deployed dashboard** (your Vercel URL). It is no longer "wherever the bot lives". `--check` warns if it still says `localhost`. |
 | `INTERNAL_API_TOKEN` | the bot has no database of its own; `/monarch backup`, `export`, `embed`, `test`, `!prefix set` and confessions are HTTP calls to `APP_URL`. Must match Vercel's value exactly. |
-| `LAVALINK_NODES` | unset means `ws://localhost:2333`, i.e. the node this script installs. Set it only to use a node elsewhere. |
-| `LAVALINK_PASSWORD` | must equal `lavalink.server.password` in `application.yml`. Unset = Lavalink's published default on both sides, which is fine for localhost and unforgivable on a public IP. |
 
 `MONARCH_OWNER_USER_ID` is worth setting while you're in the file (the
 `/burg` uno-reverse). Add `--headless` to the installer if the laptop will run
@@ -121,30 +107,19 @@ The keys that actually matter for a laptop worker:
 shelf and *not* what you want before the laptop goes into a bag:
 
 ```bash
-systemctl --user status monarch-bot monarch-lavalink   # are they up?
-journalctl --user -u monarch-bot -f                    # the worker's logs
-journalctl --user -u monarch-lavalink -f               # the node's logs
-systemctl --user cat monarch-bot.service               # what was generated
+systemctl --user status monarch-bot          # is it up?
+journalctl --user -u monarch-bot -f          # the logs
+systemctl --user cat monarch-bot.service     # what was generated
 ```
 
-A healthy boot looks like this in the bot journal — note the `music` field,
-which is the node handshake seen from the bot's side:
+A healthy boot line looks like:
 
 ```
-bot ready  { instance: "arli-laptop", guilds: 3, burg: true, prefixCommands: true,
-             music: "node-1(localhost:2333) ready:8f2c1a…" }
-```
-
-and in the node journal:
-
-```
-Lavalink is ready to accept connections.
+bot ready  { instance: "arli-laptop", guilds: 3, burg: true, prefixCommands: true }
 ```
 
 `instance` is `os.hostname()` on purpose — if you ever forget whether the old
-worker is still alive, this tells you which box answered. `music: "…down"` at
-boot is not fatal (the bot retries with backoff), but it means `/music` will
-answer "the music backend isn't answering" until the node comes up.
+worker is still alive, this tells you which box answered.
 
 ## 3. Take Render out of the pool
 
@@ -152,95 +127,42 @@ Two workers sharing `DISCORD_BOT_TOKEN` is not "redundancy":
 
 - both receive every `MessageCreate`, so `!burg` deletes and re-posts **twice**,
   and every prefix command runs twice;
-- two `MusicManager`s each believe they own the guild's player on the node →
+- two `MusicManager`s each believe they own the guild's voice connection →
   flapping joins, a song that restarts, `!music stop` that doesn't stick;
 - confession cooldowns and prefix caches live in memory per process, so they
   disagree.
 
 In the Render dashboard: **Services → monarch-bot → Files/Options → Pause
 Service** (or delete it — `render.yaml` stays in the repo as the recipe for any
-worker host). If you'd rather keep the Render worker as a fallback, give it a
+non-voice host). If you'd rather keep the Render worker as a fallback, give it a
 different token-less config: with `DISCORD_BOT_TOKEN` unset the bot logs one
 warning and exits 0, which is a perfectly idle service.
 
-## 4. Prove the music path, not just the gateway
+## 4. Prove the voice path, not just the gateway
 
-The gateway is TLS over TCP, so "the bot is online" proves **nothing** about the
-node or about UDP. Three checks, in order:
+The gateway is TLS over TCP, so "the bot is online" proves **nothing** about
+UDP. Two checks, in order:
 
 ```bash
-# 1. Is the node up and is it the version the bot expects?
-curl -s localhost:2333/version      # prints the node's version JSON
-systemctl --user status monarch-lavalink
-
-# 2. Is outbound UDP actually leaving this machine? The node needs it, and this
-#    sends a real DNS query to Cloudflare over UDP/53. A reply proves egress
-#    works; five silent seconds means something between you and 1.1.1.1 drops
-#    UDP — router firewall, ISP, or ufw with a default-deny OUTPUT rule.
+# 1. Is outbound UDP actually leaving this machine? This sends a real DNS query
+#    to Cloudflare over UDP/53. A reply proves egress works; five silent
+#    seconds means something between you and 1.1.1.1 drops UDP — router
+#    firewall, ISP, or ufw with a default-deny OUTPUT rule.
 node -e 'const d=require("node:dgram").createSocket("udp4");d.on("message",m=>{console.log("UDP egress OK:",m.length,"bytes");process.exit(0)});d.send(Buffer.from("0000010000010000000000000377777706676f6f676c6503636f6d0000010001","hex"),53,"1.1.1.1");setTimeout(()=>{console.log("no reply — UDP blocked");process.exit(1)},5000)'
 
-# 3. Then the actual thing: join a voice channel and run /music play <link>
-#    (or !play <search terms>) in Discord, with both journals open beside it.
+# 2. Then the actual thing: join a voice channel and run /music play <link>
+#    (or !play <search terms>) in Discord, with the journal open beside it.
 ```
 
-What each failure looks like from here:
+Watch `journalctl --user -u monarch-bot -f` while it rings. What each failure
+looks like from here:
 
-- `/music` answers *"The music backend (Lavalink) isn't answering"* → the node
-  is down, unreachable, or the password differs. `journalctl --user -u
-  monarch-lavalink -n 40`, then compare `LAVALINK_PASSWORD` in `.env` with
-  `lavalink.server.password` in the node's `application.yml`.
-- bot log says `handshake refused (HTTP 401) — wrong LAVALINK_PASSWORD?` →
-  exactly that. Restart **both** units after fixing it: the node reads the env
-  file at start.
-- node journal says it could not load the YouTube plugin → first boot needs
-  egress to `maven.lavalink.dev`. Check `~/.local/share/monarch-lavalink/plugins`
-  for the jar once it succeeds.
-- node **crash-loops** (Docker) with `java.io.FileNotFoundException:
-  ./plugins/youtube-plugin-…jar (Permission denied)` → the plugins volume is
-  root-owned and the node's uid 322 cannot write into it; it never reaches
-  `Lavalink is ready to accept connections`. `docker run --rm --volumes-from
-  monarch-lavalink busybox chown -R 322:322 /opt/Lavalink/plugins && docker
-  restart monarch-lavalink` (the compose file's `lavalink-perms` job does this on
-  a fresh stack — see the Docker section at the bottom).
-- node crash-loops with `FileNotFoundException: .../youtube-plugin/6579cdf/...jar` →
-  stale `YOUTUBE_PLUGIN_VERSION=6579cdf` in `.env` (snapshot hash that only exists
-  in snapshots repo). Delete that var from `.env`, clean plugins (`rm -rf
-  ~/.local/share/monarch-lavalink/plugins/*youtube*` or `docker volume rm
-  monarch-lavalink-plugins`), and restart. Config now pins `1.18.2` with explicit
-  `releases` repo.
-- `voice re-handshake failed` / a join that never starts → Discord never sent
-  voice credentials, or the node refused them. The bot logs `voice credentials
-  handed to the node` on success; if that line is missing after 15 s, look at
-  the node journal for the same guild id.
-- `Discord gave the join no voice server — forcing a new voice session` → op 4
-  changed nothing on Discord's side (the bot was already in that channel), so
-  there was no fresh token/endpoint to send the node. The bot leaves the
-  channel, waits for Discord to confirm, and joins again, which opens a new
-  session; `/music play` then works without anyone touching permissions.
-  If the same line repeats for one guild, check for a **second worker** sharing
-  `DISCORD_BOT_TOKEN` (step 3) — two workers fighting over one voice state look
-  exactly like this.
-- `track exception on the node` / `track stuck on the node`, or a user-visible
-  *"YouTube refused this video for the node's IP"* → the node's address is being
-  rate-limited or the plugin is behind YouTube. Fix it node-side, in
-  `docker/lavalink/application.yml`: update youtube plugin version (now pinned to `1.18.2`), reorder
-  `plugins.youtube.clients`, enable `lavalink.server.ratelimit` with an IPv6
-  block, or turn on OAuth / a poToken (all commented out there, with links).
-  A single failing track while others play is just that video (blocked,
-  removed, age-gated) — not the worker.
-- `track ended prematurely` in the bot journal → the node ended the track more
-  than 15 s early and the bot says so out loud (`⚠️ Track cut short`) instead of
-  silently moving on. Read the node journal around the same timestamp: it names
-  the client and the reason. This is the log line that started the move off
-  yt-dlp, and on the node it is a config problem, not a code one.
-- `node lost the Discord voice socket` with code **4006/4007/4009** → the bot
-  re-handshakes and resumes the same track at the same position; nothing to do.
-  Code **4014** means Discord disconnected the bot (kicked, channel deleted,
-  moved by someone with permissions) and it leaves cleanly.
-- `🔁 Music node restarted` in the music channel → the node came back after
-  longer than `LAVALINK_RESUME_SECONDS` (60 s), so the session was not resumable
-  and the bot rebuilt every guild's player. Within the window it resumes
-  silently instead.
+- nothing at all, no error → connection stuck pre-`Ready`: UDP (step 1) or an
+  outdated `@discordjs/voice` (see the DAVE note below)
+- `Cannot find module 'opusscript'` → stale `node_modules`: `npm ci`
+- `spawn ffmpeg ENOENT` → no ffmpeg anywhere: playback drops to Opus
+  passthrough (no volume). `npm run music:check` says which of the five places
+  was checked and how to fix it
 - 401/403 on `PUT /applications/…/commands` → `DISCORD_CLIENT_ID`/token mismatch
 - `interaction expired before the bot answered` (code 10062) on the first
   command after a boot → the dashboard was still cold-starting when Discord's
@@ -248,145 +170,106 @@ What each failure looks like from here:
   something is slow on every request (dashboard, network) — or a second
   worker is racing this one (code 40060 means exactly that: pause the Render
   worker, step 3).
+- `YouTube asked the downloader to prove it isn't a bot` → the laptop's IP is
+  challenged. Export a `cookies.txt` from a throwaway logged-in browser and
+  point `YTDLP_COOKIES` at it (see `.env.example`), then
+  `npm run music:check -- --probe` to confirm. On a home connection this is
+  rare; from a VPS it is routine.
+- `⚠️ Track cut short` / song stops ~1 min early → the download stalled
+  mid-stream (network flap, throttled source, or the bot was restarted). The
+  player logs `elapsed vs expected` and says so instead of going quiet; skip
+  or re-queue the track, and check `journalctl` for the yt-dlp stderr tail.
+- `Couldn't run yt-dlp` / `isn't installed` → the binary vanished (a `git
+  clean` that took `.monarch/bin` with it, or a read-only filesystem the
+  auto-download couldn't write to). `npm run music:setup`, or set
+  `YTDLP_PATH`/`YTDLP_BIN_DIR`. A single failing track while others play is
+  just that video (blocked/removed) — not the worker.
 
 ## Day 2
 
 | I want to | command |
 |---|---|
 | read logs since boot | `journalctl --user -u monarch-bot -b` |
-| read the node's logs | `journalctl --user -u monarch-lavalink -b` |
-| stop it (before travel!) | `systemctl --user stop monarch-bot monarch-lavalink` |
-| start it again | `systemctl --user start monarch-lavalink monarch-bot` |
-| restart only the node | `systemctl --user restart monarch-lavalink` |
-| change an env value | edit `.env`, then `systemctl --user restart monarch-bot` (and the node, if it reads that key: `LAVALINK_PASSWORD`, `LAVALINK_PORT`) |
-| change node config | edit `docker/lavalink/application.yml`, re-run the installer (it re-copies), `systemctl --user restart monarch-lavalink` |
-| upgrade the bot | `cd ~/MONARCH && git pull && npm ci && systemctl --user restart monarch-bot` |
-| upgrade Lavalink | bump `LAVALINK_VERSION` in `deploy/laptop-install.sh`, re-run it (the jar re-downloads, the plugin stays) |
+| stop it (before travel!) | `systemctl --user stop monarch-bot` |
+| start it again | `systemctl --user start monarch-bot` |
+| change an env value | edit `.env`, then `systemctl --user restart monarch-bot` |
+| update the bot | `cd ~/MONARCH && git pull && npm ci && systemctl --user restart monarch-bot` |
 | full re-check + reinstall | `./deploy/laptop-install.sh --check && ./deploy/laptop-install.sh` |
-| remove it entirely | `./deploy/laptop-install.sh --uninstall` (then `rm -rf ~/.local/share/monarch-lavalink`) |
-| confirm it starts at boot | `systemctl --user is-enabled monarch-bot monarch-lavalink && ls /var/lib/systemd/linger/` |
+| remove it entirely | `./deploy/laptop-install.sh --uninstall` |
+| confirm it starts at boot | `systemctl --user is-enabled monarch-bot && ls /var/lib/systemd/linger/` |
 
-Restarting the *worker* mid-song is quieter than it used to be: the node keeps
-the track playing for up to `LAVALINK_RESUME_SECONDS` (60 s) waiting for the bot
-to come back with the same session, then cleans the player up. `git pull` +
-`systemctl --user restart monarch-bot` usually lands inside that window, so the
-song survives — the queue does not, it lives in the worker's memory.
-
-Global slash-command updates can take up to an hour to propagate — while you're
-testing, put your test server's id in `DISCORD_GUILD_ID` and registration
-becomes instant.
+`git pull` mid-song drops the voice connection (the process dies, ffmpeg with
+it). Say `!music stop` first, or tell your friends the bot restarts when the
+code changes. Global slash-command updates can take up to an hour to propagate —
+while you're testing, put your test server's id in `DISCORD_GUILD_ID` and
+registration becomes instant.
 
 ## If it misbehaves
 
 | Symptom | What it actually is |
 |---|---|
 | works all day, dead at 3 am, logs just stop | the laptop slept. `journalctl -b -1 -n 40` will end mid-sentence. The `systemd-inhibit` lock covers idle suspend; `--headless` covers the lid; masking the targets covers everything. |
-| bot is online, `/music` says the backend is down | the node. `systemctl --user status monarch-lavalink`, then `curl -s localhost:2333/version`. |
-| bot joins the channel and nothing plays | voice credentials never reached the node, or the node has no UDP egress (step 4.2). The bot logs `voice credentials handed to the node` when its half worked; when Discord never offered a voice server at all it says so (`forcing a new voice session`) and re-joins by itself — a retry then succeeds, and the `/music` reply stops pointing at Connect/Speak permissions. |
-| audio crackles / sounds like an intercom | Wi-Fi retransmits or a CPU-starved node. Ethernet first; then drop `opusEncodingQuality` to 8 and `resamplingQuality` to `LOW` in `application.yml`. |
+| bot joins, plays nothing, logs `signalling` | Discord voice now requires **DAVE**. This repo pins `@discordjs/voice@0.19.2` + `@snazzah/davey` — don't downgrade it, and don't blame your network until step 1 above passes. |
+| "no suitable opus encoder" | only the PCM path needs one (ffmpeg → PCM → Opus, which is what makes volume work). `opusscript` is in `apps/bot/package.json`; a missing one means `npm ci` didn't run, and playback would silently fall back to Opus passthrough. `npm run music:check` reports which encoder was found. |
 | `/burg` or `!help` do nothing, slash works | Message Content intent off in the developer portal. The bot falls back to Guilds+VoiceStates instead of crash-looping, and says so at boot. |
 | unit `failed` with exit 1, repeats every 10 s | bad token, or Discord unreachable at boot. `--check` first, then `journalctl -n 30`. |
-| node uses a whole core while playing | Opus encoding at quality 10. Fine for a handful of guilds; lower the quality or move the node to a VPS for more. |
-| bot process at 100 % CPU | something else — it does no audio work any more. Check whether a second worker is racing it (step 3). |
+| 100 % CPU on one core while playing | `opusscript` is JS. Fine for a handful of guilds; for more, `npm i @discordjs/opus -w @monarch/bot` (needs `build-essential python3`), or run the alpine image where it must compile — see below. |
 | only works while your terminal is open | lingering is off: `sudo loginctl enable-linger $USER` |
 | replies arrive twice | there are two workers (Render). See step 3. |
-| **no** command answers, bot offline in Discord | the worker isn't logged in. `systemctl --user status monarch-bot` / `docker compose ps -a` — a bot container `Exited (0)` means compose interpolated an empty `DISCORD_BOT_TOKEN` (missing `--env-file .env`, see the Docker section) |
-| node container restarts every few seconds | plugins dir not writable by uid 322 → `Permission denied` on `./plugins/youtube-plugin-…jar`. `docker run --rm --volumes-from monarch-lavalink busybox chown -R 322:322 /opt/Lavalink/plugins` |
-| yt-dlp / ffmpeg errors in Discord | an **old worker** is still running and answering the gateway — this codebase has no yt-dlp path at all. Find and stop it (step 3), then `git pull && npm ci` and restart |
 
 ## Prefer Docker on the laptop?
 
-Also fine, and it's the path you'd reuse on a VPS later. `docker/docker-compose.yml`
-has both services; `--no-deps` keeps it from dragging the dashboard and Postgres
-along when your dashboard lives on Vercel:
+Also fine, and it's the path you'd reuse on a VPS later:
 
 ```bash
-cd ~/MONARCH
-docker compose --env-file .env -f docker/docker-compose.yml up -d lavalink
-docker compose --env-file .env -f docker/docker-compose.yml up -d --no-deps bot
+docker build -f docker/bot.Dockerfile -t monarch-bot .        # ships ffmpeg + yt-dlp
+docker run -d --name monarch-bot --env-file .env \
+  --restart unless-stopped --log-opt max-size=10m --log-opt max-file=3 monarch-bot
 ```
 
-**`--env-file .env` is not optional.** Compose interpolates `${DISCORD_BOT_TOKEN}`
-&co. from a `.env` in the *project directory*, which defaults to the folder
-holding the compose file — `docker/`, not the repo root. Without it every value
-expands to empty, the worker logs `DISCORD_BOT_TOKEN is not set — bot not
-started.` and **exits 0**: a container that looks healthy and a bot that is
-simply never online, so *no* command answers (not even `!help`). Same trap from
-inside the folder: `cd docker && docker compose --env-file ../.env up -d`, or
-`ln -s ../.env docker/.env` once (`.env` is gitignored either way). The systemd
-units read `$REPO/.env` through `EnvironmentFile=` directly and have no such
-trap — one more reason to prefer them on a laptop.
-
-It also silently desyncs the password: the node falls back to
-`youshallnotpass` while a systemd bot sends the real `LAVALINK_PASSWORD` from
-`.env`, and the bot then logs `handshake refused (HTTP 401) — wrong
-LAVALINK_PASSWORD?`. Both sides must read the same file.
-
-Mix and match freely — they only need to reach each other on 2333:
-
-```bash
-docker compose --env-file .env -f docker/docker-compose.yml up -d lavalink  # node in Docker…
-./deploy/laptop-install.sh --no-lavalink                                    # …bot as a unit
-# .env: LAVALINK_NODES=ws://localhost:2333
-```
-
-The compose node publishes 2333 on the host (so a systemd bot can reach it) and
-keeps its plugins in a named volume, which a one-shot `lavalink-perms` service
-chowns to the node's uid 322 before the JVM starts: the official image runs as
-322 but has no `/opt/Lavalink/plugins` directory, so Docker creates that mount
-point **root-owned** and the node dies downloading its first plugin
-(`java.io.FileNotFoundException: ./plugins/youtube-plugin-…jar (Permission
-denied)`, then a `restart: unless-stopped` loop that never reaches `Lavalink is
-ready to accept connections`). If you hit that loop on a volume that already
-exists, fix it in place instead of recreating it:
-
-```bash
-docker run --rm --volumes-from monarch-lavalink busybox chown -R 322:322 /opt/Lavalink/plugins
-docker restart monarch-lavalink
-docker logs -f monarch-lavalink      # want: Loaded youtube-plugin…, Lavalink is ready to accept connections
-```
-
-(A panel-managed container with a *bind* mount for `plugins/` fails the same way:
-`sudo chown -R 322:322 /host/path/to/plugins`.)
-
-The bot image is a plain `node:22-alpine` now — no ffmpeg layer, no yt-dlp, no
-native modules to compile, which is why musl stopped being a problem.
+Three notes: the bot needs **no** database and no `dashboard`/`postgres`
+containers, so don't start `docker/docker-compose.yml` for this; `--env-file`
+takes the same `.env`; and the image is alpine (musl), which is precisely why
+`opusscript` is the default encoder here instead of the native `@discordjs/opus`
+— musl has no prebuilt binary for it and the build would need toolchain layers.
+Docker buys you nothing on the laptop except a second always-on daemon; a
+`[Service]` unit does the same job with fewer moving parts, which is why the
+script writes one.
 
 ## When the laptop stops being the right host
 
 Same `.env`, same `deploy/` folder, one different box. `deploy/laptop-install.sh`
 is not laptop-specific — on a €4 VPS or a Raspberry Pi 5 it generates the exact
-same two units, and it's the first thing to run there. Consider the move when any
-of these is true:
+same unit, and it's the first thing to run there. Consider the move when any of
+these is true:
 
-- several guilds play at the same time (the node's CPU cost is per-playing-guild,
-  and the JVM wants ~1 G of headroom);
+- several guilds play at the same time (CPU is per-playing-guild: one yt-dlp
+  download + one ffmpeg + JS Opus encode each; `MUSIC_AUDIO_PIPELINE=opus`
+  halves that at the cost of volume control);
 - people start scheduling things around the bot, and "my building lost power"
   stops being a funny excuse;
 - the laptop needs to travel, or you notice you're afraid to `apt upgrade`.
 
-The bot and the node do **not** have to live together. Any host that passes
-outbound UDP can run the node while the worker stays on Render — that is what
-`LAVALINK_NODES` is for, and it's the reason `/music` is no longer tied to where
-the gateway runs.
+And the reason to leave Render forever: `render.yaml` will run everything about
+Monarch *except* voice. No amount of config changes that — it's a missing
+protocol, not a missing setting.
 
 ## Which hosts carry `/music`
 
-Two independent questions now: can the host hold a gateway connection (the bot),
-and can the host open outbound UDP to Discord (the node)?
+The gateway and every non-voice command work anywhere long-lived. Voice is the
+outlier, because `@discordjs/voice` speaks **UDP only**:
 
-| Bot host | Node host | `/music` | Notes |
+| Host | Outbound UDP | `/music` | Notes |
 |---|---|---|---|
-| your own box | same box (`deploy/laptop-install.sh`) | ✅ | free, and this page |
-| Render | a VPS / Fly.io / this laptop* | ✅ | set `LAVALINK_NODES`; the node cannot run *on* Render (no UDP egress) |
-| Fly.io, Railway, any VPS | same box | ✅ | same units, same `.env` |
-| Docker Compose on any server | the `lavalink` service | ✅ | `docker compose --env-file .env … up -d bot lavalink` |
-| Vercel / Netlify / Cloudflare Workers | anywhere | ❌ | serverless can't hold a gateway connection at all |
-| Render | Render | ❌ | the bot is fine; there is nowhere for the node to send UDP |
+| your own box, `deploy/laptop-install.sh` | ✅ | ✅ | free, and this page |
+| Fly.io | ✅ | ✅ | no `[http_service]` in `fly.toml` — the worker listens on nothing |
+| Railway, a VPS, Hetzner/DO droplet | ✅ | ✅ | same unit, same `.env` |
+| Docker Compose on any server | ✅ | ✅ | `docker/bot.Dockerfile`, no `postgres` container needed |
+| **Render** | ❌ | ❌ | everything else works; joins the channel, then times out |
+| Vercel / Netlify / Cloudflare Workers | ❌ | ❌ | serverless can't hold a gateway connection at all |
+| Oracle "always free" VM | ✅ | ✅ | it works; it just costs a card and an account you didn't want |
 
-\* A node on your laptop needs an address the Render worker can dial — a VPS, a
-`cloudflared`/`tailscale funnel` in front of 2333, or a static IP with port
-forwarding. That is the one setup where something connects *to* your machine, so
-give the node a real `LAVALINK_PASSWORD` and put TLS in front of it
-(`wss://`, `LAVALINK_SECURE=1`). If that sounds like more than you signed up
-for, run both units at home and skip Render entirely.
+If you ever go back to Render on purpose, leave `SPOTIFY_*` and the voice
+commands alone and know they'll fail — a `DISCORD_BOT_TOKEN`-less Render service
+is the tidier version of that.
+

@@ -3,14 +3,14 @@ import type { VoiceState } from "discord.js";
 import type { Track } from "@monarch/music";
 
 /**
- * The Lavalink playback lifecycle: what the bot sends to the node, what it does
- * with what the node sends back, and how a guild's session ends.
+ * The playback lifecycle: what the player hands to the audio backend, what it
+ * does with what the backend reports back, and how a guild's session ends.
  *
- * The bot never opens a voice socket or decodes audio — it joins a channel on
- * Discord's gateway (op 4), hands the resulting credentials to the node, and
- * then only says *what* to play. These tests pin that contract down, including
- * the paths that used to lose a song: a skip, a node restart, a track that ends
- * early and a voice socket Discord closes.
+ * The bot owns the voice socket itself now (yt-dlp → ffmpeg → Discord) instead
+ * of delegating to a Lavalink node, so the backend is a seam rather than a
+ * socket: these tests pin down the queue behaviour that used to lose a song —
+ * a skip, a stream that dies mid-track, a track that ends early, a voice
+ * connection Discord closes, an idle channel.
  */
 
 vi.mock("../src/music/sources.js", async (original) => ({
@@ -20,14 +20,7 @@ vi.mock("../src/music/sources.js", async (original) => ({
 
 import { ensurePlayable } from "../src/music/sources.js";
 import { MusicManager } from "../src/music/player.js";
-import {
-  FakeLavalink,
-  fakeClient,
-  fakeGuild,
-  fakeVoiceChannel,
-  fakeVoiceChannelState,
-  type FakeGuild,
-} from "./music-fakes.js";
+import { FakeAudioBackend, fakeClient, fakeGuild, fakeVoiceChannel, fakeVoiceChannelState } from "./music-fakes.js";
 
 const track = (id: string, extra: Partial<Track> = {}): Track =>
   ({
@@ -37,12 +30,12 @@ const track = (id: string, extra: Partial<Track> = {}): Track =>
     videoId: id,
     sourceKind: "youtube",
     sourceName: "youtube",
+    sourceUrl: `https://www.youtube.com/watch?v=${id}`,
     url: `https://www.youtube.com/watch?v=${id}`,
     durationMs: 300_000,
     requestedBy: "user",
     requestedByName: "User",
     thumbnail: "https://img/thumb.jpg",
-    encoded: `enc-${id}`,
     ...extra,
   }) as Track;
 
@@ -51,48 +44,25 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /** `members` are the humans the manager can count in the bot's voice channel. */
 function setup(members: string[] = []) {
-  const lavalink = new FakeLavalink();
+  const backend = new FakeAudioBackend();
   const guild = fakeGuild("guild");
   const client = fakeClient(guild);
   client.channels.cache.set("voice", fakeVoiceChannelState("voice", members));
   const announce = vi.fn();
-  const manager = new MusicManager(client, announce, undefined, lavalink as never);
-  return { lavalink, guild, client, announce, manager };
+  const manager = new MusicManager(client, announce, undefined, backend);
+  return { backend, guild, client, announce, manager };
 }
 
-/** The two packets Discord answers an op-4 join with. */
-function deliverVoice(
-  manager: MusicManager,
-  { channelId = "voice", token = "voice-token", endpoint = "voice.discord.gg", sessionId = "discord-session" } = {},
-): void {
-  manager.handleRawPacket({
-    t: "VOICE_STATE_UPDATE",
-    d: { guild_id: "guild", user_id: "bot-user", session_id: sessionId, channel_id: channelId },
-  });
-  manager.handleRawPacket({
-    t: "VOICE_SERVER_UPDATE",
-    d: { guild_id: "guild", token, endpoint },
-  });
+/** Join a channel the way the bot does: one call, the backend does the rest. */
+async function joinVoice(manager: MusicManager, guild: ReturnType<typeof fakeGuild>, channelId = "voice"): Promise<void> {
+  await manager.connect("guild", fakeVoiceChannel(channelId, guild));
 }
 
-/**
- * Discord's answer when it has no *new* voice session to open — the bot is
- * already in that channel, so op 4 changes nothing and the gateway sends the
- * state half alone. The token/endpoint half (VOICE_SERVER_UPDATE) never comes.
- */
-function deliverVoiceStateOnly(manager: MusicManager, channelId = "voice", sessionId = "discord-session"): void {
-  manager.handleRawPacket({
-    t: "VOICE_STATE_UPDATE",
-    d: { guild_id: "guild", user_id: "bot-user", session_id: sessionId, channel_id: channelId },
-  });
-}
-
-/** Discord confirming the bot is out of voice (its answer to an op-4 leave). */
-function deliverVoiceLeave(manager: MusicManager): void {
-  manager.handleRawPacket({
-    t: "VOICE_STATE_UPDATE",
-    d: { guild_id: "guild", user_id: "bot-user", channel_id: null },
-  });
+/** Joined, with one track already handed to the backend. */
+async function playing(manager: MusicManager, guild: ReturnType<typeof fakeGuild>, first = "one") {
+  await joinVoice(manager, guild);
+  await manager.enqueue("guild", [track(first), track("two")]);
+  await manager.startIfIdle("guild");
 }
 
 /** The two gateway packets behind a voice state change, as discord.js emits them. */
@@ -100,34 +70,12 @@ function fakeVoiceState(channelId: string | null, id = "bot-user") {
   return { id, channelId, guild: { id: "guild" } } as unknown as VoiceState;
 }
 
-const leavePayload = {
-  op: 4,
-  d: { guild_id: "guild", channel_id: null, self_mute: false, self_deaf: true },
-};
-const joinPayload = (channelId: string) => ({
-  op: 4,
-  d: { guild_id: "guild", channel_id: channelId, self_mute: false, self_deaf: true },
-});
-
-/** Join a channel, then deliver the voice packets Discord would answer with. */
-async function joinVoice(manager: MusicManager, guild: FakeGuild, channelId = "voice"): Promise<void> {
-  const pending = manager.connect("guild", fakeVoiceChannel(channelId, guild));
-  deliverVoice(manager, { channelId });
-  await pending;
-}
-
-/** Joined, with one track already handed to the node. */
-async function playing(manager: MusicManager, guild: FakeGuild, lavalink: FakeLavalink, first = "one") {
-  await joinVoice(manager, guild);
-  await manager.enqueue("guild", [track(first), track("two")]);
-  await manager.startIfIdle("guild");
-  return lavalink.lastCall("play");
-}
-
 const titles = (announce: ReturnType<typeof vi.fn>) =>
   announce.mock.calls.map(([, embed]) => (embed as { title?: string }).title);
 const descriptions = (announce: ReturnType<typeof vi.fn>) =>
   announce.mock.calls.map(([, embed]) => String((embed as { description?: string }).description ?? ""));
+const plays = (backend: FakeAudioBackend) =>
+  backend.callsTo("play").map((call) => (call.args[1] as Track).id);
 
 beforeEach(() => {
   vi.mocked(ensurePlayable).mockImplementation(async (t: Track) => t);
@@ -138,243 +86,102 @@ afterEach(() => {
 });
 
 describe("joining a voice channel", () => {
-  it("joins on the gateway and hands Discord's voice credentials to the node", async () => {
-    const { lavalink, guild, manager } = setup();
+  it("hands the channel to the audio backend and remembers it", async () => {
+    const { backend, guild, manager } = setup();
     await joinVoice(manager, guild);
 
-    expect(guild.shard.send).toHaveBeenCalledWith({
-      op: 4,
-      d: { guild_id: "guild", channel_id: "voice", self_mute: false, self_deaf: true },
-    });
-    expect(lavalink.lastCall("updateVoice")?.args).toEqual([
-      "guild",
-      { token: "voice-token", endpoint: "voice.discord.gg", sessionId: "discord-session", channelId: "voice" },
-    ]);
+    expect(backend.lastCall("join")?.args).toEqual(["guild", "voice"]);
     expect(manager.connectedChannelId("guild")).toBe("voice");
-    manager.teardown("guild", false);
-  });
-
-  it("ignores voice state updates that belong to somebody else", async () => {
-    const { lavalink, guild, manager } = setup();
-    const pending = manager.connect("guild", fakeVoiceChannel("voice", guild));
-    manager.handleRawPacket({
-      t: "VOICE_STATE_UPDATE",
-      d: { guild_id: "guild", user_id: "some-listener", session_id: "not-ours", channel_id: "voice" },
-    });
-    manager.handleRawPacket({
-      t: "VOICE_SERVER_UPDATE",
-      d: { guild_id: "guild", token: "voice-token", endpoint: "voice.discord.gg" },
-    });
-    // Still waiting: a listener's session id is not ours to hand over.
-    expect(lavalink.callsTo("updateVoice")).toHaveLength(0);
-    manager.handleRawPacket({
-      t: "VOICE_STATE_UPDATE",
-      d: { guild_id: "guild", user_id: "bot-user", session_id: "discord-session", channel_id: "voice" },
-    });
-    await pending;
-    expect(lavalink.callsTo("updateVoice")).toHaveLength(1);
     manager.teardown("guild", false);
   });
 
   it("doesn't re-join a channel it is already in", async () => {
-    const { guild, manager } = setup();
+    const { backend, guild, manager } = setup();
     await joinVoice(manager, guild);
     await manager.connect("guild", fakeVoiceChannel("voice", guild));
-    expect(guild.shard.send).toHaveBeenCalledTimes(1);
+    expect(backend.callsTo("join")).toHaveLength(1);
     manager.teardown("guild", false);
   });
 
-  it("says so when Discord never hands out voice credentials", async () => {
-    vi.useFakeTimers();
-    const { guild, manager } = setup();
-    const pending = manager.connect("guild", fakeVoiceChannel("voice", guild));
-    const failure = pending.then(
-      () => null,
-      (error: Error) => error.message,
-    );
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(await failure).toMatch(/voice credentials in time/);
-    // The unanswered join is asked again before giving up — there is no session
-    // to leave, so the request itself is simply repeated.
-    expect(guild.shard.send).toHaveBeenCalledTimes(2);
-    expect(guild.shard.send).toHaveBeenLastCalledWith(joinPayload("voice"));
-    manager.teardown("guild", false);
+  it("turns a failed join into something a user can read", async () => {
+    const { backend, guild, manager } = setup();
+    const { AudioError } = await import("../src/music/audio.js");
+    backend.join = vi.fn(async () => {
+      throw new AudioError("I need **Connect** and **Speak** permissions in that channel.");
+    }) as never;
+
+    const { SourceError } = await import("../src/music/sources.js");
+    await expect(manager.connect("guild", fakeVoiceChannel("voice", guild))).rejects.toThrow(SourceError);
+    await expect(
+      (() => {
+        backend.join = vi.fn(async () => {
+          throw new AudioError("no permission");
+        }) as never;
+        return manager.connect("guild", fakeVoiceChannel("voice", guild));
+      })(),
+    ).rejects.toThrow(/no permission/);
   });
 
-  it("forces a new voice session when Discord answers the join without a voice server", async () => {
-    vi.useFakeTimers();
-    const { lavalink, guild, manager } = setup();
-    // The bot is already in that channel on Discord's side (someone dragged it
-    // there), so op 4 opens no new session: the state half comes back and the
-    // VOICE_SERVER_UPDATE the node needs never does.
-    const pending = manager.connect("guild", fakeVoiceChannel("voice", guild));
-    deliverVoiceStateOnly(manager);
-    expect(lavalink.callsTo("updateVoice")).toHaveLength(0);
+  it("moves to another channel when the user drags the bot along", async () => {
+    const { backend, guild, manager } = setup();
+    await playing(manager, guild);
 
-    // Leaving is what makes Discord open a *new* session — and the leave is
-    // confirmed before the re-join, so the two can't read as one no-op.
-    await vi.advanceTimersByTimeAsync(2_600);
-    expect(guild.shard.send).toHaveBeenLastCalledWith(leavePayload);
+    await manager.connect("guild", fakeVoiceChannel("stage-two", guild));
 
-    deliverVoiceLeave(manager);
-    await vi.advanceTimersByTimeAsync(800);
-    expect(guild.shard.send).toHaveBeenLastCalledWith(joinPayload("voice"));
-
-    // The credentials of the fresh session are what reaches the node.
-    deliverVoice(manager, { token: "token-2", endpoint: "voice2.discord.gg" });
-    await pending;
-    expect(lavalink.lastCall("updateVoice")?.args).toEqual([
-      "guild",
-      { token: "token-2", endpoint: "voice2.discord.gg", sessionId: "discord-session", channelId: "voice" },
-    ]);
-    manager.teardown("guild", false);
-  });
-
-  it("leaves before re-joining when Discord answers an identical join with nothing at all", async () => {
-    vi.useFakeTimers();
-    const { lavalink, guild, manager } = setup();
-    // Discord says nothing about the join, but the gateway already had the bot
-    // in that channel: re-asking is a no-op, so the session has to be ended.
-    guild.members.me = { voice: { channelId: "voice" } };
-    const pending = manager.connect("guild", fakeVoiceChannel("voice", guild));
-    await vi.advanceTimersByTimeAsync(2_600);
-    expect(guild.shard.send).toHaveBeenLastCalledWith(leavePayload);
-
-    deliverVoiceLeave(manager);
-    await vi.advanceTimersByTimeAsync(800);
-    expect(guild.shard.send).toHaveBeenLastCalledWith(joinPayload("voice"));
-
-    deliverVoice(manager, { token: "token-2", endpoint: "voice2.discord.gg" });
-    await pending;
-    expect(lavalink.lastCall("updateVoice")?.args[1]).toMatchObject({ token: "token-2" });
-    manager.teardown("guild", false);
-  });
-
-  it("doesn't tear the guild down while it forces that new session", async () => {
-    vi.useFakeTimers();
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
-
-    // The node's voice socket dies (4009 = session invalid) and the re-handshake
-    // gets the state half alone, because the bot is still in that channel.
-    lavalink.voiceClosed("guild", 4009);
-    deliverVoiceStateOnly(manager);
-    await vi.advanceTimersByTimeAsync(2_600);
-
-    // The forced leave is a real voice state change: Discord's own event lands,
-    // and the node loses the voice socket it was told to use. Neither is a
-    // disconnect to act on — the session and its queue must survive both.
-    manager.handleVoiceStateUpdate(fakeVoiceState("voice"), fakeVoiceState(null));
-    lavalink.voiceClosed("guild", 4014);
-    expect(lavalink.callsTo("destroyPlayer")).toHaveLength(0);
-    expect(manager.connectedChannelId("guild")).toBe("voice");
-
-    deliverVoiceLeave(manager);
-    await vi.advanceTimersByTimeAsync(800);
-    deliverVoice(manager, { token: "token-2", endpoint: "voice2.discord.gg" });
-    await vi.advanceTimersByTimeAsync(0); // let the re-handshake's awaits settle
-    expect(lavalink.lastCall("updateVoice")?.args[1]).toMatchObject({ token: "token-2" });
-    expect(manager.connectedChannelId("guild")).toBe("voice");
-    expect(manager.queue("guild").nowPlaying()?.title).toBe("Track one");
-    manager.teardown("guild", false);
-  });
-
-  it("says it is not a permissions problem when Discord joined us but sent no voice server", async () => {
-    vi.useFakeTimers();
-    const { guild, manager } = setup();
-    const pending = manager.connect("guild", fakeVoiceChannel("voice", guild));
-    deliverVoiceStateOnly(manager);
-    const failure = pending.then(
-      () => null,
-      (error: Error) => error.message,
-    );
-    await vi.advanceTimersByTimeAsync(20_000);
-    const message = await failure;
-    expect(message).toMatch(/never handed over a voice server/);
-    expect(message).toMatch(/not the bot's permissions/);
-    manager.teardown("guild", false);
-  });
-
-  it("re-handshakes when the bot is moved to another channel, keeping the song", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
-    lavalink.position("guild", 40_000);
-    lavalink.calls.length = 0;
-
-    const moved = manager.connect("guild", fakeVoiceChannel("stage-two", guild));
-    deliverVoice(manager, { channelId: "stage-two", token: "token-2", endpoint: "voice2.discord.gg" });
-    await moved;
-
-    expect(guild.shard.send).toHaveBeenLastCalledWith({
-      op: 4,
-      d: { guild_id: "guild", channel_id: "stage-two", self_mute: false, self_deaf: true },
-    });
-    expect(lavalink.lastCall("updateVoice")?.args[1]).toMatchObject({
-      token: "token-2",
-      endpoint: "voice2.discord.gg",
-      channelId: "stage-two",
-    });
-    // …and the song picks back up where it was instead of starting over.
-    const resumed = lavalink.lastCall("updatePlayer")?.args[1] as { track: { encoded: string }; position: number };
-    expect(resumed.track.encoded).toBe("enc-one");
-    expect(resumed.position).toBeGreaterThanOrEqual(40_000);
-    // Nothing was destroyed: a move is not a stop.
-    expect(lavalink.callsTo("destroyPlayer")).toHaveLength(0);
+    expect(backend.lastCall("join")?.args).toEqual(["guild", "stage-two"]);
     expect(manager.connectedChannelId("guild")).toBe("stage-two");
+    expect(manager.queue("guild").nowPlaying()?.title).toBe("Track one");
     manager.teardown("guild", false);
   });
 });
 
 describe("playing tracks", () => {
-  it("hands the node the encoded track, the volume and the track id", async () => {
-    const { lavalink, guild, announce, manager } = setup();
-    await playing(manager, guild, lavalink);
+  it("hands the track to the backend and announces it", async () => {
+    const { backend, guild, announce, manager } = setup();
+    await playing(manager, guild);
 
-    expect(lavalink.lastCall("play")?.args).toEqual([
-      "guild",
-      "enc-one",
-      { volume: 100, userData: { id: "one", requestedBy: "user" } },
-    ]);
+    expect(plays(backend)).toEqual(["one"]);
+    expect(backend.lastCall("play")?.args[0]).toBe("guild");
     expect(titles(announce)).toContain("▶️ Now playing");
     expect(manager.isPlayingSomewhere("guild")).toBe(true);
     manager.teardown("guild", false);
   });
 
-  it("advances when the node reports the track finished", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
-    lavalink.endTrack("guild", "finished", { userData: { id: "one" } });
+  it("advances when the backend reports the track finished", async () => {
+    const { backend, guild, manager } = setup();
+    await playing(manager, guild);
+    backend.endTrack("guild", "finished", { trackId: "one", elapsedMs: 300_000 });
     await tick();
 
-    expect(lavalink.lastCall("play")?.args[1]).toBe("enc-two");
+    expect(plays(backend)).toEqual(["one", "two"]);
     expect(manager.queue("guild").nowPlaying()?.id).toBe("two");
     manager.teardown("guild", false);
   });
 
   it("replays the same track in loop-track mode", async () => {
-    const { lavalink, guild, manager } = setup();
+    const { backend, guild, manager } = setup();
     await joinVoice(manager, guild);
     manager.queue("guild").setLoop("track");
     await manager.enqueue("guild", [track("one")]);
     await manager.startIfIdle("guild");
-    lavalink.endTrack("guild", "finished", { userData: { id: "one" } });
+    backend.endTrack("guild", "finished", { trackId: "one", elapsedMs: 300_000 });
     await tick();
 
-    expect(lavalink.callsTo("play").map((call) => call.args[1])).toEqual(["enc-one", "enc-one"]);
+    expect(plays(backend)).toEqual(["one", "one"]);
     manager.teardown("guild", false);
   });
 
   it("cycles the queue in loop-queue mode", async () => {
-    const { lavalink, guild, manager } = setup();
+    const { backend, guild, manager } = setup();
     await joinVoice(manager, guild);
     manager.queue("guild").setLoop("queue");
     await manager.enqueue("guild", [track("one"), track("two")]);
     await manager.startIfIdle("guild");
 
-    lavalink.endTrack("guild", "finished", { userData: { id: "one" } });
+    backend.endTrack("guild", "finished", { trackId: "one", elapsedMs: 300_000 });
     await tick();
     expect(manager.queue("guild").nowPlaying()?.id).toBe("two");
-    lavalink.endTrack("guild", "finished", { userData: { id: "two" } });
+    backend.endTrack("guild", "finished", { trackId: "two", elapsedMs: 300_000 });
     await tick();
     expect(manager.queue("guild").nowPlaying()?.id).toBe("one");
     manager.teardown("guild", false);
@@ -382,33 +189,49 @@ describe("playing tracks", () => {
 
   it("leaves the channel once the queue runs dry", async () => {
     vi.useFakeTimers();
-    const { lavalink, guild, announce, manager } = setup();
+    const { backend, guild, announce, manager } = setup();
     await joinVoice(manager, guild);
     await manager.enqueue("guild", [track("only")]);
     await manager.startIfIdle("guild");
 
-    lavalink.endTrack("guild", "finished", { userData: { id: "only" } });
+    backend.endTrack("guild", "finished", { trackId: "only", elapsedMs: 300_000 });
     await vi.advanceTimersByTimeAsync(0);
     expect(manager.isPlayingSomewhere("guild")).toBe(false);
 
     await vi.advanceTimersByTimeAsync(5 * 60_000);
     expect(titles(announce)).toContain("👋 Left the voice channel");
-    expect(lavalink.callsTo("destroyPlayer").length).toBeGreaterThan(0);
+    expect(backend.callsTo("leave").length).toBeGreaterThan(0);
+    expect(backend.isConnected()).toBe(false);
+  });
+
+  it("stays in the channel while a queue waits, and cancels the idle leave", async () => {
+    vi.useFakeTimers();
+    const { guild, manager } = setup();
+    await joinVoice(manager, guild);
+    await manager.enqueue("guild", [track("one")]);
+    await manager.startIfIdle("guild");
+
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    await manager.enqueue("guild", [track("two")]);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+
+    expect(manager.connectedChannelId("guild")).toBe("voice");
+    manager.teardown("guild", false);
   });
 
   it("matches a Spotify track to YouTube only when it plays", async () => {
-    const { lavalink, guild, manager } = setup();
+    const { backend, guild, manager } = setup();
     await joinVoice(manager, guild);
     const spotify = track("sp", {
       sourceKind: "spotify",
       sourceName: "spotify",
-      encoded: undefined,
+      sourceUrl: undefined,
       videoId: "",
       url: "https://open.spotify.com/track/x",
       youtubeSearch: "Artist – Title",
     });
     vi.mocked(ensurePlayable).mockImplementation(async (t: Track) => {
-      t.encoded = "enc-matched";
+      t.sourceUrl = "https://www.youtube.com/watch?v=matched";
       t.videoId = "matched";
       return t;
     });
@@ -419,101 +242,95 @@ describe("playing tracks", () => {
     await manager.startIfIdle("guild");
 
     expect(ensurePlayable).toHaveBeenCalledWith(spotify);
-    expect(lavalink.lastCall("play")?.args[1]).toBe("enc-matched");
+    expect(plays(backend)).toEqual(["sp"]);
     manager.teardown("guild", false);
   });
 });
 
 describe("playback controls", () => {
-  it("pauses and resumes on the node", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
+  it("pauses and resumes through the backend", async () => {
+    const { backend, guild, manager } = setup();
+    await playing(manager, guild);
 
     expect(manager.pause("guild")).toBe(true);
-    expect(lavalink.lastCall("pause")?.args).toEqual(["guild", true]);
+    expect(backend.lastCall("pause")?.args).toEqual(["guild", true]);
     expect(manager.isPaused("guild")).toBe(true);
     expect(manager.pause("guild")).toBe(false); // already paused
 
     expect(manager.resume("guild")).toBe(true);
-    expect(lavalink.lastCall("pause")?.args).toEqual(["guild", false]);
+    expect(backend.lastCall("pause")?.args).toEqual(["guild", false]);
     expect(manager.isPaused("guild")).toBe(false);
     manager.teardown("guild", false);
   });
 
-  it("sends volume as a Lavalink percentage, live", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
-    manager.setVolume("guild", 140);
-    expect(lavalink.lastCall("setVolume")?.args).toEqual(["guild", 140]);
+  it("says when the pipeline can't change volume", async () => {
+    const { backend, guild, manager } = setup();
+    await playing(manager, guild);
+    backend.supportsVolume = false;
+
+    expect(manager.setVolume("guild", 140)).toBe(false);
+    expect(backend.lastCall("setVolume")?.args).toEqual(["guild", 140]);
+    // The stored value still round-trips, so the UI can show what was asked.
     expect(manager.getVolume("guild")).toBe(140);
     manager.teardown("guild", false);
   });
 
-  it("reads the position from the node's clock, and freezes it while paused", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
-    lavalink.position("guild", 60_000, Date.now() - 5_000);
-    expect(manager.positionMs("guild")).toBeGreaterThanOrEqual(60_000);
-    expect(manager.positionMs("guild")).toBeLessThan(90_000);
-
-    manager.pause("guild");
-    const frozen = manager.positionMs("guild");
-    lavalink.position("guild", 60_000, Date.now() - 30_000);
-    expect(manager.positionMs("guild")).toBe(60_000); // paused: no extrapolation
-    expect(frozen).toBeGreaterThan(0);
+  it("reads the position from the backend's clock", async () => {
+    const { backend, guild, manager } = setup();
+    await playing(manager, guild);
+    backend.position = 60_000;
+    expect(manager.positionMs("guild")).toBe(60_000);
     manager.teardown("guild", false);
   });
 
-  it("skips by stopping the track and advancing when the node confirms", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
+  it("skips by stopping the track and advancing when the backend confirms", async () => {
+    const { backend, guild, manager } = setup();
+    await playing(manager, guild);
 
     expect(manager.skip("guild")).toBe(true);
-    expect(lavalink.callsTo("stopTrack")).toHaveLength(1);
-    expect(manager.queue("guild").nowPlaying()?.id).toBe("one"); // not yet — the node confirms
+    expect(backend.callsTo("stop")).toHaveLength(1);
+    expect(manager.queue("guild").nowPlaying()?.id).toBe("one"); // not yet — the backend confirms
 
-    lavalink.endTrack("guild", "stopped", { userData: { id: "one" } });
+    backend.endTrack("guild", "stopped", { trackId: "one", elapsedMs: 20_000 });
     await tick();
     expect(manager.queue("guild").nowPlaying()?.id).toBe("two");
-    expect(lavalink.lastCall("play")?.args[1]).toBe("enc-two");
+    expect(plays(backend)).toEqual(["one", "two"]);
     manager.teardown("guild", false);
   });
 
   it("ignores a stop nobody asked for", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
-    lavalink.calls.length = 0;
+    const { backend, guild, manager } = setup();
+    await playing(manager, guild);
+    backend.calls.length = 0;
 
-    lavalink.endTrack("guild", "stopped", { userData: { id: "one" } });
+    backend.endTrack("guild", "stopped", { trackId: "one", elapsedMs: 10_000 });
     await tick();
 
-    expect(lavalink.callsTo("play")).toHaveLength(0);
+    expect(backend.callsTo("play")).toHaveLength(0);
     expect(manager.queue("guild").nowPlaying()?.id).toBe("one");
     manager.teardown("guild", false);
   });
 
   it("ignores events about a track it already moved on from", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
-    lavalink.endTrack("guild", "finished", { userData: { id: "one" } });
+    const { backend, guild, manager } = setup();
+    await playing(manager, guild);
+    backend.endTrack("guild", "finished", { trackId: "one", elapsedMs: 300_000 });
     await tick();
     expect(manager.queue("guild").nowPlaying()?.id).toBe("two");
-    lavalink.calls.length = 0;
 
-    // A late loadFailed for the track we already skipped past.
-    lavalink.endTrack("guild", "loadFailed", { userData: { id: "one" } });
+    // A late failure for the track we already skipped past.
+    backend.endTrack("guild", "failed", { trackId: "one", error: "too late" });
     await tick();
 
-    expect(lavalink.callsTo("play")).toHaveLength(0);
     expect(manager.queue("guild").nowPlaying()?.id).toBe("two");
+    expect(plays(backend)).toEqual(["one", "two"]);
     manager.teardown("guild", false);
   });
 
   it("says when a track ends far before its length", async () => {
-    const { lavalink, guild, announce, manager } = setup();
-    await playing(manager, guild, lavalink); // 5:00 track
-    lavalink.position("guild", 45_000);
-    lavalink.endTrack("guild", "finished", { userData: { id: "one" } });
+    const { backend, guild, announce, manager } = setup();
+    await playing(manager, guild); // 5:00 track
+    backend.endTrack("guild", "finished", { trackId: "one", elapsedMs: 45_000 });
     await tick();
 
     expect(titles(announce)).toContain("⚠️ Track cut short");
@@ -524,112 +341,88 @@ describe("playback controls", () => {
   });
 
   it("does not cry wolf when a track ends on time", async () => {
-    const { lavalink, guild, announce, manager } = setup();
-    await playing(manager, guild, lavalink);
-    lavalink.position("guild", 299_000);
-    lavalink.endTrack("guild", "finished", { userData: { id: "one" } });
+    const { backend, guild, announce, manager } = setup();
+    await playing(manager, guild);
+    backend.endTrack("guild", "finished", { trackId: "one", elapsedMs: 299_000 });
     await tick();
     expect(titles(announce)).not.toContain("⚠️ Track cut short");
     manager.teardown("guild", false);
   });
+});
 
-  it("skips ahead when playback stalls on the node", async () => {
-    const { lavalink, guild, announce, manager } = setup();
-    await playing(manager, guild, lavalink);
-    lavalink.stuck("guild");
+describe("when playback fails", () => {
+  it("announces the reason and skips ahead", async () => {
+    const { backend, guild, announce, manager } = setup();
+    await playing(manager, guild);
+
+    backend.endTrack("guild", "failed", { trackId: "one", error: "That video is private, so it can't be played." });
     await tick();
 
     expect(titles(announce)).toContain("⚠️ Track failed");
+    expect(descriptions(announce).join("\n")).toMatch(/private/);
     expect(manager.queue("guild").nowPlaying()?.id).toBe("two");
     manager.teardown("guild", false);
   });
+
+  it("gives up after three consecutive failures instead of burning the queue", async () => {
+    const { backend, guild, announce, manager } = setup();
+    await joinVoice(manager, guild);
+    backend.playHandler = async () => {
+      throw new (class extends Error {})(`yt-dlp failed for ${Math.random()}`);
+    };
+    await manager.enqueue("guild", [track("a"), track("b"), track("c"), track("d")]);
+
+    await manager.startIfIdle("guild");
+
+    expect(backend.callsTo("play")).toHaveLength(3);
+    expect(titles(announce)).toContain("⏹ Giving up");
+    expect(manager.connectedChannelId("guild")).toBeNull();
+  });
+
+  it("leaves quietly when Discord closes the voice socket", async () => {
+    const { backend, guild, announce, manager } = setup();
+    await playing(manager, guild);
+
+    backend.voiceClosed("guild", "the voice connection was destroyed");
+    await tick();
+
+    expect(titles(announce)).toContain("🔌 Voice connection lost");
+    expect(manager.connectedChannelId("guild")).toBeNull();
+    expect(manager.isPlayingSomewhere("guild")).toBe(false);
+  });
 });
 
-describe("when the node or the voice link dies", () => {
-  it("rebuilds the player after a node restart and resumes the position", async () => {
-    const { lavalink, guild, announce, manager } = setup();
-    await playing(manager, guild, lavalink);
-    lavalink.position("guild", 90_000, Date.now());
-    lavalink.calls.length = 0;
+describe("voice state updates", () => {
+  it("leaves when somebody disconnects the bot", async () => {
+    const { backend, guild, manager } = setup();
+    await playing(manager, guild);
+    backend.calls.length = 0;
 
-    lavalink.nodeRestarted(false);
-    deliverVoice(manager, { token: "token-2", endpoint: "voice2.discord.gg" });
-    await tick();
-    await tick();
+    manager.handleVoiceStateUpdate(fakeVoiceState("voice"), fakeVoiceState(null));
 
-    expect(titles(announce)).toContain("🔁 Music node restarted");
-    expect(lavalink.lastCall("updateVoice")?.args[1]).toMatchObject({ sessionId: "discord-session" });
-    const resumed = lavalink.lastCall("updatePlayer")?.args[1] as { track: { encoded: string }; position: number };
-    expect(resumed.track.encoded).toBe("enc-one");
-    expect(resumed.position).toBeGreaterThanOrEqual(90_000);
-    expect(resumed.position).toBeLessThan(120_000);
-    manager.teardown("guild", false);
-  });
-
-  it("leaves playback alone when the node resumed our session", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
-    lavalink.calls.length = 0;
-
-    lavalink.nodeRestarted(true);
-    await tick();
-
-    expect(lavalink.callsTo("updatePlayer")).toHaveLength(0);
-    expect(lavalink.callsTo("destroyPlayer")).toHaveLength(0);
-    manager.teardown("guild", false);
-  });
-
-  it("re-joins when Discord invalidates the voice session", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
-    lavalink.calls.length = 0;
-    guild.shard.send.mockClear();
-
-    lavalink.voiceClosed("guild", 4006);
-    deliverVoice(manager, { token: "token-2", endpoint: "voice2.discord.gg" });
-    await tick();
-    await tick();
-
-    expect(guild.shard.send).toHaveBeenCalledWith({
-      op: 4,
-      d: { guild_id: "guild", channel_id: "voice", self_mute: false, self_deaf: true },
-    });
-    expect(lavalink.lastCall("updatePlayer")?.args[1]).toMatchObject({ track: { encoded: "enc-one" } });
-    manager.teardown("guild", false);
-  });
-
-  it("leaves quietly when Discord disconnects the bot (4014)", async () => {
-    const { lavalink, guild, announce, manager } = setup();
-    await playing(manager, guild, lavalink);
-
-    lavalink.voiceClosed("guild", 4014, true);
-    await tick();
-
+    expect(backend.callsTo("leave")).toHaveLength(1);
     expect(manager.connectedChannelId("guild")).toBeNull();
-    expect(titles(announce)).not.toContain("👋 Left the voice channel");
   });
 
-  it("leaves when somebody disconnects the bot from voice", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
-    guild.shard.send.mockClear();
+  it("follows the bot when Discord moves it to another channel", async () => {
+    const { backend, guild, client, manager } = setup();
+    await playing(manager, guild);
+    client.channels.cache.set("stage-two", fakeVoiceChannelState("stage-two", []));
 
-    manager.handleVoiceStateUpdate(
-      { guild: { id: "guild" }, channelId: "voice", id: "bot-user" } as unknown as VoiceState,
-      { guild: { id: "guild" }, channelId: null, id: "bot-user" } as unknown as VoiceState,
-    );
+    manager.handleVoiceStateUpdate(fakeVoiceState("voice"), fakeVoiceState("stage-two"));
+    // The real backend learns the new channel from Discord's own voice-state
+    // packet (it re-negotiates the socket); the fake needs the nudge.
+    backend.channelId = "stage-two";
 
-    expect(manager.connectedChannelId("guild")).toBeNull();
-    expect(guild.shard.send).toHaveBeenCalledWith({
-      op: 4,
-      d: { guild_id: "guild", channel_id: null, self_mute: false, self_deaf: true },
-    });
+    expect(manager.connectedChannelId("guild")).toBe("stage-two");
+    expect(backend.callsTo("leave")).toHaveLength(0);
+    manager.teardown("guild", false);
   });
 
   it("leaves a minute after everyone else leaves the channel", async () => {
     vi.useFakeTimers();
-    const { lavalink, guild, client, announce, manager } = setup(["listener"]);
-    await playing(manager, guild, lavalink);
+    const { guild, client, announce, manager } = setup(["listener"]);
+    await playing(manager, guild);
     client.channels.cache.set("voice", fakeVoiceChannelState("voice", [])); // the last listener left
 
     manager.handleVoiceStateUpdate(
@@ -664,55 +457,26 @@ describe("when the node or the voice link dies", () => {
 });
 
 describe("stopping", () => {
-  it("destroys the node's player and leaves the channel", async () => {
-    const { lavalink, guild, announce, manager } = setup();
-    await playing(manager, guild, lavalink);
-    guild.shard.send.mockClear();
+  it("leaves the channel, clears the queue and says so", async () => {
+    const { backend, guild, announce, manager } = setup();
+    await playing(manager, guild);
 
     manager.teardown("guild");
 
-    expect(lavalink.callsTo("destroyPlayer")).toHaveLength(1);
-    expect(guild.shard.send).toHaveBeenCalledWith({
-      op: 4,
-      d: { guild_id: "guild", channel_id: null, self_mute: false, self_deaf: true },
-    });
+    expect(backend.callsTo("leave")).toHaveLength(1);
     expect(titles(announce)).toContain("👋 Left the voice channel");
     expect(manager.queue("guild").isEmpty).toBe(true);
     expect(manager.isPlayingSomewhere("guild")).toBe(false);
   });
 
-  it("ignores the node's cleanup event that a teardown causes", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
-    manager.teardown("guild", false);
-    lavalink.calls.length = 0;
+  it("stops every guild and closes the backend on shutdown", async () => {
+    const { backend, guild, manager } = setup();
+    await playing(manager, guild);
 
-    lavalink.endTrack("guild", "cleanup", { userData: { id: "one" } });
-    lavalink.endTrack("guild", "stopped", { userData: { id: "one" } });
-    await tick();
+    await manager.shutdown();
 
-    expect(lavalink.callsTo("play")).toHaveLength(0);
-  });
-
-  it("waits for the node to drop every player before closing the sockets", async () => {
-    const { lavalink, guild, manager } = setup();
-    await playing(manager, guild, lavalink);
-
-    const done = manager.shutdown();
-
-    // The delete is already on its way (teardown doesn't block a /music stop),
-    // but the sockets stay up until the node has actually dropped the player —
-    // the SIGTERM handler exits the worker as soon as this promise settles.
-    expect(lavalink.callsTo("destroyPlayer")).toHaveLength(1);
-    expect(lavalink.stopped).toBe(false);
-    expect(guild.shard.send).toHaveBeenLastCalledWith({
-      op: 4,
-      d: { guild_id: "guild", channel_id: null, self_mute: false, self_deaf: true },
-    });
-
-    await done;
-
-    expect(lavalink.stopped).toBe(true);
+    expect(backend.callsTo("leave")).toHaveLength(1);
+    expect(backend.shutDown).toBe(true);
     expect(manager.connectedChannelId("guild")).toBeNull();
   });
 });

@@ -211,8 +211,10 @@ describe("confession cooldown store", () => {
     expect(first.claimed).toBe(true);
 
     const until = Date.parse(first.nextAllowedAt);
+    // Both bounds carry a tolerance: `before` is read just ahead of the claim,
+    // so the window is the cooldown plus however long the claim itself took.
     expect(until - before).toBeGreaterThan(CONFESSION_COOLDOWN_MS - 5_000);
-    expect(until - before).toBeLessThanOrEqual(CONFESSION_COOLDOWN_MS);
+    expect(until - before).toBeLessThanOrEqual(CONFESSION_COOLDOWN_MS + 5_000);
     expect(CONFESSION_COOLDOWN_MS).toBe(6 * 60 * 60 * 1000);
 
     const second = await getStore().claimConfessionCooldown(USER);

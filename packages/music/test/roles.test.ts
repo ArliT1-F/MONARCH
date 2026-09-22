@@ -8,7 +8,7 @@ import {
   hasNamedRole,
   parseVolume,
   progressBar,
-  lavalinkVolume,
+  volumeGain,
 } from "../src/index.js";
 
 const NO_PERMS = 0n;
@@ -88,13 +88,13 @@ describe("format helpers", () => {
     expect(parseVolume("50.5")).toBeNull();
   });
 
-  it("maps the 0–150 volume to Lavalink percent", () => {
-    expect(lavalinkVolume(100)).toBe(100);
-    expect(lavalinkVolume(0)).toBe(0);
-    expect(lavalinkVolume(150)).toBe(150);
-    expect(lavalinkVolume(-20)).toBe(0);
-    expect(lavalinkVolume(5000)).toBe(1000);
-    expect(lavalinkVolume(80.4)).toBe(80);
+  it("maps the 0–150 volume to the playback gain the audio pipeline uses", () => {
+    expect(volumeGain(100)).toBe(1);
+    expect(volumeGain(0)).toBe(0);
+    expect(volumeGain(150)).toBe(1.5);
+    expect(volumeGain(-20)).toBe(0);
+    expect(volumeGain(5000)).toBe(1.5);
+    expect(volumeGain(80.4)).toBe(0.8);
   });
 
   it("draws a progress bar", () => {

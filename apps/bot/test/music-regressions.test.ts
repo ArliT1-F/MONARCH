@@ -5,12 +5,12 @@ import { MusicQueue, type Track } from "@monarch/music";
 /**
  * Failure regressions — the bugs that used to be silent.
  *
- * Everything audio-related now runs through a Lavalink node, so "the stream
- * died" became "the node refused the track" / "the node never answered". What
- * must not regress is the behaviour *around* those failures: a failed track is
+ * Audio now runs in-process (yt-dlp → ffmpeg → Discord), so "the stream died"
+ * became "yt-dlp exited non-zero" / "the downloader isn't installed". What must
+ * not regress is the behaviour *around* those failures: a failed track is
  * skipped without wedging the queue, a stop wins the race against a slow
- * resolve, a dead backend is named as such, and a deferred reply still carries
- * the original human-readable error.
+ * resolve, a dead downloader is named as such, and a deferred reply still
+ * carries the original human-readable error.
  */
 
 vi.mock("../src/music/sources.js", async (original) => ({
@@ -23,7 +23,7 @@ import { SourceError, ensurePlayable, resolveQuery } from "../src/music/sources.
 import { MusicCommands } from "../src/music/commands.js";
 import { MusicManager } from "../src/music/player.js";
 import { SlashCommandContext } from "../src/slash-context.js";
-import { FakeLavalink, fakeClient, fakeGuild, fakeVoiceChannel, type FakeGuild } from "./music-fakes.js";
+import { FakeAudioBackend, fakeClient, fakeGuild, fakeVoiceChannel, type FakeGuild } from "./music-fakes.js";
 
 const track = (id: string, extra: Partial<Track> = {}): Track =>
   ({
@@ -32,39 +32,33 @@ const track = (id: string, extra: Partial<Track> = {}): Track =>
     author: "Author",
     videoId: id,
     sourceKind: "youtube",
+    sourceName: "youtube",
+    sourceUrl: `https://www.youtube.com/watch?v=${id}`,
     url: `https://www.youtube.com/watch?v=${id}`,
     durationMs: 200_000,
     requestedBy: "user",
     requestedByName: "User",
     thumbnail: null,
-    encoded: `enc-${id}`,
     ...extra,
   }) as Track;
 
 function setup() {
-  const lavalink = new FakeLavalink();
+  const backend = new FakeAudioBackend();
   const guild = fakeGuild("guild");
   const announce = vi.fn();
-  const manager = new MusicManager(fakeClient(guild), announce, undefined, lavalink as never);
-  return { lavalink, guild, announce, manager };
+  const manager = new MusicManager(fakeClient(guild), announce, undefined, backend);
+  return { backend, guild, announce, manager };
 }
 
-/** Join a channel the way the bot does, then deliver Discord's voice answers. */
+/** Join a channel the way the bot does: one call, the backend does the rest. */
 async function joinVoice(manager: MusicManager, guild: FakeGuild, channelId = "voice"): Promise<void> {
-  const pending = manager.connect("guild", fakeVoiceChannel(channelId, guild));
-  manager.handleRawPacket({
-    t: "VOICE_STATE_UPDATE",
-    d: { guild_id: "guild", user_id: "bot-user", session_id: "vs", channel_id: channelId },
-  });
-  manager.handleRawPacket({
-    t: "VOICE_SERVER_UPDATE",
-    d: { guild_id: "guild", token: "tok", endpoint: "ep.discord.gg" },
-  });
-  await pending;
+  await manager.connect("guild", fakeVoiceChannel(channelId, guild));
 }
 
 const titles = (announce: ReturnType<typeof vi.fn>) =>
   announce.mock.calls.map(([, embed]) => (embed as { title?: string }).title);
+const descriptions = (announce: ReturnType<typeof vi.fn>) =>
+  announce.mock.calls.map(([, embed]) => String((embed as { description?: string }).description ?? ""));
 
 beforeEach(() => {
   vi.mocked(ensurePlayable).mockImplementation(async (t: Track) => t);
@@ -102,8 +96,8 @@ describe("music failure regressions", () => {
     expect(manager.connect).not.toHaveBeenCalled();
   });
 
-  it.each(["off", "track", "queue"] as const)("drains tracks the node refuses without getting stuck in %s loop", async (mode) => {
-    const { lavalink, announce, manager } = setup();
+  it.each(["off", "track", "queue"] as const)("drains tracks the downloader refuses without getting stuck in %s loop", async (mode) => {
+    const { backend, announce, manager } = setup();
     manager.queue("guild").setLoop(mode);
     await manager.enqueue("guild", [track("one"), track("two")]);
     vi.mocked(ensurePlayable).mockRejectedValue(new SourceError("Unavailable"));
@@ -111,15 +105,15 @@ describe("music failure regressions", () => {
     await manager.startIfIdle("guild");
 
     expect(ensurePlayable).toHaveBeenCalledTimes(2);
-    expect(lavalink.callsTo("play")).toHaveLength(0); // nothing unplayable reached the node
+    expect(backend.callsTo("play")).toHaveLength(0); // nothing unplayable reached the pipeline
     expect(manager.queue("guild").isEmpty).toBe(true);
     // Every refusal is announced, so a silent skip can't happen again.
     expect(titles(announce).filter((t) => t === "⚠️ Track failed")).toHaveLength(2);
     manager.teardown("guild", false);
   });
 
-  it("does not hand a track to the node after stop", async () => {
-    const { lavalink, guild, manager } = setup();
+  it("does not start a track after stop", async () => {
+    const { backend, guild, manager } = setup();
     await joinVoice(manager, guild);
 
     const late = track("late");
@@ -132,8 +126,8 @@ describe("music failure regressions", () => {
     resolvePlayable(late);
     await playing;
 
-    expect(lavalink.callsTo("play")).toHaveLength(0);
-    expect(lavalink.callsTo("destroyPlayer")).toHaveLength(1);
+    expect(backend.callsTo("play")).toHaveLength(0);
+    expect(backend.callsTo("leave")).toHaveLength(1);
   });
 
   it("can skip a failed current track without changing the loop setting", () => {
@@ -146,7 +140,7 @@ describe("music failure regressions", () => {
   });
 
   it("gives up after three consecutive failures instead of burning the whole queue", async () => {
-    const { lavalink, guild, announce, manager } = setup();
+    const { backend, guild, announce, manager } = setup();
     await joinVoice(manager, guild);
     vi.mocked(ensurePlayable).mockRejectedValue(new SourceError("Unavailable"));
     await manager.enqueue("guild", [track("a"), track("b"), track("c"), track("d")]);
@@ -155,41 +149,59 @@ describe("music failure regressions", () => {
 
     expect(ensurePlayable).toHaveBeenCalledTimes(3);
     expect(titles(announce)).toContain("⏹ Giving up");
-    // Giving up means leaving: the node's player is destroyed, the channel freed.
-    expect(lavalink.callsTo("destroyPlayer").length).toBeGreaterThan(0);
+    // Giving up means leaving: the voice channel is freed.
+    expect(backend.callsTo("leave").length).toBeGreaterThan(0);
     expect(manager.connectedChannelId("guild")).toBeNull();
   });
 
-  it("names a dead backend instead of blaming the song", async () => {
-    const { lavalink, guild, announce, manager } = setup();
+  it("names a broken downloader instead of blaming the song", async () => {
+    const { backend, guild, announce, manager } = setup();
     await joinVoice(manager, guild);
     await manager.enqueue("guild", [track("one")]);
-    lavalink.whenReadyHandler = async () => {
-      throw new SourceError("The music backend (Lavalink) isn't answering, so nothing can play right now.");
+    backend.playHandler = async () => {
+      throw new SourceError(
+        "The music downloader (**yt-dlp**) isn't ready on the bot's machine, so nothing can play right now.",
+      );
     };
 
     await manager.startIfIdle("guild");
 
     const failure = announce.mock.calls.find(([, embed]) => (embed as { title?: string }).title === "⚠️ Track failed");
-    expect(String((failure?.[1] as { description?: string }).description)).toMatch(/Lavalink/);
-    expect(lavalink.callsTo("play")).toHaveLength(0);
+    expect(String((failure?.[1] as { description?: string }).description)).toMatch(/yt-dlp/);
+    expect(backend.callsTo("play")).toHaveLength(1); // the track was handed over and the pipeline explained itself
     manager.teardown("guild", false);
   });
 
-  it("reports a node error as a track failure, without a stack trace in chat", async () => {
-    const { lavalink, guild, announce, manager } = setup();
+  it("reports a stream failure as a track failure, without a stack trace in chat", async () => {
+    const { backend, guild, announce, manager } = setup();
     await joinVoice(manager, guild);
     await manager.enqueue("guild", [track("one"), track("two")]);
     await manager.startIfIdle("guild");
 
-    lavalink.exception("guild", "This video is not available in your country", "one");
-    lavalink.endTrack("guild", "loadFailed", { userData: { id: "one" } });
+    backend.endTrack("guild", "failed", {
+      trackId: "one",
+      elapsedMs: 12_000,
+      error: "That video is unavailable (removed, region-locked, or age-restricted without cookies).",
+    });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(titles(announce)).toContain("⚠️ Track failed");
-    expect(announce.mock.calls.map(([, e]) => String((e as { description?: string }).description)).join("\n"))
-      .toMatch(/not available in your country/);
+    expect(descriptions(announce).join("\n")).toMatch(/not available|region-locked|unavailable/i);
     expect(manager.queue("guild").nowPlaying()?.id).toBe("two");
+    manager.teardown("guild", false);
+  });
+
+  it("keeps the queue alive when the voice socket blinks but recovers", async () => {
+    const { backend, guild, manager } = setup();
+    await joinVoice(manager, guild);
+    await manager.enqueue("guild", [track("one")]);
+    await manager.startIfIdle("guild");
+
+    // The backend only reports `voiceClosed` once recovery has failed, so a
+    // surviving connection must not disturb the session at all.
+    expect(manager.isPlayingSomewhere("guild")).toBe(true);
+    expect(manager.queue("guild").nowPlaying()?.id).toBe("one");
+    expect(backend.callsTo("leave")).toHaveLength(0);
     manager.teardown("guild", false);
   });
 });

@@ -133,19 +133,16 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   burg relay also needs the **Manage Messages** permission.
   Spotify links need `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` on the
   bot (free app at developer.spotify.com — see `.env.example`); YouTube
-  links and search work out of the box. Playback runs on a **Lavalink
-  node**: a small JVM service that holds the Discord voice socket, fetches
-  the audio (YouTube through the `youtube-source` plugin), decodes it and
-  encodes Opus. The bot itself has no ffmpeg, no yt-dlp and no native audio
-  modules — it only tells the node what to play over a websocket plus REST.
-  `docker compose up` runs a node for you, `deploy/laptop-install.sh`
-  installs one as a second systemd user unit, and any node you already run
-  works by pointing `LAVALINK_NODES` at it. Since the *node* is what needs
-  outbound UDP, the worker no longer does: a Render worker plays music fine
-  against a node on a VPS or your own machine
-  ([docs/hosting-laptop.md](docs/hosting-laptop.md)). With no reachable node
-  the worker still boots and every other command works — `/music` answers
-  that the music backend is down. DJ roles are recognized by
+  links, searches and playlists work out of the box through **yt-dlp**, which
+  Monarch downloads into `.monarch/bin` on first use (`npm run music:setup`
+  does it up front, `npm run music:check` verifies the whole chain). No JVM
+  and no second service to run. **ffmpeg** is optional but recommended: with
+  it `/music volume` works and every source plays; without it YouTube's Opus
+  is passed straight through and volume is reported as unavailable. Voice is
+  **UDP**, so the bot's own host must allow outbound UDP: that rules out
+  Render, and
+  [docs/hosting-laptop.md](docs/hosting-laptop.md) covers running the worker on
+  your own machine instead. DJ roles are recognized by
   name (`DJ` by default; `MUSIC_DJ_ROLE_NAMES`, staff roles via
   `MUSIC_STAFF_ROLE_NAMES`).
 
@@ -204,36 +201,26 @@ actually executes.
 Docker (dashboard + bot + PostgreSQL):
 
 ```bash
-cd docker && docker compose --env-file ../.env up --build
+cd docker && docker compose up --build
 ```
-
-Compose interpolates `${VAR}` from a `.env` in the **compose file's** folder, so
-from the repo root pass it explicitly —
-`docker compose --env-file .env -f docker/docker-compose.yml up -d`. Without it
-every value expands to empty and the bot logs `DISCORD_BOT_TOKEN is not set` and
-exits 0: a container that looks fine and a worker that is never online.
 
 Deploying to **Vercel + Postgres (Prisma)** — see
 [docs/deploying-vercel.md](docs/deploying-vercel.md). Vercel runs the dashboard;
 the Discord Gateway bot must run as a long-lived worker (Render, Railway,
-Fly.io, a VM, or Docker). Any of those runs everything, **`/music` included** —
-audio is the Lavalink node's job, so the only requirement is that the worker can
-reach one (`LAVALINK_NODES`). `docker compose` bundles that node; to stop paying
-for a worker at all, run bot + node on your own always-on box with
+Fly.io, a VM, or Docker). Any of those run everything except **`/music`**:
+voice needs outbound UDP, which Render's containers don't have — for that, or
+to stop paying for a worker at all, run it on your own always-on box with
 `deploy/laptop-install.sh` ([docs/hosting-laptop.md](docs/hosting-laptop.md));
-that page also lists which hosts can run which half. The node needs outbound UDP,
-the worker doesn't — which is why the node can't live on Render while the worker
-can. **Exactly one** worker may hold
+that page also lists which hosts allow UDP. **Exactly one** worker may hold
 `DISCORD_BOT_TOKEN` — two of them double every `!burg`/prefix command and fight
-over one guild's player on the node — and it talks to the dashboard through
+over one guild's voice channel — and it talks to the dashboard through
 `APP_URL` + a matching `INTERNAL_API_TOKEN`, because the bot keeps no database
 of its own.
 Set `DISCORD_CLIENT_ID` on the worker so it can register `/monarch`, `/burg`
 and `/music`; optionally set `DISCORD_GUILD_ID` while testing for immediate
 slash-command updates (global Discord commands can take up to an hour to
-propagate). `render.yaml` is ready for a Render worker — set `LAVALINK_NODES`
-and `LAVALINK_PASSWORD` there and it does `/music` too (see above). Set
-`DATABASE_URL` (anywhere:
+propagate). `render.yaml` is ready for a Render worker — everything except
+`/music`, since Render has no UDP (see above). Set `DATABASE_URL` (anywhere:
 Vercel, Docker, local) and Monarch swaps its file store for the PostgreSQL-
 backed `PrismaStore` automatically; migrations ship in `prisma/migrations/`
 and apply with `npm run db:migrate`.
@@ -246,19 +233,17 @@ apps/bot          discord.js bot (dashboard links, status, burg, music player)
                   — every command on two surfaces: slash + prefix (apps/bot/src/prefix/)
 packages/*        shared · schemas · validation · design-engine · renderer · discord · music
 prisma/           PostgreSQL schema (production persistence target)
-docker/           Compose + Dockerfiles, and the Lavalink node's application.yml
+docker/           Compose + Dockerfiles
 docs/             Architecture & decisions
-deploy/           laptop-install.sh — systemd user units for a self-hosted worker
-                  and its music node (see docs/hosting-laptop.md; no sudo, no
-                  Docker, no bill)
+deploy/           laptop-install.sh — systemd user unit for a self-hosted worker
+                  (see docs/hosting-laptop.md; no sudo, no Docker, no bill)
 ```
 
 The music player is split the same way as everything else:
 `packages/music` is a pure engine (queue ordering, loop modes, skip
 elections, source-URL classification, role policy — fully unit-tested) and
-`apps/bot/src/music` is the adapter (the Lavalink client and node manager,
-the Discord voice handshake, Spotify metadata via the Web API, Discord
-embeds).
+`apps/bot/src/music` is the adapter (voice connection, yt-dlp for the audio,
+Spotify via the Web API, Discord embeds).
 
 ## Principles
 

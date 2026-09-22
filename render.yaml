@@ -2,17 +2,12 @@
 # Keep the dashboard on Vercel; deploy this worker to Render (or any worker
 # host). Both services must use the same DISCORD_BOT_TOKEN.
 #
-# Music: /music works from here, but only against a Lavalink node this worker
-# can reach — set LAVALINK_NODES below. The node owns the Discord voice socket
-# and does the decoding, so it is the node that needs outbound UDP, not this
-# container. Render's containers have no UDP egress, which means you cannot host
-# the node on Render: run it on a VPS, a Fly.io machine, or your own machine
-# (deploy/laptop-install.sh installs it as a systemd user service), then point
-# LAVALINK_NODES at it, e.g. wss://music.example.com or ws://10.0.0.5:2333.
-# A node with the default password must not sit on the public internet — give it
-# a real LAVALINK_PASSWORD (set the same value here) or put TLS in front of it.
-# With no reachable node the worker still boots and every other command works;
-# /music replies that the music backend is down.
+# ⚠️ This worker cannot do /music: voice audio is UDP and Render's containers
+# have no UDP egress, so the bot joins the channel and times out in
+# "signalling". Everything else (designer commands, burg, prefixes, confessions,
+# invite/backup/export) works fine here. For voice, run the worker on a host
+# that passes outbound UDP — Fly.io, any VPS, or your own machine via
+# deploy/laptop-install.sh (docs/hosting-laptop.md).
 #
 # Never run *this* service and a self-hosted worker at the same time on the same
 # token: both process every message (double !burg relays, double prefix
@@ -40,12 +35,6 @@ services:
       # testing. Leave unset to register globally (global propagation can take
       # up to an hour in Discord).
       - key: DISCORD_GUILD_ID
-        sync: false
-      # Lavalink node(s) this worker plays through — see the header above.
-      # Format: [name@][ws|wss|http|https://]host[:port], comma-separated.
-      - key: LAVALINK_NODES
-        sync: false
-      - key: LAVALINK_PASSWORD
         sync: false
       - key: SPOTIFY_CLIENT_ID
         sync: false

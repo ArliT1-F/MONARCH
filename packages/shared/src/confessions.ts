@@ -16,4 +16,4 @@
  * How long one confession locks that person out: 6 hours. They may confess
  * again the moment it expires, i.e. they are blocked for 5h59m and change.
  */
-export const CONFESSION_COOLDOWN_MS = 3 * 60 * 60 * 1000;
+export const CONFESSION_COOLDOWN_MS = 6 * 60 * 60 * 1000;

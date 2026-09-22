@@ -71,13 +71,17 @@ afterAll(async () => {
 
 describe("PrismaStore against PostgreSQL (PGlite)", () => {
   it("round-trips a session and encrypts the OAuth token at rest", async () => {
+    // `createdAt` is the session's start time and the row expires 14 days
+    // later (SESSION_TTL_MS). A hardcoded date would therefore make this test
+    // expire ~2 weeks after it was written — getSession would clean the row up
+    // and return null. Anchor it to now.
     const session = {
       id: "sess_test_1",
       userId: "123456789012345678",
       username: "monarchfan",
       avatarUrl: "https://cdn.discordapp.com/avatars/1/abc.png",
       accessToken: "MTOK_plaintext-oauth-token",
-      createdAt: new Date("2026-09-02T10:00:00.000Z").toISOString(),
+      createdAt: new Date(Date.now() - 60_000).toISOString(),
     };
     await store.putSession(session);
 
@@ -215,7 +219,7 @@ describe("PrismaStore against PostgreSQL (PGlite)", () => {
     expect(first.claimed).toBe(true);
     const until = Date.parse(first.nextAllowedAt);
     expect(until - before).toBeGreaterThan(CONFESSION_COOLDOWN_MS - 5_000);
-    expect(until - before).toBeLessThanOrEqual(CONFESSION_COOLDOWN_MS);
+    expect(until - before).toBeLessThanOrEqual(CONFESSION_COOLDOWN_MS + 5_000);
 
     // One row per *person* — there is no guild in the key, so this is the same
     // window they would run into in every other server.

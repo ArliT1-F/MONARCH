@@ -2,21 +2,23 @@ import { randomUUID } from "node:crypto";
 import { createLogger } from "@monarch/shared";
 import { classifySource, type SourceQuery, type Track } from "@monarch/music";
 import {
-  LavalinkError,
-  getLavalink,
-  type LavalinkLoadResult,
-  type LavalinkTrack,
-} from "./lavalink.js";
+  YtdlpError,
+  ensureYtdlp,
+  ytdlpJson,
+  ytdlpPlaylist,
+  ytdlpSearch,
+  type YtdlpEntry,
+} from "./ytdlp.js";
 
 /**
  * Source resolution — turns a `/music play` query into playable tracks.
  *
- * Everything audio-related goes through the **Lavalink node**: YouTube videos
- * and playlists, plain searches, and any other source the node has enabled
- * (SoundCloud, Bandcamp, direct HTTP audio). `GET /v4/loadtracks` answers with
- * an *encoded* track plus its metadata, and the node resolves the actual audio
- * when playback starts — so queuing a 250-track playlist is one request and no
- * per-track scraping on our side.
+ * Everything audio-related goes through **yt-dlp**: YouTube videos, playlists
+ * and searches, SoundCloud/Bandcamp/Twitch links, and plain HTTP audio. yt-dlp
+ * does the extraction once, when the track is queued, and again when it plays
+ * (that second pass is what gives us a *live* URL — YouTube's are signed and
+ * expire within hours, which is why the bot resolves at play time instead of
+ * storing a stream URL in the queue).
  *
  * Spotify has no public audio stream, so track/album/playlist links are
  * resolved to *metadata* through the official Web API (client-credentials
@@ -31,7 +33,7 @@ const log = createLogger("bot.music");
 
 export const DEFAULT_MAX_QUEUE = 500;
 export const DEFAULT_MAX_PLAYLIST_TRACKS = 250;
-/** `ytsearch:` is the node's YouTube search; `ytmsearch:`/`scsearch:` also exist. */
+/** `ytsearch:` is YouTube search; `ytmsearch:`/`scsearch:` also exist. */
 export const DEFAULT_SEARCH_PREFIX = "ytsearch";
 
 export function musicLimits() {
@@ -48,7 +50,7 @@ function positiveInt(name: string, fallback: number): number {
 
 const SEARCH_PREFIXES = ["ytsearch", "ytmsearch", "scsearch"];
 
-/** Which node search prefix plain queries use (MUSIC_SEARCH_PREFIX). */
+/** Which yt-dlp search `play <words>` uses (MUSIC_SEARCH_PREFIX). */
 export function searchPrefix(): string {
   const raw = (process.env.MUSIC_SEARCH_PREFIX ?? "").trim().toLowerCase().replace(/:$/, "");
   return SEARCH_PREFIXES.includes(raw) ? raw : DEFAULT_SEARCH_PREFIX;
@@ -65,124 +67,85 @@ export interface ResolveResult {
 
 export class SourceError extends Error {}
 
-// ── Lavalink track loading ─────────────────────────────────────────────
+// ── downloader diagnostics ─────────────────────────────────────────────
 
 /**
- * One `loadtracks` call, with every transport failure translated into
- * something a person can act on. A dead node must never look like "that song
- * doesn't exist".
+ * The one message every "music can't run" path ends in. It names the missing
+ * piece and the way to fix it, because "fetch failed" taught nobody anything.
  */
-async function load(identifier: string): Promise<LavalinkLoadResult> {
-  try {
-    return await getLavalink().loadTracks(identifier);
-  } catch (error) {
-    throw new SourceError(backendFailureMessage(error));
-  }
+export function downloaderFailureMessage(detail: string): string {
+  return (
+    "The music downloader (**yt-dlp**) isn't ready on the bot's machine, so nothing can play right now. " +
+    `Downloader says: ${detail.slice(0, 300)} ` +
+    "Fix: let the bot download it (it does that automatically on the first `/music play`), " +
+    "install it yourself from https://github.com/yt-dlp/yt-dlp#installation and set `YTDLP_PATH`, " +
+    "then run `/music status`. See docs/troubleshooting-music.md."
+  );
 }
 
-export function backendFailureMessage(error: unknown): string {
-  const detail = error instanceof LavalinkError ? error.message : String(error).slice(0, 200);
-  const unreachable =
-    error instanceof LavalinkError && (error.status === undefined || error.status >= 500);
-  if (unreachable) {
-    const host = process.env.LAVALINK_HOST?.trim() || "localhost";
-    const port = process.env.LAVALINK_PORT?.trim() || "2333";
-    const nodes = process.env.LAVALINK_NODES?.trim() || `ws://${host}:${port}`;
-    const isLocal = nodes.includes("localhost") || nodes.includes("127.0.0.1") || host === "localhost" || nodes.includes("lavalink");
-    const fix = isLocal
-      ? `No Docker needed: run \`npm run music:local\` (needs Java 17+, 512M RAM) — ` +
-        `or with Docker: \`docker compose -f docker/docker-compose.yml up -d lavalink\`. ` +
-        `Then check \`curl http://localhost:${port}/version\`, \`npm run music:check\`, and ` +
-        `\`docker logs monarch-lavalink\` if using Docker. ` +
-        `If 401, LAVALINK_PASSWORD in .env must match docker/lavalink/application.yml. ` +
-        `See docs/troubleshooting-music.md — it has a full no-Docker guide.`
-      : `The bot is configured for ${nodes} but can't reach it. ` +
-        `Make sure the node is up, reachable, and LAVALINK_NODES / LAVALINK_PASSWORD match its application.yml. ` +
-        `Run \`npm run music:check\` for diagnosis.`;
-
-    return (
-      "The music backend (Lavalink) isn't answering, so nothing can play right now. " +
-      `Node says: ${detail} ` +
-      fix
-    );
-  }
-  return `The music node couldn't load that: ${detail}`;
+/** True when a failure means "the downloader itself is missing/broken". */
+export function isDownloaderFailure(error: unknown): boolean {
+  const text = String(error instanceof Error ? error.message : error);
+  return /yt-dlp|downloader/i.test(text);
 }
 
-/** Turn a node `loadType: "error"` answer into a readable failure. */
-function loadErrorMessage(data: { message: string | null; cause?: string }): string {
-  const message = data.message?.trim();
-  const cause = data.cause?.trim();
-  const detail = message || cause || "no reason given";
-  // Lavalink's own YouTube failures are worth naming: they're the thing an
-  // operator can fix on the node (plugin version, IPv6 rotation, cookies).
-  if (/isn't what was requested/i.test(detail)) {
-    return (
-      "YouTube refused this video for the node's IP (\"Video returned by YouTube isn't what was requested\"). " +
-      "It's a node-side rate limit, not a bot bug: update the youtube-source plugin, enable IPv6 rotation " +
-      "(`lavalink.server.ratelimit.ipBlocks`), or turn on OAuth / a poToken for YouTube. " +
-      "All three live in the node's application.yml — the repo's copy is docker/lavalink/application.yml."
-    );
-  }
-  return `The music node couldn't load that: ${detail}`;
+// ── entry → Track ──────────────────────────────────────────────────────
+
+function isYoutubeEntry(entry: YtdlpEntry): boolean {
+  const key = `${entry.extractor ?? ""} ${entry.ie_key ?? ""}`.toLowerCase();
+  if (key.includes("youtube")) return true;
+  if (entry.webpage_url?.includes("youtube.com") || entry.webpage_url?.includes("youtu.be")) return true;
+  // Flat playlist/search entries carry no extractor key, just an 11-char id
+  // and a watch URL.
+  return Boolean(entry.id && /^[A-Za-z0-9_-]{11}$/.test(entry.id) && !entry.extractor);
 }
 
-/** The single track a `track`/`search`/`playlist` answer is about, if any. */
-function firstPlayable(result: LavalinkLoadResult): LavalinkTrack | null {
-  const list = playableList(result);
-  return list.find((track) => !track.info.isStream) ?? null;
+function entryIsLive(entry: YtdlpEntry): boolean {
+  if (entry.is_live === true) return true;
+  const status = (entry.live_status ?? "").toLowerCase();
+  return status === "is_live" || status === "is_upcoming";
 }
 
-/** Every usable track in a load answer (live streams excluded). */
-function playableList(result: LavalinkLoadResult): LavalinkTrack[] {
-  switch (result.loadType) {
-    case "track":
-      return [result.data];
-    case "search":
-      return result.data;
-    case "playlist":
-      return result.data.tracks;
-    default:
-      return [];
-  }
+function youtubeThumbnail(id: string | undefined): string | null {
+  return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null;
 }
 
-function toTrack(lv: LavalinkTrack, requestedBy: string, requestedByName: string): Track {
-  const info = lv.info;
-  const sourceKind = info.sourceName === "youtube" ? "youtube" : "other";
+/** One yt-dlp entry → a `Track`, or null when it isn't playable. */
+export function entryToTrack(
+  entry: YtdlpEntry,
+  requestedBy: string,
+  requestedByName: string,
+): Track | null {
+  const id = entry.id?.trim();
+  const title = entry.title?.trim();
+  const url = entry.webpage_url ?? entry.url ?? (id ? `https://www.youtube.com/watch?v=${id}` : "");
+  if (!title || !url) return null;
+
+  const youtube = isYoutubeEntry(entry);
+  const duration = typeof entry.duration === "number" && entry.duration > 0 ? Math.round(entry.duration * 1000) : null;
+  const thumbnail = entry.thumbnail ?? entry.thumbnails?.at(-1)?.url ?? (youtube ? youtubeThumbnail(id) : null);
+
   return {
     id: randomUUID(),
-    title: info.title?.trim() || "Unknown title",
-    author: info.author?.trim() || "Unknown",
-    videoId: info.identifier ?? "",
-    sourceKind,
-    sourceName: info.sourceName ?? undefined,
-    url: info.uri ?? (info.identifier ? `https://www.youtube.com/watch?v=${info.identifier}` : ""),
-    // 0 means "the node doesn't know" (live, or a source without durations).
-    durationMs: info.isStream || !info.length ? null : info.length,
+    title,
+    author: (entry.uploader ?? entry.channel ?? "Unknown").trim() || "Unknown",
+    videoId: id ?? "",
+    sourceKind: youtube ? "youtube" : "other",
+    sourceName: youtube ? "youtube" : (entry.extractor ?? entry.ie_key ?? "direct"),
+    // What yt-dlp is handed when this track plays. For YouTube that is the
+    // watch page (never a signed stream URL — those expire).
+    sourceUrl: youtube && id ? `https://www.youtube.com/watch?v=${id}` : url,
+    url,
+    durationMs: entryIsLive(entry) ? null : duration,
     requestedBy,
     requestedByName,
-    thumbnail: info.artworkUrl ?? null,
-    encoded: lv.encoded,
+    thumbnail,
   };
 }
 
-function spotifyTrack(meta: SpotifyTrackMeta, requestedBy: string, requestedByName: string): Track {
-  const label = meta.artists ? `${meta.artists} – ${meta.name}` : meta.name;
-  return {
-    id: randomUUID(),
-    title: label,
-    author: "Spotify",
-    videoId: "", // matched against the node's YouTube search at play time
-    sourceKind: "spotify",
-    sourceName: "spotify",
-    url: meta.url,
-    durationMs: meta.durationMs,
-    requestedBy,
-    requestedByName,
-    thumbnail: meta.thumbnail,
-    youtubeSearch: label,
-  };
+/** Drop live streams, which can't be played as a bounded track. */
+function playable(entries: (YtdlpEntry | null)[]): YtdlpEntry[] {
+  return entries.filter((entry): entry is YtdlpEntry => Boolean(entry) && !entryIsLive(entry!));
 }
 
 // ── Spotify Web API (metadata only) ────────────────────────────────────
@@ -251,85 +214,82 @@ class SpotifyClient {
     };
   }
 
-  /** Search Spotify tracks — used when the user forces `source: spotify` for a plain search. */
-  async searchTracks(query: string, limit = 5): Promise<SpotifyTrackMeta[]> {
-    const q = encodeURIComponent(query);
+  async album(id: string, cap: number): Promise<{ name: string; tracks: SpotifyTrackMeta[] }> {
+    const data = await this.get<{
+      name: string;
+      total_tracks: number;
+      external_urls: { spotify: string };
+      images?: { url: string }[];
+      tracks: {
+        items: { name: string; duration_ms: number; artists: { name: string }[]; external_urls?: { spotify: string } }[];
+        next: string | null;
+      };
+    }>(`/albums/${id}`);
+    const thumbnail = data.images?.at(-1)?.url ?? null;
+    const items = await this.paged(data.tracks, cap);
+    return {
+      name: data.name,
+      tracks: items.map((item) => ({
+        name: item.name,
+        artists: item.artists.map((a) => a.name).join(", "),
+        durationMs: item.duration_ms,
+        url: item.external_urls?.spotify ?? data.external_urls.spotify,
+        thumbnail,
+      })),
+    };
+  }
+
+  async playlist(
+    id: string,
+    cap: number,
+  ): Promise<{ name: string; tracks: SpotifyTrackMeta[]; unavailable: number }> {
+    const data = await this.get<{
+      name: string;
+      tracks: {
+        items: { track: PlaylistItem | null }[];
+        next: string | null;
+      };
+    }>(`/playlists/${id}`);
+    const first = data.tracks.items.map((item) => item.track).filter((t): t is PlaylistItem => Boolean(t));
+    const unavailable = data.tracks.items.length - first.length;
+    const items = await this.paged<PlaylistItem>({ items: first, next: data.tracks.next }, cap);
+    return {
+      name: data.name,
+      unavailable,
+      tracks: items.map((item) => ({
+        name: item.name,
+        artists: item.artists.map((a) => a.name).join(", "),
+        durationMs: item.duration_ms,
+        url: item.external_urls?.spotify ?? `https://open.spotify.com/track/${item.id}`,
+        thumbnail: item.album?.images?.at(-1)?.url ?? null,
+      })),
+    };
+  }
+
+  /** Spotify search → up to `limit` tracks (used by `/music play spotify …`). */
+  async searchTracks(query: string, limit: number): Promise<SpotifyTrackMeta[]> {
     const data = await this.get<{
       tracks: {
         items: {
           name: string;
           duration_ms: number;
           external_urls: { spotify: string };
-          album?: { images?: { url: string }[] };
           artists: { name: string }[];
+          album?: { images?: { url: string }[] };
         }[];
       };
-    }>(`/search?q=${q}&type=track&limit=${Math.min(Math.max(limit, 1), 10)}&market=US`);
-    return data.tracks.items.map((t) => ({
-      name: t.name,
-      artists: t.artists.map((a) => a.name).join(", "),
-      durationMs: t.duration_ms,
-      url: t.external_urls.spotify,
-      thumbnail: t.album?.images?.at(-1)?.url ?? null,
-    }));
-  }
-
-  /** Album tracks, paged (50/page). */
-  async album(id: string, cap: number): Promise<{ name: string; tracks: SpotifyTrackMeta[] }> {
-    const meta = await this.get<{
-      name: string;
-      images?: { url: string }[];
-      tracks: { items: SpotifyAlbumItem[]; next: string | null };
-    }>(`/albums/${id}`);
-    const items = await this.paged<SpotifyAlbumItem>(`/albums/${id}/tracks`, meta.tracks, cap);
-    return { name: meta.name, tracks: items.map((t) => this.toMeta(t, meta.images?.at(-1)?.url ?? null)) };
-  }
-
-  /** Playlist tracks, paged (100/page). */
-  async playlist(id: string, cap: number): Promise<{ name: string; tracks: SpotifyTrackMeta[]; unavailable: number }> {
-    const meta = await this.get<{
-      name: string;
-      images?: { url: string }[];
-      tracks: { items: { track: SpotifyAlbumItem | null }[]; next: string | null };
-    }>(`/playlists/${id}`);
-    // Flatten wrapped playlist items so the pager sees tracks directly.
-    const firstPage = {
-      items: meta.tracks.items.map((i) => i.track),
-      next: meta.tracks.next,
-    };
-    const items = await this.paged<SpotifyAlbumItem | null>(`/playlists/${id}/tracks`, firstPage, cap);
-    let unavailable = 0;
-    const tracks: SpotifyTrackMeta[] = [];
-    for (const track of items) {
-      // null = the track is unavailable in the market / was removed.
-      if (!track) {
-        unavailable += 1;
-        continue;
-      }
-      tracks.push(this.toMeta(track, meta.images?.at(-1)?.url ?? null));
-    }
-    return { name: meta.name ?? "Spotify playlist", tracks, unavailable };
-  }
-
-  private toMeta(
-    item: { name: string; duration_ms: number; external_urls: { spotify: string }; artists: { name: string }[] },
-    thumbnail: string | null,
-  ): SpotifyTrackMeta {
-    return {
+    }>(`/search?type=track&limit=${Math.min(20, Math.max(1, limit))}&q=${encodeURIComponent(query)}`);
+    return data.tracks.items.map((item) => ({
       name: item.name,
       artists: item.artists.map((a) => a.name).join(", "),
       durationMs: item.duration_ms,
       url: item.external_urls.spotify,
-      thumbnail,
-    };
+      thumbnail: item.album?.images?.at(-1)?.url ?? null,
+    }));
   }
 
   /** Follows Spotify's `next` cursor, collecting up to `cap` items. */
-  private async paged<T>(
-    basePath: string,
-    first: { items: T[]; next: string | null },
-    cap: number,
-  ): Promise<T[]> {
+  private async paged<T>(first: { items: T[]; next: string | null }, cap: number): Promise<T[]> {
     const out: T[] = [...first.items];
     let next = first.next;
     let guard = 0;
@@ -345,10 +305,12 @@ class SpotifyClient {
   }
 }
 
-type SpotifyAlbumItem = {
+type PlaylistItem = {
+  id: string;
   name: string;
   duration_ms: number;
-  external_urls: { spotify: string };
+  external_urls?: { spotify: string };
+  album?: { images?: { url: string }[] };
   artists: { name: string }[];
 };
 
@@ -363,7 +325,25 @@ export function getSpotify(): SpotifyClient {
   return spotifyClient;
 }
 
-// ── The resolver facade ────────────────────────────────────────────────
+function spotifyTrack(meta: SpotifyTrackMeta, requestedBy: string, requestedByName: string): Track {
+  const label = meta.artists ? `${meta.artists} – ${meta.name}` : meta.name;
+  return {
+    id: randomUUID(),
+    title: label,
+    author: "Spotify",
+    videoId: "", // matched against a yt-dlp search at play time
+    sourceKind: "spotify",
+    sourceName: "spotify",
+    url: meta.url,
+    durationMs: meta.durationMs,
+    requestedBy,
+    requestedByName,
+    thumbnail: meta.thumbnail,
+    youtubeSearch: label,
+  };
+}
+
+// ── the resolver facade ────────────────────────────────────────────────
 
 export type MusicSourcePreference = "youtube" | "spotify";
 
@@ -385,20 +365,16 @@ export async function resolveQuery(
   switch (source.kind) {
     case "youtube-video": {
       const url = source.url ?? `https://www.youtube.com/watch?v=${source.id}`;
-      const result = await load(url);
-      if (result.loadType === "error") throw new SourceError(loadErrorMessage(result.data));
-      const track = firstPlayable(result);
-      if (!track) {
-        if (playableList(result).length > 0) throw new SourceError("That's a live stream — queue it again once it has ended.");
-        throw new SourceError("That video is unavailable (private, removed, age-restricted, or blocked for the node's IP).");
-      }
-      const made = toTrack(track, requestedBy, requestedByName);
-      return { kind: source.kind, origin: made.title, tracks: [made], skipped: 0 };
+      const entry = await downloader(() => ytdlpJson(url));
+      if (entryIsLive(entry)) throw new SourceError("That's a live stream — wait for it to end before queueing it.");
+      const track = entryToTrack(entry, requestedBy, requestedByName);
+      if (!track) throw new SourceError("That video is unavailable (private, removed, or age-restricted).");
+      return { kind: source.kind, origin: track.title, tracks: [track], skipped: 0 };
     }
 
     case "youtube-playlist": {
       const url = source.url ?? `https://www.youtube.com/playlist?list=${source.id}`;
-      const { title, tracks, skipped } = await loadPlaylist(url, cap, requestedBy, requestedByName);
+      const { title, tracks, skipped } = await expandPlaylist(url, cap, requestedBy, requestedByName);
       if (tracks.length === 0) throw new SourceError(`The playlist “${title}” has no playable videos.`);
       return { kind: source.kind, origin: title, tracks, skipped };
     }
@@ -435,7 +411,9 @@ export async function resolveQuery(
         if (!spotifyConfigured()) {
           throw new SourceError(
             "Spotify search needs SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET set on the bot. " +
-              "Falling back to YouTube: try `/music play youtube ${text}` or just omit the source.",
+              "Falling back to YouTube: try `/music play youtube " +
+              text +
+              "` or just omit the source.",
           );
         }
         const spotifyMeta = await getSpotify().searchTracks(text, 1);
@@ -453,66 +431,76 @@ export async function resolveQuery(
       }
 
       // A link the classifier didn't recognize (SoundCloud, Bandcamp, a direct
-      // audio file…) is worth handing to the node first: it plays whatever
-      // sources its application.yml enables. Anything it can't load falls back
-      // to being a search phrase, exactly like before.
+      // audio file…) is handed to yt-dlp first: it plays whatever it supports.
+      // Anything it can't load falls back to being a search phrase.
       if (/^https?:\/\//i.test(text)) {
         const direct = await loadDirectly(text, requestedBy, requestedByName, cap);
         if (direct) return direct;
       }
 
-      const track = await searchOne(text);
+      const track = await searchFor(text, requestedBy, requestedByName);
       if (!track) throw new SourceError(`No track matched “${text}”.`);
-      const made = toTrack(track, requestedBy, requestedByName);
-      return { kind: "search", origin: made.title, tracks: [made], skipped: 0 };
+      return { kind: "search", origin: track.title, tracks: [track], skipped: 0 };
     }
   }
 }
 
-/** The node's own search → first non-live result. */
-async function searchOne(query: string): Promise<LavalinkTrack | null> {
-  const result = await load(`${searchPrefix()}:${query}`);
-  if (result.loadType === "error") throw new SourceError(loadErrorMessage(result.data));
-  return firstPlayable(result);
+/**
+ * Run a downloader call, translating its failures into `SourceError`. The
+ * "is yt-dlp even installed?" case gets the setup message; everything else
+ * keeps yt-dlp's own explanation (already translated by ytdlp.ts).
+ */
+async function downloader<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    const probe = await ensureYtdlp();
+    if (!probe.available) throw new SourceError(downloaderFailureMessage(probe.detail ?? "not installed"));
+    return await run();
+  } catch (error) {
+    if (error instanceof SourceError) throw error;
+    if (error instanceof YtdlpError) throw new SourceError(error.message);
+    log.warn("downloader call failed", { error: String(error).slice(0, 300) });
+    throw new SourceError(`The downloader failed: ${String(error instanceof Error ? error.message : error).slice(0, 200)}`);
+  }
+}
+
+/**
+ * yt-dlp's own search (`ytsearch:`, `ytmsearch:` or `scsearch:` — see
+ * {@link searchPrefix}) → the first playable, non-live result.
+ */
+async function searchFor(
+  query: string,
+  requestedBy = "",
+  requestedByName = "",
+  limit = 5,
+): Promise<Track | null> {
+  const entries = await downloader(() => ytdlpSearch(`${searchPrefix()}:${query}`, limit));
+  const first = playable(entries)[0];
+  return first ? entryToTrack(first, requestedBy, requestedByName) : null;
 }
 
 /** Load a playlist URL, capped, reporting how much was left out. */
-async function loadPlaylist(
+async function expandPlaylist(
   url: string,
   cap: number,
   requestedBy: string,
   requestedByName: string,
 ): Promise<{ title: string; tracks: Track[]; skipped: number }> {
-  const result = await load(url);
-  if (result.loadType === "error") throw new SourceError(loadErrorMessage(result.data));
-  if (result.loadType === "empty") return { title: "playlist", tracks: [], skipped: 0 };
-
-  // A playlist URL can answer as a single track (a mix, or a node that only
-  // resolved the watch link) — honor whatever came back.
-  if (result.loadType !== "playlist") {
-    const track = firstPlayable(result);
-    return {
-      title: track?.info.title ?? "playlist",
-      tracks: track ? [toTrack(track, requestedBy, requestedByName)] : [],
-      skipped: 0,
-    };
-  }
-
-  const title = result.data.info.name?.trim() || "playlist";
-  const playable = result.data.tracks.filter((track) => !track.info.isStream);
-  const unavailable = result.data.tracks.length - playable.length;
-  const kept = playable.slice(0, cap);
-  const overCap = playable.length - kept.length;
-  return {
-    title,
-    tracks: kept.map((track) => toTrack(track, requestedBy, requestedByName)),
-    skipped: unavailable + overCap,
-  };
+  const result = await downloader(() => ytdlpPlaylist(url, cap));
+  const title = result.title?.trim() || result.playlist_count?.toString() || "playlist";
+  const entries = Array.isArray(result.entries) ? result.entries : [];
+  const usable = playable(entries);
+  const unavailable = entries.length - usable.length;
+  const kept = usable.slice(0, cap);
+  const overCap = usable.length - kept.length;
+  const tracks = kept
+    .map((entry) => entryToTrack(entry, requestedBy, requestedByName))
+    .filter((track): track is Track => track !== null);
+  return { title, tracks, skipped: unavailable + overCap };
 }
 
 /**
  * Try an unrecognized URL as a direct source. Returns null (not an error) when
- * the node can't load it, so the caller can fall back to treating it as text.
+ * the downloader can't load it, so the caller can fall back to search.
  */
 async function loadDirectly(
   url: string,
@@ -520,46 +508,45 @@ async function loadDirectly(
   requestedByName: string,
   cap: number,
 ): Promise<ResolveResult | null> {
-  let result: LavalinkLoadResult;
   try {
-    result = await getLavalink().loadTracks(url);
+    const flat = await ytdlpJson(url, { flat: true, limit: cap });
+    if (flat._type === "playlist" || Array.isArray(flat.entries)) {
+      const { title, tracks, skipped } = await expandPlaylist(url, cap, requestedBy, requestedByName);
+      if (tracks.length === 0) return null;
+      log.info("loaded a playlist through the downloader", { url, title, tracks: tracks.length });
+      return { kind: "search", origin: title, tracks, skipped };
+    }
+    // A single item: the flat probe has the title but not the duration or
+    // thumbnail, so ask once more for the full metadata.
+    const entry = await ytdlpJson(url);
+    const track = entryToTrack(entry, requestedBy, requestedByName);
+    if (!track) return null;
+    log.info("loaded a non-YouTube URL through the downloader", { url, source: track.sourceName, title: track.title });
+    return { kind: "search", origin: track.title, tracks: [track], skipped: 0 };
   } catch (error) {
     log.info("direct URL load failed, falling back to search", { url, error: String(error).slice(0, 200) });
     return null;
   }
-  if (result.loadType === "empty") return null;
-  if (result.loadType === "error") {
-    log.info("node refused the direct URL, falling back to search", { url, message: result.data.message });
-    return null;
-  }
-  if (result.loadType === "playlist") {
-    const { title, tracks, skipped } = await loadPlaylist(url, cap, requestedBy, requestedByName);
-    if (tracks.length === 0) return null;
-    return { kind: "search", origin: title, tracks, skipped };
-  }
-  const track = firstPlayable(result);
-  if (!track) return null;
-  const made = toTrack(track, requestedBy, requestedByName);
-  log.info("loaded a non-YouTube URL through the node", { url, source: made.sourceName, title: made.title });
-  return { kind: "search", origin: made.title, tracks: [made], skipped: 0 };
 }
 
 /**
- * The player-facing piece: make sure a track has something the node can play.
- * YouTube tracks arrive pre-encoded from `resolveQuery`; Spotify tracks are
- * matched to YouTube here, lazily, only for the ones that actually play.
+ * The player-facing piece: make sure a track has something yt-dlp can open.
+ * YouTube tracks (and everything else the downloader resolved) arrive with a
+ * `sourceUrl`; Spotify tracks are matched to a YouTube search here, lazily —
+ * only for the ones that actually play.
  */
 export async function ensurePlayable(track: Track): Promise<Track> {
-  if (track.encoded) return track;
+  if (track.sourceUrl) return track;
   if (!track.youtubeSearch) throw new SourceError("I don't know how to play that track.");
 
-  const match = await searchOne(track.youtubeSearch);
+  const match = await searchFor(track.youtubeSearch, track.requestedBy, track.requestedByName);
   if (!match) throw new SourceError(`Couldn't find a playable YouTube match for “${track.title}”.`);
 
-  track.encoded = match.encoded;
-  track.videoId = match.info.identifier ?? "";
-  track.durationMs = track.durationMs ?? (match.info.isStream || !match.info.length ? null : match.info.length);
-  track.thumbnail = track.thumbnail ?? match.info.artworkUrl ?? null;
-  log.info("spotify track matched on the node", { track: track.title, videoId: track.videoId });
+  track.sourceUrl = match.sourceUrl;
+  track.videoId = match.videoId;
+  track.sourceName = match.sourceName;
+  track.durationMs = track.durationMs ?? match.durationMs;
+  track.thumbnail = track.thumbnail ?? match.thumbnail;
+  log.info("spotify track matched on YouTube", { track: track.title, videoId: track.videoId });
   return track;
 }
