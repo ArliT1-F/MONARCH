@@ -54,6 +54,18 @@ const JOIN_TIMEOUT_MS = 20_000;
 const RECOVER_TIMEOUT_MS = 10_000;
 /** Wait for yt-dlp's exit status before calling an idle player "finished". */
 const EXIT_GRACE_MS = 400;
+
+/**
+ * A track that dies this early never got going — a challenge the solver
+ * couldn't answer, a transient 403, an extractor that picked a dead format.
+ * Those are worth one silent retry; a track that dies after minutes of audio
+ * is a different problem (throttling, network) and gets reported instead.
+ */
+const YOUNG_DEATH_MS = 6_000;
+
+/** Failures a retry cannot fix — the downloader already said what's wrong. */
+const PERMANENT_FAILURE =
+  /private|unavailable|region-locked|geo|live stream|isn't something the downloader supports|answered 404|isn't installed|prove it isn't a bot/i;
 export class AudioError extends Error {
   constructor(message: string) {
     super(message);
@@ -232,7 +244,17 @@ interface GuildSession {
   player: AudioPlayer;
   channelId: string;
   /** What is playing right now (null while idle). */
-  current: { trackId: string; title: string; startedAt: number; pausedFor: number; pausedAt: number | null } | null;
+  current: {
+    trackId: string;
+    title: string;
+    /** Kept so a track that dies instantly can be started again. */
+    track: Track;
+    /** 0 on the first try, 1 on the single retry. */
+    attempt: number;
+    startedAt: number;
+    pausedFor: number;
+    pausedAt: number | null;
+  } | null;
   resource: AudioResource | null;
   pipe: AudioPipe | null;
   ffmpeg: ChildProcess | null;
@@ -441,21 +463,34 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
     const session = this.sessions.get(guildId);
     if (!session) throw new AudioError("I'm not in a voice channel — join one and run the command again.");
     if (!track.sourceUrl) throw new AudioError(`I don't have a playable source for **${track.title}**.`);
+    await this.startTrack(session, track, 0);
+  }
 
+  /**
+   * Open the downloader, wire it to Discord and press play. Split out from
+   * {@link play} so a track that dies before it produces any audio can be
+   * started once more (see {@link onIdle}) without the queue noticing.
+   */
+  private async startTrack(session: GuildSession, track: Track, attempt: number): Promise<void> {
     this.killPipeline(session);
     session.stopping = false;
     session.failure = null;
     session.current = {
       trackId: track.id,
       title: track.title,
+      track,
+      attempt,
       startedAt: Date.now(),
       pausedFor: 0,
       pausedAt: null,
     };
 
+    const sourceUrl = track.sourceUrl;
+    if (!sourceUrl) throw new AudioError(`I don't have a playable source for **${track.title}**.`);
+
     let pipe: AudioPipe;
     try {
-      pipe = await (this.options.openPipe ?? openAudioPipe)(track.sourceUrl);
+      pipe = await (this.options.openPipe ?? openAudioPipe)(sourceUrl);
     } catch (error) {
       session.current = null;
       if (error instanceof YtdlpError) throw new AudioError(error.message);
@@ -493,10 +528,11 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
     session.resource = resource;
     session.player.play(resource);
     log.info("audio started", {
-      guildId,
+      guildId: session.guildId,
       track: track.title,
       pipeline: this.pipeline(),
       volume: session.volume,
+      attempt,
     });
   }
 
@@ -647,6 +683,28 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
     if (stopping) {
       this.emit("trackEnd", { guildId: session.guildId, trackId: ended.trackId, reason: "stopped", elapsedMs });
       return;
+    }
+    if (
+      failure &&
+      ended.attempt < 1 &&
+      elapsedMs < YOUNG_DEATH_MS &&
+      ended.track.sourceUrl &&
+      !PERMANENT_FAILURE.test(failure)
+    ) {
+      // One quiet retry. The queue is not told: as far as it is concerned this
+      // track is still playing, which is exactly what a listener should see.
+      log.warn("retrying a track that never got going", {
+        guildId: session.guildId,
+        track: ended.title,
+        elapsedMs,
+        error: failure.slice(0, 160),
+      });
+      try {
+        await this.startTrack(session, ended.track, ended.attempt + 1);
+        return;
+      } catch (error) {
+        failure = error instanceof AudioError ? error.message : String(error instanceof Error ? error.message : error);
+      }
     }
     if (failure) {
       log.warn("track failed", { guildId: session.guildId, track: ended.title, error: failure.slice(0, 200) });

@@ -78,11 +78,21 @@ export function ytdlpCookiesPath(): string | null {
   return env("YTDLP_COOKIES") ?? env("YTDLP_COOKIE_FILE") ?? null;
 }
 
-/** Extra CLI flags, space-separated (e.g. extractor args for a stubborn source). */
-export function ytdlpExtraArgs(): string[] {
-  const raw = env("YTDLP_ARGS");
+/**
+ * Extra CLI flags from `YTDLP_ARGS` (e.g. extractor args for a stubborn
+ * source). Split on whitespace, but `"quoted values"` stay one argument —
+ * `--extractor-args "youtube:player_client=tv,web"` is a single flag pair, and
+ * splitting it blindly used to hand yt-dlp two broken arguments.
+ */
+export function ytdlpExtraArgs(raw = env("YTDLP_ARGS")): string[] {
   if (!raw) return [];
-  return raw.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  for (const match of raw.matchAll(pattern)) {
+    const value = match[1] ?? match[2] ?? match[3] ?? "";
+    if (value) out.push(value);
+  }
+  return out;
 }
 
 /**
@@ -109,6 +119,14 @@ export function ytdlpCommonArgs(): string[] {
     String(SOCKET_TIMEOUT_S),
     "--extractor-retries",
     "2",
+    // YouTube (and several other CDNs) throttle a *connection* rather than an
+    // account: one long-lived TCP stream starts out fast and then crawls,
+    // which is what makes a track stall or stop a minute in. Asking for the
+    // audio in 16 KiB chunks turns that into a series of short range requests
+    // — each one is answered at full speed. Verified byte-identical on the
+    // stdout path, and harmless on servers that don't support ranges.
+    "--http-chunk-size",
+    "16384",
   ];
   const cookies = ytdlpCookiesPath();
   if (cookies) args.push("--cookies", cookies);
@@ -117,6 +135,56 @@ export function ytdlpCommonArgs(): string[] {
   const cacheDir = env("YTDLP_CACHE_DIR");
   if (cacheDir) args.push("--cache-dir", cacheDir);
   return [...args, ...ytdlpExtraArgs()];
+}
+
+// ── binary capabilities ────────────────────────────────────────────────
+
+/** Per-binary capability list; a binary never changes under a running process. */
+const capabilityCache = new Map<string, Promise<string[]>>();
+
+/** Forget cached capabilities (tests, and after re-downloading the binary). */
+export function resetYtdlpCapabilities(): void {
+  capabilityCache.clear();
+}
+
+/**
+ * Which JS runtime to offer yt-dlp for the challenge solver (`YTDLP_JS_RUNTIME`).
+ * `none` disables it; otherwise the value is passed through as
+ * `RUNTIME[:PATH]` — e.g. `deno`, or `node:/usr/local/bin/node`.
+ *
+ * Default: *our own* Node. yt-dlp only enables Deno out of the box, and it
+ * needs a JS runtime to solve YouTube's `n`/signature challenge — when the
+ * solver can't run, YouTube hands out rate-limited URLs and the track dies
+ * mid-song. We are already a Node process, so this costs nothing to enable.
+ */
+function jsRuntimeArgs(): string[] {
+  const override = env("YTDLP_JS_RUNTIME")?.trim();
+  if (override?.toLowerCase() === "none") return [];
+  if (override) return ["--js-runtimes", override];
+  if (!process.execPath) return [];
+  return ["--js-runtimes", `node:${process.execPath}`];
+}
+
+/**
+ * Flags the *installed* binary understands, discovered from its `--help` once
+ * per process. Guards against old builds (a packaged `yt-dlp` from a distro
+ * repo can be a year old) and against nightlies that rename things.
+ */
+export async function ytdlpCapabilityArgs(bin: string): Promise<string[]> {
+  const cached = capabilityCache.get(bin);
+  if (cached) return cached;
+  const pending = detectCapabilities(bin);
+  capabilityCache.set(bin, pending);
+  return pending;
+}
+
+async function detectCapabilities(bin: string): Promise<string[]> {
+  const help = await run(bin, ["--help"], 20_000);
+  if (help.spawnError) return [];
+  const text = `${help.stdout}\n${help.stderr}`;
+  const args: string[] = [];
+  if (text.includes("--js-runtimes")) args.push(...jsRuntimeArgs());
+  return args;
 }
 
 // ── binary discovery (and first-run download) ──────────────────────────
@@ -482,7 +550,7 @@ export async function ytdlpJson(
     );
   }
 
-  const args = [...ytdlpCommonArgs(), "-J"];
+  const args = [...ytdlpCommonArgs(), ...(await ytdlpCapabilityArgs(bin)), "-J"];
   if (options.flat) args.push("--flat-playlist");
   if (options.limit && options.limit > 0) args.push("-I", `1:${options.limit}`);
   args.push(...(options.extraArgs ?? []), "--", target);
@@ -572,7 +640,16 @@ export async function openAudioPipe(target: string): Promise<AudioPipe> {
     );
   }
 
-  const args = [...ytdlpCommonArgs(), "-f", ytdlpFormat(), "-o", "-", "--", target];
+  const args = [
+    ...ytdlpCommonArgs(),
+    ...(await ytdlpCapabilityArgs(bin)),
+    "-f",
+    ytdlpFormat(),
+    "-o",
+    "-",
+    "--",
+    target,
+  ];
   log.debug?.("starting yt-dlp audio pipe", { target: target.slice(0, 120) });
 
   let child: ChildProcessWithoutNullStreams;

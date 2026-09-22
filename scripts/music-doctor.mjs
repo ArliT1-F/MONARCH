@@ -143,7 +143,23 @@ if (ytdlpBin) {
   ok(`pipeline: ${mode}`);
 }
 
-// ── 5. can it actually reach YouTube? ────────────────────────────────────────
+// ── 5. throttling defences ───────────────────────────────────────────────────
+if (ytdlpBin) {
+  ok("download: 16 KiB chunks + 5 retries per download (YouTube throttles connections, not accounts)");
+  const runtime = process.env.YTDLP_JS_RUNTIME?.trim();
+  if (runtime?.toLowerCase() === "none") {
+    warn("JavaScript runtime disabled — YouTube's n/signature challenge goes unsolved, which shows up as tracks dying early");
+  } else if (runtime) {
+    ok(`challenge solver: ${runtime}`);
+  } else {
+    ok(`challenge solver: node:${process.execPath} (yt-dlp only enables Deno by default)`);
+  }
+  const args = process.env.YTDLP_ARGS?.trim();
+  if (args && /throttled-rate/.test(args)) ok(`extra flags: ${args}`);
+  else if (args) info(`extra flags: ${args}`);
+}
+
+// ── 6. can it actually reach YouTube? ────────────────────────────────────────
 if (probe && ytdlpBin) {
   console.log("\n  Probing YouTube with `yt-dlp -J 'ytsearch1:monarch'` …");
   const result = run(ytdlpBin, ["--no-warnings", "--no-playlist", "-J", "ytsearch1:monarch", "--flat-playlist"], 90_000);
@@ -162,6 +178,8 @@ if (probe && ytdlpBin) {
     if (stderr) info(stderr);
     if (/sign in to confirm|not a bot|confirm your age/i.test(result.stderr)) {
       info("YouTube wants cookies. Export a cookies.txt from a browser and set YTDLP_COOKIES=/path/cookies.txt");
+    } else if (/HTTP Error 403/i.test(result.stderr)) {
+      info("A 403 on a datacenter IP is usually the bot check arriving early: cookies (above) are the fix");
     } else if (/SSL|tls|connection|timed out/i.test(result.stderr)) {
       info("This looks like a network/DNS/TLS problem (firewall, VPN, or a blocked IP) — not a broken bot.");
     }

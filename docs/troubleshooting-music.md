@@ -67,10 +67,44 @@ what a residential proxy is for.
   is UDP, and containers on hosts without UDP egress join the channel, then sit
   in `signalling` until they time out.
 - **Track cut short / `⚠️ Track cut short`.** The audio stream ended before the
-  advertised length: usually a stalled yt-dlp download (network) or a
-  bot-check page in the middle. Re-queue it; if it repeats, export cookies.
+  advertised length. See §6 — that is YouTube throttling, and there are three
+  things to check. A track that dies within a few seconds *is* retried
+  automatically once, silently; if it still fails you get the reason.
 
-## 5. ffmpeg
+## 5. Throttling, "the song stops after a minute", robot voices
+
+YouTube throttles a *connection*, not an account: the download starts at full
+speed and then crawls to a few KB/s, the player runs out of buffered audio and
+the track ends early. Monarch ships three defences, in order of how much they
+usually matter:
+
+1. **Chunked downloads.** Every download is requested as 16 KiB ranges
+   (`--http-chunk-size`), which turns one throttled long-lived connection into
+   a series of short requests — each answered at full speed. Nothing to
+   configure; `npm run music:check` prints the flags in use.
+2. **A JS runtime for the challenge solver.** yt-dlp needs JavaScript to solve
+   YouTube's `n`/signature challenge; a stream whose challenge went unsolved is
+   exactly the stream YouTube rate-limits. yt-dlp only enables Deno by default,
+   so Monarch hands it the Node it is already running (`--js-runtimes
+   node:…`). `YTDLP_JS_RUNTIME=deno` if you have Deno, `=none` to opt out.
+3. **A fresh yt-dlp.** Extractors are updated within hours of a YouTube change
+   and a stale binary *is* a throttled binary. `yt-dlp -U`, or
+   `npm run music:setup -- --force`; `music:check` warns past 90 days.
+
+If a track still stops early on a specific machine:
+
+```
+YTDLP_ARGS=--throttled-rate 100K      # re-extract when the stream drops below that rate
+YTDLP_COOKIES=/path/cookies.txt       # a logged-in session is throttled far less
+YTDLP_PROXY=socks5://…                # residential/proxy IP, when the host is the problem
+```
+
+`--throttled-rate` is the aggressive one: on a slow-but-honest connection it
+will re-extract instead of just being slow, so try it *after* the first two.
+The bot logs `elapsed vs expected` for every premature end, and the yt-dlp
+stderr tail sits next to it in the logs — that is what tells "throttled" apart
+from "the source 403'd us".
+
 
 ffmpeg is **optional**: with it, Monarch decodes to PCM and re-encodes Opus, so
 volume works and every source (AAC/M4A, MP3, radio) plays. Without it, only
@@ -126,7 +160,8 @@ Voice is UDP **from the bot's host**. That is the only hard requirement:
 | `YTDLP_DISABLED=1` | Turn the music player off entirely (commands explain why) |
 | `YTDLP_COOKIES` / `YTDLP_COOKIE_FILE` | cookies.txt for age/bot checks |
 | `YTDLP_PROXY` | SOCKS/HTTP proxy for every yt-dlp call |
-| `YTDLP_ARGS` | Extra argv (e.g. `--extractor-args "youtube:player_client=tv"`) |
+| `YTDLP_ARGS` | Extra argv; quoted values stay together (`--throttled-rate 100K`, `--extractor-args "youtube:player_client=tv"`) |
+| `YTDLP_JS_RUNTIME` | JS runtime for YouTube's challenge solver: default `node:<this bot's node>`, or `deno`, or `none` |
 | `YTDLP_FORMAT` | Format selector; default prefers Opus-in-WebM |
 | `YTDLP_CACHE_DIR` | Where yt-dlp keeps its cache |
 | `MUSIC_FFMPEG_PATH` / `FFMPEG_PATH` | ffmpeg to use |
@@ -152,6 +187,8 @@ in `apps/bot/src/music/ytdlp.ts` — and it names the fix, not just the failure:
 | "the source refused the download (403)" | bot check or region block |
 | "region-locked for the machine running the bot" | geo-restricted track |
 | "live stream — wait for it to end" | live URLs aren't supported mid-stream |
+| `⚠️ Track cut short` in Discord, `elapsed vs expected` in the log | the download stopped early — throttling or a network flap; §5 |
+| `⚠️ Track failed` right after `/music play` | the download never started; the message says why (bot check → cookies, 404, 403, private…) — a *transient* failure here is retried once on its own |
 | "isn't in a format Discord takes directly … no ffmpeg" | install ffmpeg (§5) |
 
 The raw yt-dlp stderr tail is in the bot's logs next to the message — that is

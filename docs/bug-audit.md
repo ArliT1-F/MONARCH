@@ -76,6 +76,29 @@ leak.
 | 17 | `agent.md` documented `volumeToGain`, which the code no longer exports (`volumeGain`), and described the removed InnerTube/`youtubei.js` path. | Music section rewritten around the current modules. |
 | 18 | `npm audit --omit=dev`: 6 advisories (5 high, 1 moderate) — `postcss` bundled inside `next`, plus `mysql2`/`deepmerge-ts` pulled in by the Prisma **CLI**. | Left as-is deliberately: the offered fix is a *downgrade* of Prisma 7 → 6 and a major Next 15 → 16 jump. Neither is reachable from runtime code here (Prisma CLI is dev-time and Monarch speaks Postgres, not MySQL; the postcss issues require attacker-authored CSS). Worth doing as a planned dependency bump, not as a hotfix. |
 
+## Follow-up: will YouTube throttle the new player?
+
+This was the reason the old stack carried a `⚠️ Track cut short` message at all
+(a track that starts fine and stops ~1 minute in). yt-dlp is far better at this
+than the removed InnerTube path was, and three defences were added or confirmed:
+
+| Defence | What it does |
+| --- | --- |
+| `--http-chunk-size 16384` (new) | YouTube throttles a *connection*, not an account: one long download starts fast, then crawls. Requesting 16 KiB ranges turns it into many short requests that each come back at full speed. Verified byte-identical on the stdout path, and harmless for servers without range support. |
+| `--js-runtimes node:<this node>` (new, capability-detected) | yt-dlp needs a JS runtime to solve the `n`/signature challenge; only Deno is enabled by default and this is a Node process. An unsolved challenge is exactly what YouTube rate-limits. Detected from the binary's `--help`, overridable (`YTDLP_JS_RUNTIME=deno|none`), skipped for old builds. |
+| `--retries 5`, `--fragment-retries 5` (verified) | yt-dlp resumes a *stdout* download from the byte it last wrote (`ctx.resume_len = byte_counter`), so an interruption reopens a range request instead of starting over or duplicating audio. |
+| One silent retry for a track that dies within 6 s (new) | Transient extractor/403 hiccups ("try again and it works") no longer surface as a failed track: `audio.ts` restarts it once, without telling the queue. Permanent reasons (private, removed, region-locked, live, no bot-cookies) are never retried. |
+
+Not enabled by default: `--throttled-rate`, which re-extracts whenever the
+stream drops below a threshold. On a genuinely slow link that hurts more than
+it helps, and on the stdout path a re-extract restarts the stream — so it is
+documented as `YTDLP_ARGS=--throttled-rate 100K` for machines that are
+consistently throttled (a datacenter IP), not switched on for everyone.
+
+Live YouTube could not be reached from the build sandbox, so throttling itself
+was verified by construction and by unit tests, not by playing a real video
+from a throttled IP.
+
 ## Verified clean (looked at, no bug found)
 
 - Internal bot → dashboard auth: constant-time SHA-256 comparison, 503 when the
