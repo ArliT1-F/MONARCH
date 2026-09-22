@@ -1,14 +1,15 @@
 import { EventEmitter } from "node:events";
-import { vi } from "vitest";
+import type { Track } from "@monarch/music";
 import type { Client, Guild, VoiceBasedChannel } from "discord.js";
-import type { LavalinkManager, LavalinkNode } from "../src/music/lavalink.js";
+import type { AudioBackend, TrackEndReason, VoiceChannelLike } from "../src/music/audio.js";
 
 /**
- * Test doubles for the Lavalink side of the music player.
+ * Test doubles for the audio side of the music player.
  *
- * The real manager owns sockets and REST calls (tested in
- * music-lavalink.test.ts); these fakes record what the player asked for and let
- * a test fire the node's events back at it by hand.
+ * The real backend owns voice sockets, spawned processes and an AudioPlayer
+ * (covered in music-audio.test.ts); this fake records what the player asked
+ * for and lets a test fire the backend's events back at it by hand — a track
+ * finishing, a track dying, the voice socket dropping.
  */
 
 export interface RecordedCall {
@@ -16,22 +17,19 @@ export interface RecordedCall {
   args: unknown[];
 }
 
-export class FakeLavalink extends EventEmitter {
+export class FakeAudioBackend extends EventEmitter implements AudioBackend {
   calls: RecordedCall[] = [];
-  started = false;
-  stopped = false;
   /** Overridable per test: make `play` fail, hang, etc. */
-  playHandler: (guildId: string, encoded: string, options?: unknown) => Promise<unknown> = async () => undefined;
-  whenReadyHandler: () => Promise<LavalinkNode> = async () => this.node as unknown as LavalinkNode;
-
-  readonly node = {
-    name: "fake-node",
-    host: "localhost",
-    port: 2333,
-    connected: true,
-    sessionId: "fake-session",
-    assignedGuilds: new Set<string>(),
-  };
+  playHandler: (guildId: string, track: Track) => Promise<void> = async () => undefined;
+  /** Null while the bot isn't in a channel. */
+  channelId: string | null = null;
+  connected = false;
+  paused = false;
+  volume = 100;
+  position = 0;
+  /** Set to false in a test to model a machine without ffmpeg. */
+  supportsVolume = true;
+  shutDown = false;
 
   private record(method: string, args: unknown[]): void {
     this.calls.push({ method, args });
@@ -45,137 +43,105 @@ export class FakeLavalink extends EventEmitter {
     return this.callsTo(method).at(-1);
   }
 
-  start(userId?: string): void {
-    this.started = true;
-    this.record("start", [userId]);
+  async join(guildId: string, channel: VoiceChannelLike): Promise<void> {
+    this.record("join", [guildId, channel.id]);
+    this.channelId = channel.id;
+    this.connected = true;
   }
 
-  stop(): void {
-    this.stopped = true;
-    this.record("stop", []);
+  leave(guildId: string): void {
+    this.record("leave", [guildId]);
+    this.channelId = null;
+    this.connected = false;
   }
 
-  whenReady(): Promise<LavalinkNode> {
-    return this.whenReadyHandler();
+  play(guildId: string, track: Track): Promise<void> {
+    this.record("play", [guildId, track]);
+    this.connected = true;
+    return this.playHandler(guildId, track);
   }
 
-  nodeOf(): LavalinkNode | null {
-    return this.node as unknown as LavalinkNode;
+  stop(guildId: string): void {
+    this.record("stop", [guildId]);
   }
 
-  nodeFor(): LavalinkNode {
-    return this.node as unknown as LavalinkNode;
-  }
-
-  release(): void {
-    this.record("release", []);
-  }
-
-  play(guildId: string, encoded: string, options?: unknown): Promise<unknown> {
-    this.record("play", [guildId, encoded, options]);
-    return this.playHandler(guildId, encoded, options);
-  }
-
-  stopTrack(guildId: string): Promise<unknown> {
-    this.record("stopTrack", [guildId]);
-    return Promise.resolve();
-  }
-
-  pause(guildId: string, paused: boolean): Promise<unknown> {
+  pause(guildId: string, paused: boolean): boolean {
     this.record("pause", [guildId, paused]);
-    return Promise.resolve();
+    this.paused = paused;
+    return true;
   }
 
-  setVolume(guildId: string, volume: number): Promise<unknown> {
-    this.record("setVolume", [guildId, volume]);
-    return Promise.resolve();
+  setVolume(guildId: string, percent: number): void {
+    this.record("setVolume", [guildId, percent]);
+    this.volume = percent;
   }
 
-  seek(guildId: string, positionMs: number): Promise<unknown> {
-    this.record("seek", [guildId, positionMs]);
-    return Promise.resolve();
+  positionMs(): number {
+    return this.position;
   }
 
-  updateVoice(guildId: string, voice: unknown): Promise<unknown> {
-    this.record("updateVoice", [guildId, voice]);
-    return Promise.resolve();
+  connectedChannelId(): string | null {
+    return this.channelId;
   }
 
-  updatePlayer(guildId: string, payload: unknown): Promise<unknown> {
-    this.record("updatePlayer", [guildId, payload]);
-    return Promise.resolve();
-  }
-
-  destroyPlayer(guildId: string): Promise<void> {
-    this.record("destroyPlayer", [guildId]);
-    return Promise.resolve();
+  isConnected(): boolean {
+    return this.connected;
   }
 
   describe(): string {
-    return "fake-node(localhost:2333) ready:fake-session";
+    return this.supportsVolume ? "fake-backend (ffmpeg→PCM)" : "fake-backend (Opus passthrough)";
   }
 
-  // ── what the node would push back ──────────────────────────────────
+  async shutdown(): Promise<void> {
+    this.record("shutdown", []);
+    this.shutDown = true;
+    this.channelId = null;
+    this.connected = false;
+  }
 
-  /** `TrackEndEvent`, the way {@link LavalinkManager} re-emits it. */
-  endTrack(guildId: string, reason: string, track?: { userData?: unknown; info?: unknown } | null): void {
+  // ── what the backend would push back ───────────────────────────────
+
+  /** The current track ended. `trackId` defaults to whatever played last. */
+  endTrack(
+    guildId: string,
+    reason: TrackEndReason,
+    extra: { trackId?: string | null; elapsedMs?: number; error?: string } = {},
+  ): void {
     this.emit("trackEnd", {
       guildId,
-      track: track ? { encoded: "e", info: {}, ...track } : null,
+      trackId: extra.trackId ?? null,
       reason,
-      node: this.node,
+      elapsedMs: extra.elapsedMs ?? 0,
+      ...(extra.error ? { error: extra.error } : {}),
     });
   }
 
-  startTrack(guildId: string, info: { title?: string; identifier?: string; position?: number; sourceName?: string } = {}): void {
-    this.emit("trackStart", {
-      guildId,
-      node: this.node,
-      track: { encoded: "e", info: { position: 0, ...info }, userData: {} },
-    });
-  }
-
-  position(guildId: string, position: number, time = Date.now()): void {
-    this.emit("playerUpdate", { guildId, node: this.node, state: { position, time, connected: true, ping: 10 } });
-  }
-
-  exception(guildId: string, message: string, title = "That track"): void {
-    this.emit("trackException", {
-      guildId,
-      node: this.node,
-      track: { encoded: "e", info: { title } },
-      exception: { message, severity: "common", cause: "test" },
-    });
-  }
-
-  stuck(guildId: string, thresholdMs = 10_000): void {
-    this.emit("trackStuck", { guildId, node: this.node, track: null, thresholdMs });
-  }
-
-  /** The node came back after a restart. `resumed: false` = its players are gone. */
-  nodeRestarted(resumed = false): void {
-    this.emit("nodeReconnect", { node: this.node, sessionId: "fake-session", resumed });
-  }
-
-  voiceClosed(guildId: string, code: number, byRemote = true): void {
-    this.emit("voiceSocketClosed", { guildId, node: this.node, code, reason: "test", byRemote });
+  /** The voice socket died and could not be recovered. */
+  voiceClosed(guildId: string, reason = "the voice connection was lost"): void {
+    this.emit("voiceClosed", { guildId, reason });
   }
 }
 
 /**
- * A guild whose shard records the op-4 voice state updates the bot sends.
- * Deliberately *not* a `Guild`: only the three members the player touches exist.
+ * A guild whose `voiceAdapterCreator` is a stub: @discordjs/voice is what
+ * actually opens the voice session, so the fake only has to exist.
+ * Deliberately *not* a `Guild`: only the members the player touches exist.
  */
 export interface FakeGuild {
   id: string;
-  shard: { send: ReturnType<typeof vi.fn> };
+  voiceAdapterCreator: unknown;
   channels: { cache: Map<string, unknown> };
   /** The bot's own member, as far as the gateway cache knows it. */
   members: { me: { voice: { channelId: string | null } } | null };
 }
 
 export function fakeGuild(id = "guild"): FakeGuild {
-  return { id, shard: { send: vi.fn() }, channels: { cache: new Map() }, members: { me: null } };
+  return {
+    id,
+    voiceAdapterCreator: () => () => {},
+    channels: { cache: new Map() },
+    members: { me: null },
+  };
 }
 
 /** A voice channel the manager can count listeners in. */

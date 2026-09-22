@@ -1,15 +1,14 @@
 # ── Where Compose looks for `.env` ────────────────────────────────────────────
 # Compose interpolates ${VAR} from a `.env` in the *project directory* — the
 # folder holding this file (`docker/`), not the repo root. To make both
-# locations work, every service below declares `env_file: [../.env, .env]`,
-# so `docker compose -f docker/docker-compose.yml up` works from the repo root
-# AND from inside `docker/`:
+# locations work, every service below declares `env_file: [../.env, .env]`
+# (`required: false`, so a fresh clone without a `.env` still starts):
 #
-#   docker compose -f docker/docker-compose.yml up -d lavalink          # repo root
-#   cd docker && docker compose up -d lavalink                          # inside docker/
+#   docker compose -f docker/docker-compose.yml up -d            # repo root
+#   cd docker && docker compose up -d                            # inside docker/
 #
 # Explicit `--env-file` still wins if you pass it:
-#   docker compose --env-file .env -f docker/docker-compose.yml up -d lavalink
+#   docker compose --env-file .env -f docker/docker-compose.yml up -d
 #
 # Or `ln -s ../.env docker/.env` once (gitignored either way). The units that
 # deploy/laptop-install.sh writes read the repo's .env through EnvironmentFile=
@@ -19,8 +18,10 @@ services:
   postgres:
     image: postgres:16-alpine
     env_file:
-      - ../.env
-      - .env
+      - path: ../.env
+        required: false
+      - path: .env
+        required: false
     environment:
       POSTGRES_USER: monarch
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monarch}
@@ -40,8 +41,10 @@ services:
     # One-shot: apply Prisma migrations before the dashboard boots.
     command: sh -c "npx prisma migrate deploy"
     env_file:
-      - ../.env
-      - .env
+      - path: ../.env
+        required: false
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:-monarch}@postgres:5432/monarch
       DIRECT_DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:-monarch}@postgres:5432/monarch
@@ -49,53 +52,15 @@ services:
       postgres:
         condition: service_healthy
 
-  # One-shot: make the plugins volume writable by the Lavalink node.
-  lavalink-perms:
-    image: busybox:1.36
-    container_name: monarch-lavalink-perms
-    restart: "no"
-    command: sh -c "mkdir -p /opt/Lavalink/plugins && chown -R 322:322 /opt/Lavalink/plugins && ls -ld /opt/Lavalink/plugins"
-    volumes:
-      - lavalink-plugins:/opt/Lavalink/plugins
-
-  # Music backend.
-  lavalink:
-    image: ghcr.io/lavalink-devs/lavalink:4
-    container_name: monarch-lavalink
-    restart: unless-stopped
-    env_file:
-      - ../.env
-      - .env
-    depends_on:
-      lavalink-perms:
-        condition: service_completed_successfully
-    environment:
-      # Heap ceiling for the JVM.
-      _JAVA_OPTIONS: -Xmx1G
-      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
-      LAVALINK_PORT: 2333
-      # Spotify credentials for the LavaSrc plugin (same vars the bot uses).
-      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
-      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
-    volumes:
-      - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
-      - lavalink-plugins:/opt/Lavalink/plugins
-    ports:
-      - "${LAVALINK_PORT:-2333}:2333"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:2333/version || wget -qO- http://localhost:${LAVALINK_PORT:-2333}/version || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 40s
-
   dashboard:
     build:
       context: ..
       dockerfile: docker/dashboard.Dockerfile
     env_file:
-      - ../.env
-      - .env
+      - path: ../.env
+        required: false
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:-monarch}@postgres:5432/monarch
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
@@ -114,8 +79,10 @@ services:
       context: ..
       dockerfile: docker/bot.Dockerfile
     env_file:
-      - ../.env
-      - .env
+      - path: ../.env
+        required: false
+      - path: .env
+        required: false
     environment:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
@@ -123,18 +90,12 @@ services:
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
       MONARCH_OWNER_USER_ID: ${MONARCH_OWNER_USER_ID:-}
 
-      # Lavalink node.
-      LAVALINK_NODES: ${LAVALINK_NODES:-ws://lavalink:2333}
-      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
-
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
       MUSIC_DJ_ROLE_NAMES: ${MUSIC_DJ_ROLE_NAMES:-dj}
       MUSIC_STAFF_ROLE_NAMES: ${MUSIC_STAFF_ROLE_NAMES:-moderator,moderators,mod,mods,staff,admin,admins,administrator,administrators}
     depends_on:
       - dashboard
-      - lavalink
 
 volumes:
   pgdata:
-  lavalink-plugins:

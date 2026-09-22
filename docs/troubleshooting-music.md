@@ -1,242 +1,195 @@
-# Troubleshooting Music — Lavalink
+# Music troubleshooting
 
-If `/music play` answers:
+`/music` plays through **yt-dlp** — one external binary, no Java, no node, no
+Docker. This page is the order in which things fail, and what each failure means.
 
-> **The music backend (Lavalink) isn't answering, so nothing can play right now.**
-> **Node says: Couldn't reach the Lavalink node at localhost:2333 (TypeError: fetch failed).**
-> **Check that the node is running and that LAVALINK_NODES / LAVALINK_PASSWORD match its application.yml.**
+```
+/music play  →  yt-dlp (extract + download audio)
+             →  ffmpeg (optional: PCM + volume)
+             →  Opus encoder  →  Discord voice (UDP)
+```
 
-The bot is running, but the Lavalink node (the JVM service that owns the Discord voice socket and fetches audio) is not.
-
----
-
-## 1. Quick check
+## 1. Run the doctor
 
 ```bash
-npm run music:check
-# or
-node scripts/check-lavalink.mjs
+npm run music:setup     # downloads yt-dlp into .monarch/bin (once)
+npm run music:check     # checks yt-dlp, ffmpeg, Opus, DAVE, encryption
+npm run music:check -- --probe   # …and asks YouTube for a track
 ```
 
-It reads your `.env` and tries:
+`music:setup` is the whole install: it drops the official yt-dlp build into
+`.monarch/bin/yt-dlp` and reports whether an ffmpeg was found. `music:check`
+prints a ✓/✗ line per component plus the fix for every ✗. If the bot is running,
+its boot log shows the same summary: `describeAudio()` prints
+`yt-dlp → ffmpeg → Opus (volume ✓)` or `yt-dlp → Opus passthrough`.
 
-- `GET http://localhost:2333/version`
-- `GET http://localhost:2333/v4/info`
-- `GET http://localhost:2333/v4/stats`
+The bot also downloads yt-dlp by itself the first time a track is played
+(`YTDLP_AUTO_DOWNLOAD=0` opts out) — the two scripts just make that happen
+before you ever type a command.
 
-If it prints `fetch failed`, the node is down. If it prints `401`, password mismatch.
+## 2. "The downloader (yt-dlp) isn't installed"
 
----
+The bot looked in `YTDLP_PATH`, then `.monarch/bin/yt-dlp`, then the `PATH`, then
+tried to download it. All four failed — usually a container without egress, a
+read-only filesystem, or a proxy that blocks GitHub release assets.
 
-## 2. Start the bundled node (Docker)
+- `npm run music:setup` on the worker host (or `pipx install yt-dlp`), or
+- set `YTDLP_PATH=/usr/local/bin/yt-dlp`, or
+- point `YTDLP_BIN_DIR` / `MONARCH_BIN_DIR` at a writable volume so the
+  auto-download sticks across restarts.
 
-The repo ships a node in `docker/docker-compose.yml`:
+Keep yt-dlp fresh: YouTube breaks extractors every few weeks. `yt-dlp -U`, or
+re-run `npm run music:setup -- --force`. `npm run music:check` warns when the
+binary is more than 90 days old.
+
+## 3. "YouTube asked the downloader to prove it isn't a bot"
+
+Datacenter IPs (VPS, Fly.io, Render, CI) get this regularly; a home connection
+almost never does.
+
+1. In a browser, log into a **throwaway** YouTube account, export cookies in
+   Netscape format (`Get cookies.txt`), and copy the file to the worker host.
+2. Set `YTDLP_COOKIES=/path/to/cookies.txt` (or `YTDLP_COOKIE_FILE`).
+3. Restart the bot. `npm run music:check -- --probe` tells you whether the IP
+   is still challenged.
+
+Cookies expire in a few weeks — re-export when `/music` starts failing again.
+`YTDLP_PROXY` (e.g. `socks5://127.0.0.1:1080`) is the other way out, and it is
+what a residential proxy is for.
+
+## 4. It plays, but there is no sound
+
+- **`/music volume` says volume is unavailable.** This machine has no ffmpeg (or
+  no Opus encoder), so Monarch passes YouTube's Opus through untouched —
+  cheaper, but volume can't change without re-encoding. Install ffmpeg to get it.
+- **Silence, no error.** Check the bot's voice permissions in the channel
+  (Connect + Speak) and that the *bot's* host allows outbound UDP; Discord voice
+  is UDP, and containers on hosts without UDP egress join the channel, then sit
+  in `signalling` until they time out.
+- **Track cut short / `⚠️ Track cut short`.** The audio stream ended before the
+  advertised length. See §6 — that is YouTube throttling, and there are three
+  things to check. A track that dies within a few seconds *is* retried
+  automatically once, silently; if it still fails you get the reason.
+
+## 5. Throttling, "the song stops after a minute", robot voices
+
+YouTube throttles a *connection*, not an account: the download starts at full
+speed and then crawls to a few KB/s, the player runs out of buffered audio and
+the track ends early. Monarch ships three defences, in order of how much they
+usually matter:
+
+1. **Chunked downloads.** Every download is requested as 16 KiB ranges
+   (`--http-chunk-size`), which turns one throttled long-lived connection into
+   a series of short requests — each answered at full speed. Nothing to
+   configure; `npm run music:check` prints the flags in use.
+2. **A JS runtime for the challenge solver.** yt-dlp needs JavaScript to solve
+   YouTube's `n`/signature challenge; a stream whose challenge went unsolved is
+   exactly the stream YouTube rate-limits. yt-dlp only enables Deno by default,
+   so Monarch hands it the Node it is already running (`--js-runtimes
+   node:…`). `YTDLP_JS_RUNTIME=deno` if you have Deno, `=none` to opt out.
+3. **A fresh yt-dlp.** Extractors are updated within hours of a YouTube change
+   and a stale binary *is* a throttled binary. `yt-dlp -U`, or
+   `npm run music:setup -- --force`; `music:check` warns past 90 days.
+
+If a track still stops early on a specific machine:
+
+```
+YTDLP_ARGS=--throttled-rate 100K      # re-extract when the stream drops below that rate
+YTDLP_COOKIES=/path/cookies.txt       # a logged-in session is throttled far less
+YTDLP_PROXY=socks5://…                # residential/proxy IP, when the host is the problem
+```
+
+`--throttled-rate` is the aggressive one: on a slow-but-honest connection it
+will re-extract instead of just being slow, so try it *after* the first two.
+The bot logs `elapsed vs expected` for every premature end, and the yt-dlp
+stderr tail sits next to it in the logs — that is what tells "throttled" apart
+from "the source 403'd us".
+
+
+ffmpeg is **optional**: with it, Monarch decodes to PCM and re-encodes Opus, so
+volume works and every source (AAC/M4A, MP3, radio) plays. Without it, only
+Opus sources work (YouTube WebM/Opus does).
+
+Where Monarch looks, in order: `MUSIC_FFMPEG_PATH`, `FFMPEG_PATH`,
+`$MONARCH_BIN_DIR/ffmpeg` (or `.monarch/bin/ffmpeg`), the bundled
+`@ffmpeg-installer/ffmpeg` npm package, then `ffmpeg` on the `PATH`.
 
 ```bash
-# from repo root (recommended, env_file now reads ../.env automatically)
-docker compose -f docker/docker-compose.yml up -d lavalink
-
-# check it
-curl http://localhost:2333/version
-docker logs monarch-lavalink -f
-npm run music:check
+sudo apt install ffmpeg        # Debian/Ubuntu
+brew install ffmpeg            # macOS
+winget install Gyan.FFmpeg     # Windows
 ```
 
-`docker-compose.yml` now declares `env_file: [../.env, .env]` for every service, so both of these work:
+Force a path with `MUSIC_AUDIO_PIPELINE=opus` (never transcode — lowest CPU) or
+`=pcm` (always transcode).
 
-```bash
-docker compose -f docker/docker-compose.yml up -d lavalink   # repo root
-cd docker && docker compose up -d lavalink                   # inside docker/
-```
+## 6. "no suitable opus encoder"
 
-Without that, `${LAVALINK_PASSWORD}` expands to empty and the node falls back to `youshallnotpass` while your bot uses a custom password → 401.
+`@discordjs/voice` needs an Opus encoder for the PCM path:
+`opusscript` (pure JS, ships with Monarch) or `@discordjs/opus` (native, faster).
+A missing encoder means `npm install` didn't complete — run it again. DAVE
+(end-to-end encryption, which Discord now requires in most servers) comes from
+`@snazzah/davey`, installed with `@discordjs/voice`; `music:check` verifies both.
 
-### If you run the bot locally (`npm run dev:bot`) + node in Docker
+## 7. Spotify links do nothing
 
-- Keep `.env` with:
+Spotify needs `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` (free app at
+developer.spotify.com). Without them, YouTube links, searches and playlists
+still work; only Spotify links are refused. With them, the track's metadata is
+read from Spotify and matched to YouTube at play time.
 
-  ```
-  LAVALINK_NODES=              # blank → uses HOST/PORT below
-  LAVALINK_HOST=localhost
-  LAVALINK_PORT=2333
-  LAVALINK_PASSWORD=your-generated-password
-  ```
+## 8. Which hosts can run `/music`
 
-- The compose file maps `2333:2333`, so `localhost:2333` reaches the container.
+Voice is UDP **from the bot's host**. That is the only hard requirement:
 
-### If you run both bot and node in Docker
+| Host | `/music` | Notes |
+| --- | --- | --- |
+| Your own machine / VPS | ✅ | `deploy/laptop-install.sh` sets up both services |
+| Fly.io / Railway (Docker) | ✅ | UDP egress is allowed |
+| Docker anywhere | ✅ | `docker compose -f docker/docker-compose.yml up -d`; the bot image ships ffmpeg + yt-dlp |
+| Render (worker) | ❌ | no UDP egress: joins, then times out in `signalling` |
+| Vercel | ❌ | serverless; the bot is not a Vercel workload at all |
 
-```bash
-docker compose -f docker/docker-compose.yml up -d --build
-```
+## 9. Knobs
 
-The bot service defaults `LAVALINK_NODES=ws://lavalink:2333` (the Docker DNS name). No need to set `LAVALINK_HOST`.
+| Variable | What it does |
+| --- | --- |
+| `YTDLP_PATH` | Use your own yt-dlp instead of the managed copy |
+| `YTDLP_BIN_DIR` / `MONARCH_BIN_DIR` | Where the managed binaries live (default `.monarch/bin`) |
+| `YTDLP_AUTO_DOWNLOAD=0` | Never download yt-dlp automatically |
+| `YTDLP_DISABLED=1` | Turn the music player off entirely (commands explain why) |
+| `YTDLP_COOKIES` / `YTDLP_COOKIE_FILE` | cookies.txt for age/bot checks |
+| `YTDLP_PROXY` | SOCKS/HTTP proxy for every yt-dlp call |
+| `YTDLP_ARGS` | Extra argv; quoted values stay together (`--throttled-rate 100K`, `--extractor-args "youtube:player_client=tv"`) |
+| `YTDLP_JS_RUNTIME` | JS runtime for YouTube's challenge solver: default `node:<this bot's node>`, or `deno`, or `none` |
+| `YTDLP_FORMAT` | Format selector; default prefers Opus-in-WebM |
+| `YTDLP_CACHE_DIR` | Where yt-dlp keeps its cache |
+| `MUSIC_FFMPEG_PATH` / `FFMPEG_PATH` | ffmpeg to use |
+| `MUSIC_AUDIO_PIPELINE=pcm\|opus` | Force transcode or passthrough |
+| `MUSIC_MAX_QUEUE`, `MUSIC_MAX_PLAYLIST_TRACKS` | Queue and import caps |
+| `MUSIC_SEARCH_PREFIX` | Search backend for plain-text queries (`ytsearch`) |
+| `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | Spotify link support |
+| `MUSIC_DJ_ROLE_NAMES`, `MUSIC_STAFF_ROLE_NAMES` | Who can force-skip |
 
----
+The bot's boot log (`apps/bot/src/index.ts`) prints which of these are in
+effect; `npm run music:check` prints the resolved paths.
 
-## 3. Start the node WITHOUT Docker (your case — Docker crashes laptop)
+## 10. Reading the error messages
 
-This is now the recommended way if Docker is heavy. It only needs Java 17+ (21 recommended) and ~512MB RAM.
+Every user-facing music error comes from one place — `explainYtdlpFailure()`
+in `apps/bot/src/music/ytdlp.ts` — and it names the fix, not just the failure:
 
-### Option A: One-command local runner (no systemd, no install)
+| Message | Meaning |
+| --- | --- |
+| "YouTube asked the downloader to prove it isn't a bot" | cookies (see §3) |
+| "couldn't reach the source (network problem or a blocked IP)" | DNS/TLS/firewall, not the bot |
+| "the site answered 404" | the link is dead |
+| "the source refused the download (403)" | bot check or region block |
+| "region-locked for the machine running the bot" | geo-restricted track |
+| "live stream — wait for it to end" | live URLs aren't supported mid-stream |
+| `⚠️ Track cut short` in Discord, `elapsed vs expected` in the log | the download stopped early — throttling or a network flap; §5 |
+| `⚠️ Track failed` right after `/music play` | the download never started; the message says why (bot check → cookies, 404, 403, private…) — a *transient* failure here is retried once on its own |
+| "isn't in a format Discord takes directly … no ffmpeg" | install ffmpeg (§5) |
 
-```bash
-# installs nothing system-wide, creates .lavalink/ in repo root
-npm run music:local
-# or
-node scripts/run-lavalink-local.mjs
-# or
-./scripts/run-lavalink-local.sh
-```
-
-What it does:
-1. Checks `java -version`
-2. Creates `.lavalink/` (or reuses `~/.local/share/monarch-lavalink/` if you already used laptop-install.sh)
-3. Downloads `Lavalink.jar` 4.2.2 if missing (~60MB)
-4. Copies `docker/lavalink/application.yml` next to it
-5. Runs `java -Xmx512M -jar Lavalink.jar` with your `.env` password/port
-
-First boot downloads `youtube-source` plugin into `./plugins` — give it ~30s.
-Then in another terminal:
-
-```bash
-npm run music:check
-curl http://localhost:2333/version
-npm run dev:bot   # your bot
-```
-
-Stop it with Ctrl+C.
-
-**Install Java if missing:**
-- Windows: https://adoptium.net → Temurin 21 JRE
-- macOS: `brew install --cask temurin@21`
-- Linux: `sudo apt install openjdk-21-jre-headless` / `sudo dnf install java-21-openjdk-headless`
-
-### Option B: Systemd user service (auto-restart, survives logout)
-
-```bash
-./deploy/laptop-install.sh --check   # preflight
-./deploy/laptop-install.sh           # installs monarch-bot + monarch-lavalink user units
-systemctl --user status monarch-lavalink
-journalctl --user -u monarch-lavalink -f
-```
-
-See `docs/hosting-laptop.md` for full guide (linger, sleep masks, TLP, etc.).
-
-**Why Option A uses 512M not 1G?** Docker's default was 1G heap + overhead, which crashes low-RAM laptops. 512M is enough for 2-3 guilds playing. You can tune with `LAVALINK_HEAP=256M npm run music:local` or edit the script.
-
----
-
-## 4. Password mismatch (401)
-
-```
-Node says: Lavalink GET /v4/loadtracks?identifier=... failed: HTTP 401
-handshake refused (HTTP 401) — wrong LAVALINK_PASSWORD?
-```
-
-Fix:
-
-1. Open `.env` → copy `LAVALINK_PASSWORD`
-2. Open `docker/lavalink/application.yml` → it uses `${LAVALINK_PASSWORD:youshallnotpass}`. The env var must match.
-3. If using Docker: `docker compose -f docker/docker-compose.yml up -d --force-recreate lavalink`
-4. If using systemd: `systemctl --user restart monarch-lavalink monarch-bot`
-
-Generate a strong one: `openssl rand -hex 32`
-
-Never expose a node with `youshallnotpass` on public internet.
-
----
-
-## 5. Render / Vercel / Railway
-
-- **Dashboard** can run anywhere (Vercel).
-- **Bot worker** can run on Render (no UDP needed).
-- **Lavalink node** cannot run on Render (no outbound UDP). Host it on:
-  - a cheap VPS (Hetzner, DigitalOcean),
-  - Fly.io (`fly deploy` with UDP allowed),
-  - your own always-on laptop (`deploy/laptop-install.sh`)
-
-Then set:
-
-```
-LAVALINK_NODES=wss://your-node.example.com:2333
-LAVALINK_PASSWORD=...
-```
-
-on the bot worker.
-
----
-
-## 6. Still failing?
-
-Checklist:
-
-```bash
-# 1. Is the port listening?
-ss -tlnp | grep 2333
-curl -v http://localhost:2333/version -H "Authorization: your-password"
-
-# 2. Env files?
-cat .env | grep LAVALINK
-cat docker/.env 2>/dev/null | grep LAVALINK
-
-# 3. Docker?
-docker ps | grep lavalink
-docker logs monarch-lavalink --tail 100
-
-# 4. Systemd?
-systemctl --user status monarch-lavalink monarch-bot
-journalctl --user -u monarch-lavalink -n 100
-
-# 5. Bot logs?
-# Look for "lavalink configured" and "lavalink ready" or "reconnect scheduled"
-```
-
-If `curl` works but bot says fetch failed:
-
-- Bot and node are on different hosts/containers → use `LAVALINK_NODES=ws://lavalink:2333` inside compose, `ws://localhost:2333` outside.
-- Firewall / Docker network isolation → `docker compose -f docker/docker-compose.yml up -d lavalink` exposes `0.0.0.0:2333`.
-
-If YouTube says "Video returned by YouTube isn't what was requested":
-
-- Update `youtube-source` plugin version in `docker/lavalink/application.yml` (now pinned to `1.18.2`)
-- Enable IP rotation / OAuth / poToken in same file — see comments there.
-
-### Lavalink crashes with `FileNotFoundException: .../youtube-plugin/6579cdf/...`
-
-You have a stale `YOUTUBE_PLUGIN_VERSION=6579cdf` (or similar 7-char hash) in your `.env`.
-That hash is a snapshot build that only exists in the `snapshots` Maven repo, not `releases`,
-so Lavalink tries `.../releases/.../6579cdf/...` and gets 404.
-
-**Fix:**
-
-1. Delete `YOUTUBE_PLUGIN_VERSION` from your `.env` (the config now pins `1.18.2` with explicit `releases` repo).
-2. Clean the broken plugin files:
-   ```bash
-   # Docker
-   docker volume rm monarch-lavalink-plugins  # or: docker compose -f docker/docker-compose.yml down -v
-   docker compose -f docker/docker-compose.yml up -d lavalink
-
-   # Local runner / systemd (paths from scripts/run-lavalink-local.mjs)
-   rm -rf ~/.local/share/monarch-lavalink/plugins/*youtube*
-   rm -rf .lavalink/plugins/*youtube*
-   # then restart:
-   npm run music:local
-   # or
-   systemctl --user restart monarch-lavalink
-   ```
-3. If you *really* want a snapshot, edit `docker/lavalink/application.yml`:
-   ```yaml
-   - dependency: "dev.lavalink.youtube:youtube-plugin:6579cdf"
-     repository: "https://maven.lavalink.dev/snapshots"
-     snapshot: true
-   ```
-
----
-
-## 7. What we fixed in code
-
-- `docker/docker-compose.yml` now has `env_file: [../.env, .env]` and a healthcheck, so `docker compose -f docker/docker-compose.yml up` from repo root works without `--env-file`.
-- Error messages in `apps/bot/src/music/lavalink.ts` and `sources.ts` now include the exact `docker compose` command to start the node.
-- New helper: `npm run music:check` → `scripts/check-lavalink.mjs` probes the node and explains 401 vs fetch failure.
-- `.env.example` documents the diagnostics.
+The raw yt-dlp stderr tail is in the bot's logs next to the message — that is
+what to paste into a bug report (it never contains your cookies).

@@ -139,8 +139,11 @@ describe("confession embeds", () => {
     expect(embed.description).toBe("I ate their snack.");
     // Anonymity: nothing the client could use to trace the confessor.
     expect(embed.author).toBeUndefined();
-    expect(embed.user).toBeUndefined();
-    expect(embed.username).toBeUndefined();
+    // (`user` / `username` aren't APIEmbed fields — this is the regression test
+    // that they never sneak into the payload.)
+    const raw = embed as unknown as Record<string, unknown>;
+    expect(raw.user).toBeUndefined();
+    expect(raw.username).toBeUndefined();
     expect(embed.timestamp).toBeUndefined();
     expect(JSON.stringify(embed)).not.toContain("@"); // no mentions
   });
@@ -171,7 +174,7 @@ describe("confession embeds", () => {
   it("every confession carries the Confess button", () => {
     const row = confessButtonRow();
     expect(row.type).toBe(1);
-    const button = row.components[0]!;
+    const button = row.components[0] as unknown as { label: string; custom_id: string };
     expect(button.label).toBe("Confess");
     expect(button.custom_id).toBe(CONFESS_BUTTON_ID);
   });
@@ -179,7 +182,9 @@ describe("confession embeds", () => {
   it("the modal has one paragraph input capped at the max length", () => {
     const modal = confessionModal().toJSON();
     expect(modal.custom_id).toBe(CONFESS_MODAL_ID);
-    const input = modal.components[0]!.components[0]!;
+    const input = (modal.components[0] as unknown as {
+      components: { custom_id: string; style: number; max_length: number }[];
+    }).components[0]!;
     expect(input.custom_id).toBe(CONFESS_TEXT_ID);
     expect(input.style).toBe(TextInputStyle.Paragraph);
     expect(input.max_length).toBe(MAX_CONFESSED_LENGTH);

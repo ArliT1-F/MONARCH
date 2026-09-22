@@ -1,10 +1,12 @@
 FROM node:22-alpine AS base
 WORKDIR /app
-# No ffmpeg, no yt-dlp, no opus/libsodium: audio decoding, Opus encoding and the
-# Discord voice socket all live in the Lavalink node (docker/docker-compose.yml
-# service `lavalink`), which the bot drives over websocket + REST. This image is
-# a plain Node process — nothing native to install and nothing that needs UDP
-# egress, so /music works from any host that can reach a node.
+# The audio stack runs in *this* process: yt-dlp fetches, ffmpeg decodes to
+# PCM, @discordjs/voice encodes Opus and owns the voice socket. ffmpeg is
+# optional in the code (Opus passthrough works without it) but it is what
+# makes volume and non-Opus sources work, so ship it. If `apk add yt-dlp`
+# ever disappears from Alpine's repos, drop it from this line — the bot then
+# downloads its own copy into .monarch/bin on first /music play.
+RUN apk add --no-cache ffmpeg yt-dlp
 COPY package.json package-lock.json* ./
 COPY apps/dashboard/package.json apps/dashboard/
 COPY apps/bot/package.json apps/bot/

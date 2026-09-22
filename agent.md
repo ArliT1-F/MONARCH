@@ -434,16 +434,10 @@ This is the cheat sheet for "where do I make change X".
   developer portal (logs warning, disables `/burg` **and
   every prefix command** — slash commands keep working).
   Owns only what needs the live gateway: the relay webhooks, the lazy
-  `MusicManager` (built on the first `/music` command, while the Lavalink node
-  connection is opened **eagerly** on `ClientReady` so a misconfigured node
-  shows up in the boot log as `music: "node-1(host:port) down|ready:<id>"`),
-  the voice handshake plumbing (`Events.Raw` → `handleRawPacket`,
-  `VoiceStateUpdate` → `handleVoiceStateUpdate`), `onMessage` (1. prefix
-  dispatch → 2. burg relay) and `onInteraction`. All command bodies live in
-  `monarch-commands.ts` / `music/commands.ts` and are shared by both surfaces.
-  **Graceful shutdown:** SIGTERM/SIGINT → log → `music?.shutdown()` (tears every
-  guild's player down on the node, then closes the node websockets) →
-  `client.destroy()` → `exit(0)`.
+  `MusicManager`, `onMessage` (1. prefix dispatch → 2. burg relay) and
+  `onInteraction`. All command bodies live in `monarch-commands.ts` /
+  `music/commands.ts` and are shared by both surfaces.
+  **Graceful shutdown:** SIGTERM/SIGINT → log → `client.destroy()` → `exit(0)`.
   **Idempotent, never throws on `destroy()`.** `unhandledRejection` logged
   not fatal. Slash-command registration is non-fatal (transient Discord
   errors don't crash-loop the worker).
@@ -590,15 +584,15 @@ at the guild level — `requireGuildAccess` enforces this.
 - `skip.ts` — `SkipElector` per-guild vote sets; required = majority of current listeners (recomputed every vote, departed voters pruned); statuses `counted` / `passed-by-this-vote` / `already`.
 - `resolve.ts` — `classifySource`: YouTube watch/youtu.be/shorts/embed/live + `list=` param; Spotify /track /album /playlist, `/intl-xx/` paths, `spotify:` URIs; anything else → search.
 - `roles.ts` — `canForceSkip({roleNames, permissions, isCurrentRequester})` → `{allowed, reason: dj|staff|requester}`; `STAFF_PERMISSION_BITS` = Administrator, ManageGuild, MoveMembers, KickMembers, BanMembers, ModerateMembers.
-- `format.ts` — `formatDuration` (null → "live"), `parseVolume` (0-150), `lavalinkVolume` (percent → the node's 0-1000, clamped), `progressBar`.
+- `format.ts` — `formatDuration` (null → "live"), `parseVolume` (0-150), `volumeGain` (0-150 → 0-1.5), `progressBar`.
 
-`apps/bot/src/music/` (adapter — the bot holds **no audio**; a Lavalink node does):
-- `lavalink.ts` — the node client. `LavalinkNode` = websocket (`/v4/websocket`, **receive-only** in v4: `ready`/`stats`/`playerUpdate`/`event`) + REST (`PATCH /v4/sessions/{sessionId}/players/{guildId}` controls *everything*: voice, track, pause, volume, position), reconnect with exponential backoff, session resume, penalty scoring (players, CPU, frame stats, memory). `LavalinkManager` re-emits typed events (`trackStart/End/Exception/Stuck`, `nodeReady/Disconnect/Reconnect/Error`, `playerUpdate`, `voiceSocketClosed`), pins one node per guild (`nodeFor`), and exposes `play/stopTrack/pause/setVolume/seek/loadTracks/updateVoice/updatePlayer/destroyPlayer/release/describe`. `lavalinkNodesFromEnv` parses `LAVALINK_NODES` (`[name@][ws|wss|http|https://]host[:port]`, comma-separated) else the `LAVALINK_HOST`/`PORT`/`SECURE` shorthand; `usingDefaultPassword()` drives the boot warning; `getLavalink()`/`setLavalink()` is the process singleton the tests swap for a fake.
-- `sources.ts` — everything resolves through the node's `GET /v4/loadtracks`: YouTube watch/playlist URLs, search (`${MUSIC_SEARCH_PREFIX}:query`, default `ytsearch`; also `ytmsearch`/`scsearch`), and any other direct URL (SoundCloud/Bandcamp/http) with a search fallback. Spotify = **Web API metadata only** (client-credentials token cached in process): a Spotify track carries `youtubeSearch` and `ensurePlayable()` matches it to YouTube on the node **lazily at play time**, so importing a 250-track playlist stays instant. Live streams refused. `backendFailureMessage`/`loadErrorMessage` turn node failures into operator-facing copy — a YouTube refusal names the node-side fixes (plugin version, IPv6 rotation, OAuth/poToken), never a bot-side one.
-- `player.ts` — `MusicManager`: per-guild state (the pure queue, voice credentials, current track, position extrapolated from `playerUpdate`) driven entirely by node events. Voice handshake: gateway op 4 → Discord's raw `VOICE_STATE_UPDATE` (our `session_id`) + `VOICE_SERVER_UPDATE` (`token`/`endpoint`) → `updateVoice` PATCH → play. Discord only sends the server half when op 4 opens a *new* voice session, so a join for the channel the bot is already in (a re-handshake after 4006/4007/4009, a bot dragged into a channel by hand) comes back as the state half alone: `armVoiceRetry` notices at `VOICE_SERVER_GRACE_MS`, and `forceNewVoiceSession` leaves the channel, waits for Discord to confirm the leave, then re-joins — a fresh session is the only thing that produces a token. Discord answering *nothing* at all takes the same route when the gateway cache (`guild.members.me.voice`) still has the bot in that channel; otherwise the request is simply repeated once. `voiceForcing` suppresses the typed disconnect and the node's voice socket dying during that window; the 15 s timeout message distinguishes "Discord never answered" (permissions hint) from "Discord joined us but sent no voice server" (not a permission problem). **`rehandshake(guildId, why)` is the single recovery path** for a channel move, voice close codes 4006/4007/4009, and a node restart with no resumable session (that one announces "🔁 Music node restarted" first): it clears the stored voice state and registers its waiter *before* any `await`, then resumes the same track at the last position, and it never destroys the player — a PATCH overwrites it, and a DELETE raced the incoming credentials. 4014 (`byRemote`) → teardown; `TrackEnd` reasons `finished`/`loadFailed` advance (loop modes decide), `stopped`/`replaced`/`cleanup` don't; `skipping`/`stopping` flags separate manual stop from natural end; 3 consecutive failures -> give up + teardown; empty channel -> leave after 60s; idle -> leave after 5min. Announcements post to the last music command's text channel. Volume 0-150 % → `lavalinkVolume()` → the node's 0-1000.
+`apps/bot/src/music/` (adapter):
+- `ytdlp.ts` — the downloader. Probes for the binary (`YTDLP_PATH` → `$MONARCH_BIN_DIR/yt-dlp`, default `.monarch/bin` → `PATH`) and downloads the official static build when none is found (`YTDLP_AUTO_DOWNLOAD=0` opts out; probe cached 60s). `ytdlpJson`/`ytdlpSearch`/`ytdlpPlaylist` for metadata, `openAudioPipe` for `-f <format> -o -` audio bytes, and **`explainYtdlpFailure()`** turns stderr into the sentence the user reads (bot check → cookies, 403/404, region lock, live stream, format missing…). Cookies/proxy/extra args/cache are `YTDLP_*` env knobs. **Throttling:** every download is chunked (`--http-chunk-size 16384` — YouTube throttles a *connection*, so short range requests keep full speed; verified byte-identical on the stdout path) with `--retries/--fragment-retries 5`, and `ytdlpCapabilityArgs()` inspects the installed binary's `--help` once and hands it a **JS runtime** for YouTube's `n`/signature challenge — our own Node by default (`YTDLP_JS_RUNTIME=deno|none` to override), because an unsolved challenge is what YouTube rate-limits.
+- `audio.ts` — the voice backend (what a Lavalink node used to be, in-process): per-guild session holding the VoiceConnection + AudioPlayer. `play()` → `startTrack()`; a track that dies inside 6s (and did not fail for a permanent reason — private/removed/region/live) is silently re-started once before `trackEnd` is emitted, so transient extractor failures never reach the queue. `pipeline()` picks **pcm** (yt-dlp → ffmpeg → s16le → Opus encoder; enables volume) or **opus** (yt-dlp WebM/Opus → `demuxProbe` → passthrough; no ffmpeg/encoder needed, volume unavailable), overridable with `MUSIC_AUDIO_PIPELINE`. Emits `trackEnd {reason: finished|stopped|failed, elapsedMs}` and `voiceClosed`; `voiceChannelId()`/`supportsVolume()`/`describe()` drive the `/music status` wording.
+- `sources.ts` — one resolver over yt-dlp: YouTube/any-site links (watch, youtu.be, shorts, embed, live, playlists, `list=` params), plain-text queries (`MUSIC_SEARCH_PREFIX`), unknown http(s) links (flat probe, then search), plus Spotify via the **official Web API** (client-credentials token cached in process, metadata only). Spotify tracks carry `youtubeSearch: "Artist - Title"` and are matched to a YouTube video **lazily at play time** (queuing a 200-track playlist stays instant). Live streams refused (`durationMs: null`). `SourceError` → human-readable replies.
+- `player.ts` — `MusicManager`: per-guild queue state + `GuildPlayback` driven by the pure engine, delegating all audio to the `AudioBackend` seam. Idle/trackEnd advance (loop modes decide); `skipping`/`stopping` flags distinguish manual stop from natural end; 3 consecutive failures -> give up + teardown; empty channel -> leave after 60s; idle -> leave after 5min. Announcements post to the last music command's text channel. Volume 0-150 is applied per track through the backend, and `supportsVolume()` (false on the passthrough path) is what the command layer reports.
 - `commands.ts` — `musicCommandJSON()` (/music: play/pause/resume/skip/queue/nowplaying/volume/loop/shuffle/remove/clear/stop) + `MusicCommands(manager).run(ctx, sub)` — surface-neutral, so `/music play` and `!play` are one code path. Skip: `canForceSkip` -> instant, else vote; controls require being in the bot's voice channel, queue/nowplaying viewable anywhere. Prefix arguments are read positionally (`!queue 2`, `!volume 80`, `!loop track`); `!play` takes the whole rest of the message as the query.
-- **The node:** `docker/lavalink/application.yml` is the single config, shared by the compose `lavalink` service (`ghcr.io/lavalink-devs/lavalink:4`) and by `deploy/laptop-install.sh`, which downloads `Lavalink.jar` (pinned `LAVALINK_VERSION=4.2.2`) into `~/.local/share/monarch-lavalink` and writes `monarch-lavalink.service`. YouTube comes from the `youtube-source` plugin (`dev.lavalink.youtube:youtube-plugin:1.18.2`) — keep the built-in `lavalink.server.sources.youtube: false`. Needs Java 17+ (21 recommended). There is **no** non-Lavalink playback path: with no reachable node `/music` says the music backend is down and every other command still works. `docker/bot.Dockerfile` therefore has no ffmpeg layer, and the bot has no `@discordjs/voice`/opus/libsodium/yt-dlp dependency. Two compose-only traps, both documented in `docs/hosting-laptop.md`: the image runs as **uid/gid 322** and has no `/opt/Lavalink/plugins`, so Docker creates that mount point root-owned and the plugin download dies with `Permission denied` → the one-shot `lavalink-perms` service chowns the `lavalink-plugins` volume to 322:322 before the JVM starts (crash-loop on an existing volume: `docker run --rm --volumes-from monarch-lavalink busybox chown -R 322:322 /opt/Lavalink/plugins`); and Compose interpolates from **`docker/.env`**, not the repo root's, so every documented invocation passes `--env-file .env` — an empty `DISCORD_BOT_TOKEN` makes `apps/bot/src/index.ts` log one warning and exit 0, i.e. a "healthy" container and a bot that answers nothing.
-- **Intents:** `GuildVoiceStates` is in BOTH intent sets (not privileged). The voice handshake also needs the raw gateway packet listener (`Events.Raw` → `handleRawPacket` in `apps/bot/src/index.ts`), and shutdown calls `music.shutdown()` (tears every guild's player down on the node) before `client.destroy()`.
+- **Intents:** `GuildVoiceStates` is in BOTH intent sets (not privileged).
 
 ### Command catalog (single source of truth)
 
@@ -619,16 +613,14 @@ at the guild level — `requireGuildAccess` enforces this.
 | `MONARCH_OWNER_USER_ID` | optional but own-protection | bot worker (`apps/bot/src/index.ts` → `MonarchCommands`) | Your Discord user id: targeting it with /burg uno-reverses onto the invoker. Missing = owner burgable like anyone else (worker logs a boot warning). Must be threaded through every deploy path (`render.yaml`, `docker/docker-compose.yml`) — not just `.env.example` |
 | `INTERNAL_API_TOKEN` | optional | bot/dashboard server-to-server | `openssl rand -hex 32`; same value on dashboard + bot. Without it `/monarch backup/export/embed/test`, saving a custom prefix, confession setup **and the confession cooldown**, and `/api/internal/*` reply 503 — everything else (incl. all prefix commands on the default `!`) still works |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | for Spotify links | bot music | Official Web API, client credentials. Without them `/music` says Spotify isn't configured; YouTube/search work |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | see left | bot music | Spotify **links** only; YouTube links, searches and playlists work without them |
+| `YTDLP_PATH` / `YTDLP_BIN_DIR` (`MONARCH_BIN_DIR`) | optional | bot music | Where the yt-dlp binary is; default `.monarch/bin` (gitignored), auto-downloaded on first use (`YTDLP_AUTO_DOWNLOAD=0` to opt out, `YTDLP_DISABLED=1` to switch music off) |
+| `YTDLP_COOKIES` (`YTDLP_COOKIE_FILE`) | when YouTube asks for a bot check | bot music | Netscape cookies.txt exported from a throwaway account; `YTDLP_PROXY`, `YTDLP_ARGS` (quote-aware; `--throttled-rate 100K` is the aggressive anti-throttling knob), `YTDLP_FORMAT`, `YTDLP_CACHE_DIR` are the other yt-dlp knobs |
+| `YTDLP_JS_RUNTIME` | optional | bot music | JS runtime for YouTube's challenge solver; default `node:<this bot's node>`, or `deno`, or `none` |
+| `MUSIC_FFMPEG_PATH` (`FFMPEG_PATH`) | optional | bot music | ffmpeg is optional: without it playback is Opus passthrough (no volume). `MUSIC_AUDIO_PIPELINE=pcm\|opus` forces a path |
 | `MUSIC_DJ_ROLE_NAMES` | optional | `/music skip` | Comma-separated role names that force-skip; default `dj` |
 | `MUSIC_STAFF_ROLE_NAMES` | optional | `/music skip` | Default moderator/mod/staff/admin/administrator + plurals; real moderation permissions always count too |
 | `MUSIC_MAX_QUEUE` / `MUSIC_MAX_PLAYLIST_TRACKS` | optional | bot music | Defaults 500 / 250 |
-| `LAVALINK_NODES` | for `/music` | bot music | Comma-separated `[name@][ws|wss|http|https://]host[:port]`; several nodes = least-penalty pick per guild + failover. Unset → `LAVALINK_HOST`/`LAVALINK_PORT` (default `ws://localhost:2333`, i.e. the bundled compose service or the laptop unit). `docker-compose.yml` sets it to `ws://lavalink:2333` |
-| `LAVALINK_PASSWORD` | for `/music` | bot music **and the node** | Must equal `lavalink.server.password` in `application.yml`. Blank = Lavalink's published default on both sides; the bot logs a boot warning, and it's only acceptable on localhost/LAN |
-| `LAVALINK_HOST` / `LAVALINK_PORT` / `LAVALINK_SECURE` | optional | bot music | Single-node shorthand when `LAVALINK_NODES` is unset; a `wss://`/`https://` URL implies secure |
-| `LAVALINK_RESUME_SECONDS` | optional | bot music | Default 60. Inside that window a node restart resumes every guild silently; outside it the bot re-handshakes and announces "🔁 Music node restarted" |
-| `LAVALINK_RECONNECT_MIN_MS` / `LAVALINK_RECONNECT_MAX_MS` | optional | bot music | Backoff bounds, defaults 1000 / 30000 |
-| `LAVALINK_CLIENT_NAME` | optional | bot music | Name shown in the node's client list; default `monarch-bot/<version>` |
-| `MUSIC_SEARCH_PREFIX` | optional | bot music | What plain `play <words>` queries hit on the node: `ytsearch` (default), `ytmsearch`, `scsearch` |
 ---
 
 ## 6. Security model (recap)
@@ -703,31 +695,15 @@ at the guild level — `requireGuildAccess` enforces this.
     `confession-cooldown.test.ts` (window cache/expiry, per-user not
     per-guild, fail-open, release, internal store HTTP shape),
     `durations.test.ts`, `burg.test.ts`,
-    `music-lavalink.test.ts` (the node protocol against a fake websocket +
-    fake fetch: handshake, resume, backoff, penalty scoring, REST body shapes,
-    `LAVALINK_NODES` parsing),
-    `music-sources.test.ts` (link/playlist/search resolution, playlist paging,
-    the lazy Spotify→YouTube match, node-down and YouTube-refusal copy),
-    `music-player.test.ts` (~30 playback-lifecycle tests against `FakeLavalink`:
-    join + handshake, channel move, loop modes, skip/stuck/premature end,
-    pause/volume/position, node restart, 4006 rejoin, 4014 teardown,
-    empty-room leave, teardown/shutdown),
-    `music-regressions.test.ts` (the historical failure modes),
-    `music-fakes.ts` (shared fakes — not a test file),
-    `shutdown.test.ts` (drives the real entry point with
+    `music-*.test.ts`, `shutdown.test.ts` (drives the real entry point with
     discord.js stubbed; mutation-checked).
   - `packages/shared` — `prefix.test.ts` (prefix legality rules).
 
-- **Test count (most recent reported):** 521 passed, 2 failing — and the 2 are
-  pre-existing and unrelated to music: `apps/bot/test/confession-cooldown.test.ts`
-  and `apps/dashboard/test/confession.test.ts` both assert a six-hour window
-  while `CONFESSION_COOLDOWN_MS` is 3 h in `@monarch/shared` (the bot one fails
-  identically on the base commit). Five more *files* don't load in this sandbox
-  at all (`apps/dashboard/test/{backups,library,prisma-store,
-  prisma-store.integration,workspace-parse}.test.ts`) because
-  `apps/dashboard/lib/prisma.ts` imports the generated client and
-  `prisma generate` can't download its engine offline. In a normal environment
-  those load and the count is ~570.
+- **Test count (most recent reported):** 497 passed, 11 failing in this
+  sandbox — all 11 in `prisma-store.integration.test.ts` (PGlite + the
+  generated Prisma client, which this sandbox can't download; 8 pre-existing
+  + the 3 confession-cooldown ones). In a normal environment all 11 pass and
+  the count is ~508.
 - **Bot typecheck caveat:** `npx tsc --noEmit -p apps/bot/tsconfig.json`
   still reports 7 pre-existing errors in test files (APIEmbed/API component
   union assertions in `confession.test.ts`, `required` in `commands.test.ts`).

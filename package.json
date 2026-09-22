@@ -2,7 +2,7 @@
   "name": "monarch",
   "private": true,
   "version": "0.1.0",
-  "description": "Monarch — Design your Discord. A visual Discord server design and customization platform.",
+  "description": "Monarch \u2014 Design your Discord. A visual Discord server design and customization platform.",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -12,18 +12,15 @@
     "dev:bot": "npm run dev --workspace @monarch/bot",
     "build": "npm run build --workspace @monarch/dashboard",
     "test": "vitest run",
-    "typecheck": "tsc --build --force || npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p packages/music/tsconfig.json",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:dev": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "music:check": "node scripts/check-lavalink.mjs",
-    "music:local": "node scripts/run-lavalink-local.mjs",
-    "music:up": "docker compose -f docker/docker-compose.yml up -d lavalink",
-    "music:logs": "docker logs monarch-lavalink -f",
-    "music:down": "docker compose -f docker/docker-compose.yml down"
+    "music:check": "node scripts/music-doctor.mjs",
+    "music:setup": "node scripts/setup-music.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",

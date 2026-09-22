@@ -10,10 +10,10 @@
 
 /**
  * Where a track came from.
- * - `youtube` — resolved by the Lavalink node from a YouTube link/search.
+ * - `youtube` — resolved by yt-dlp from a YouTube link/search.
  * - `spotify` — metadata from the Spotify Web API, matched to a YouTube track
  *   lazily when it plays.
- * - `other` — any other source the node has enabled (SoundCloud, Bandcamp,
+ * - `other` — anything else yt-dlp supports (SoundCloud, Bandcamp, Twitch,
  *   a direct HTTP audio file…). `sourceName` says which.
  */
 export type TrackSourceKind = "youtube" | "spotify" | "other";
@@ -35,11 +35,13 @@ export interface Track {
   /** The node's source name (`youtube`, `soundcloud`, …) for `sourceKind: "other"`. */
   sourceName?: string;
   /**
-   * The Lavalink-encoded track (`GET /v4/loadtracks` → `encoded`) — what the
-   * node is told to play. Present for everything the node resolved up front;
-   * Spotify tracks get it lazily, when they actually start playing.
+   * What the downloader is handed when this track plays — normally the watch
+   * page (a YouTube URL, a SoundCloud URL…), never a signed stream URL, which
+   * would expire while the track sits in the queue. Present for everything
+   * resolved up front; Spotify tracks get it lazily, when they actually start
+   * playing.
    */
-  encoded?: string;
+  sourceUrl?: string;
   /** Human-facing URL (watch page / Spotify link). */
   url: string;
   /** null for live streams and unknown lengths. */

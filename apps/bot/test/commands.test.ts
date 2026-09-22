@@ -60,7 +60,7 @@ describe("monarch command manifest", () => {
 
   it("gives confession a setup (with channel options) and a disable", () => {
     const group = (json.options ?? []).find((o) => o.name === "confession") as {
-      options?: { name: string; options?: { name: string }[] }[];
+      options?: { name: string; options?: { name: string; required?: boolean }[] }[];
     };
     expect(group).toBeTruthy();
     expect(group.options?.map((o) => o.name)).toEqual(["setup", "disable"]);

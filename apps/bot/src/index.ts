@@ -31,8 +31,9 @@ import {
 import { ConfessionCooldowns, internalConfessionCooldownStore } from "./confession-cooldown.js";
 import { MonarchCommands } from "./monarch-commands.js";
 import { MusicCommands, musicCommandJSON } from "./music/commands.js";
-import { getLavalink } from "./music/lavalink.js";
 import { MusicManager } from "./music/player.js";
+import { ensureYtdlp } from "./music/ytdlp.js";
+import { resolveFfmpegPath } from "./music/audio.js";
 import { handlePrefixMessage, type PrefixDispatcherDeps } from "./prefix/dispatch.js";
 import { internalPrefixStore, PrefixRegistry } from "./prefix/registry.js";
 import { SlashCommandContext } from "./slash-context.js";
@@ -84,8 +85,8 @@ if (!ownerUserId) {
 
 /**
  * Intents: Guilds for slash commands; GuildVoiceStates for the music player
- * (the bot still joins voice channels itself and forwards the handshake to the
- * Lavalink node — see apps/bot/src/music/lavalink.ts);
+ * (the bot joins voice channels itself and streams audio in-process — see
+ * apps/bot/src/music/audio.ts);
  * GuildMessages + MessageContent so the burg relay can read and
  * re-post messages, and so prefix (text) commands can be seen at all.
  * MessageContent is a *privileged* intent — enable it under Bot → Privileged
@@ -134,15 +135,42 @@ function getMusic(): MusicManager {
   return music;
 }
 
+/** One line describing the audio path, for the boot log. */
+function describeAudio(): string {
+  const ffmpeg = resolveFfmpegPath();
+  return ffmpeg ? `yt-dlp + ffmpeg (${ffmpeg})` : "yt-dlp (Opus passthrough — no ffmpeg, volume is fixed)";
+}
+
+/**
+ * Music doctor, run at boot: probes yt-dlp (downloading the official build on
+ * first use) and reports what the audio pipeline will be. Errors are logged,
+ * never thrown — a machine without yt-dlp still runs every other feature, and
+ * `/music play` will say the same thing in Discord.
+ */
+async function checkMusicReady(): Promise<void> {
+  const probe = await ensureYtdlp();
+  if (probe.available) {
+    log.info("music ready", {
+      ytdlp: probe.version,
+      source: probe.source,
+      bin: probe.bin,
+      ffmpeg: resolveFfmpegPath() ?? null,
+    });
+    return;
+  }
+  log.error("music is unavailable", {
+    detail: probe.detail,
+    hint:
+      "Install yt-dlp (https://github.com/yt-dlp/yt-dlp#installation), set YTDLP_PATH to an existing " +
+      "binary, or let the bot fetch the official build itself — that happens on the first /music play " +
+      "unless YTDLP_AUTO_DOWNLOAD=0 (a read-only filesystem or a blocked GitHub is what stops it). " +
+      "`npm run music:setup` does the download up front; see docs/troubleshooting-music.md.",
+  });
+}
+
 function createClient(intents: number[]): Client {
   const c = new Client({ intents });
   c.once(Events.ClientReady, (ready) => {
-    // Open the Lavalink node connection(s) now rather than on the first
-    // /music play: a misconfigured node then shows in the boot log, and the
-    // first song doesn't pay for the handshake. Audio itself never runs here —
-    // the node talks to Discord's voice servers (see music/lavalink.ts).
-    const lavalink = getLavalink(ready.user.id);
-    lavalink.start(ready.user.id);
     log.info("bot ready", {
       user: ready.user.tag,
       // Which machine/container this is: two workers sharing one token each
@@ -153,26 +181,16 @@ function createClient(intents: number[]): Client {
       // The same flag gates the relay and text commands: both need to read
       // other people's message content.
       prefixCommands: messageContentEnabled,
-      music: lavalink.describe(),
+      // The backend knows which pipeline it will actually use (transcode vs
+      // Opus passthrough); describeAudio() is the fallback before it exists.
+      audio: music?.audioDescription() ?? describeAudio(),
     });
 
-    // If no node comes up, surface the exact fix in logs — the /music command
-    // already says it in Discord, but operators tailing the bot logs need it too.
-    setTimeout(() => {
-      if (lavalink.connectedNodes.length === 0) {
-        const nodes = lavalink.nodes.map((n) => `${n.host}:${n.port}`).join(", ");
-        log.warn("no Lavalink node connected after boot", {
-          nodes: lavalink.describe(),
-          hint:
-            `Couldn't reach ${nodes}. No Docker? Run npm run music:local (needs Java 17+, 512M RAM) — ` +
-            `with Docker: docker compose -f docker/docker-compose.yml up -d lavalink (from repo root) ` +
-            `or ./deploy/laptop-install.sh. Then curl http://localhost:2333/version, ` +
-            `npm run music:check, and check docker logs monarch-lavalink or journalctl -u monarch-lavalink. ` +
-            `If 401, LAVALINK_PASSWORD in .env must match docker/lavalink/application.yml. ` +
-            `See docs/troubleshooting-music.md for no-Docker guide.`,
-        });
-      }
-    }, 12_000).unref?.();
+    // Warm the music pipeline up in the background: the first /music play
+    // shouldn't be the thing that discovers yt-dlp isn't installed yet (or
+    // downloads it). Failures are logged with the fix, never fatal — every
+    // other feature keeps working without yt-dlp.
+    void checkMusicReady();
   });
   // Surface gateway trouble instead of letting an EventEmitter "error" event
   // take the whole worker down (discord.js reconnects on its own).
@@ -183,12 +201,6 @@ function createClient(intents: number[]): Client {
   c.on(Events.InteractionCreate, onInteraction);
   c.on(Events.VoiceStateUpdate, (old: VoiceState, next: VoiceState) => {
     music?.handleVoiceStateUpdate(old, next);
-  });
-  // Lavalink needs two things discord.js has no typed event for: our own voice
-  // `session_id` and the voice server's `token`/`endpoint`. They arrive as raw
-  // gateway packets and are forwarded verbatim (see music/player.ts).
-  c.on(Events.Raw, (packet: unknown) => {
-    music?.handleRawPacket(packet as Parameters<MusicManager["handleRawPacket"]>[0]);
   });
   return c;
 }
@@ -228,11 +240,11 @@ async function shutdown(signal: string) {
   shuttingDown = true;
   log.info("shutting down", { signal });
   try {
-    // Stops playback and destroys the node's players (so no guild is left with
-    // a silent bot in its voice channel), then closes the node sockets. Awaited
-    // — the deletes are REST calls, and exiting first would drop them — but
-    // capped well inside systemd's TimeoutStopSec / the container's grace
-    // period, so a wedged node cannot hold the worker up.
+    // Stops playback and closes every voice connection (so no guild is left
+    // with a silent bot in its voice channel). Awaited — the disconnects are
+    // gateway frames, and exiting first would drop them — but capped well
+    // inside systemd's TimeoutStopSec / the container's grace period, so a
+    // wedged download cannot hold the worker up.
     await capWait(music?.shutdown() ?? Promise.resolve(), 2_000);
   } catch (e) {
     log.warn("music shutdown failed", { error: String(e) });

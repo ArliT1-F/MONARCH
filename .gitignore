@@ -6,9 +6,14 @@ node_modules/
 dist/
 out/
 build/
+*.tsbuildinfo
 
 # runtime data (demo-mode file store)
 .monarch-data/
+
+# managed helper binaries (yt-dlp / ffmpeg downloaded by `npm run
+# music:setup` or on the first /music play) and their cache
+.monarch/
 
 # env
 .env
