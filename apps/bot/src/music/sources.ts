@@ -226,7 +226,12 @@ class SpotifyClient {
       };
     }>(`/albums/${id}`);
     const thumbnail = data.images?.at(-1)?.url ?? null;
-    const items = await this.paged(data.tracks, cap);
+    const items = await this.paged<{
+      name: string;
+      duration_ms: number;
+      artists: { name: string }[];
+      external_urls?: { spotify: string };
+    }>(data.tracks, cap);
     return {
       name: data.name,
       tracks: items.map((item) => ({
@@ -246,21 +251,29 @@ class SpotifyClient {
     const data = await this.get<{
       name: string;
       tracks: {
-        items: { track: PlaylistItem | null }[];
+        items: PlaylistItemEntry[];
         next: string | null;
       };
     }>(`/playlists/${id}`);
-    const first = data.tracks.items.map((item) => item.track).filter((t): t is PlaylistItem => Boolean(t));
+    // A playlist holds more than songs: podcast episodes and local files come
+    // back in the same list. They have no `artists`, so treating one as a track
+    // used to throw and take the whole import down with it — they are counted
+    // as unavailable instead.
+    const first = data.tracks.items.map(playlistTrack).filter((t): t is PlaylistItem => t !== null);
     const unavailable = data.tracks.items.length - first.length;
-    const items = await this.paged<PlaylistItem>({ items: first, next: data.tracks.next }, cap);
+    const items = await this.paged<PlaylistItem>(
+      { items: first, next: data.tracks.next },
+      cap,
+      (entry) => playlistTrack(entry as PlaylistItemEntry),
+    );
     return {
       name: data.name,
       unavailable,
       tracks: items.map((item) => ({
         name: item.name,
-        artists: item.artists.map((a) => a.name).join(", "),
+        artists: (item.artists ?? []).map((a) => a.name).join(", "),
         durationMs: item.duration_ms,
-        url: item.external_urls?.spotify ?? `https://open.spotify.com/track/${item.id}`,
+        url: item.external_urls?.spotify ?? (item.id ? `https://open.spotify.com/track/${item.id}` : item.name),
         thumbnail: item.album?.images?.at(-1)?.url ?? null,
       })),
     };
@@ -288,17 +301,26 @@ class SpotifyClient {
     }));
   }
 
-  /** Follows Spotify's `next` cursor, collecting up to `cap` items. */
-  private async paged<T>(first: { items: T[]; next: string | null }, cap: number): Promise<T[]> {
-    const out: T[] = [...first.items];
+  /**
+   * Follows Spotify's `next` cursor, collecting up to `cap` items. `unwrap`
+   * turns one raw page entry into an item (or null to leave it out) — playlist
+   * pages wrap their entries, albums don't.
+   */
+  private async paged<T>(
+    first: { items: unknown[]; next: string | null },
+    cap: number,
+    unwrap: (raw: unknown) => T | null = (raw) => raw as T,
+  ): Promise<T[]> {
+    const collect = (raw: unknown[]): T[] => raw.map(unwrap).filter((item): item is T => item !== null);
+    const out: T[] = collect(first.items);
     let next = first.next;
     let guard = 0;
     while (next && out.length < cap && guard < 20) {
       guard += 1;
       const res = await fetch(next, { headers: { Authorization: await this.authHeader() } });
       if (!res.ok) throw new SourceError(`Spotify API error (HTTP ${res.status}).`);
-      const data = (await res.json()) as { items: T[]; next: string | null };
-      out.push(...data.items);
+      const data = (await res.json()) as { items: unknown[]; next: string | null };
+      out.push(...collect(data.items));
       next = data.next;
     }
     return out.slice(0, cap);
@@ -313,6 +335,17 @@ type PlaylistItem = {
   album?: { images?: { url: string }[] };
   artists: { name: string }[];
 };
+
+/** One playlist page entry: a wrapped track, or the newer `item` spelling. */
+type PlaylistItemEntry = { track?: PlaylistItem | null; item?: PlaylistItem | null } | null;
+
+/** A page entry → a song, or null when it is an episode/local file/removed. */
+function playlistTrack(entry: unknown): PlaylistItem | null {
+  const raw = (entry ?? null) as PlaylistItemEntry | PlaylistItem | null;
+  const item = raw && "track" in raw ? raw.track : raw && "item" in raw ? raw.item : (raw as PlaylistItem | null);
+  if (!item || typeof item.name !== "string" || !Array.isArray(item.artists)) return null;
+  return item;
+}
 
 let spotifyClient: SpotifyClient | null = null;
 export function getSpotify(): SpotifyClient {
@@ -464,8 +497,13 @@ async function downloader<T>(run: () => Promise<T>): Promise<T> {
 }
 
 /**
- * yt-dlp's own search (`ytsearch:`, `ytmsearch:` or `scsearch:` — see
+ * yt-dlp's own search (`ytsearch`, `ytmsearch` or `scsearch` — see
  * {@link searchPrefix}) → the first playable, non-live result.
+ *
+ * The bare phrase goes in: {@link ytdlpSearch} owns the `ytsearchN:` part, so
+ * the search key and the phrase are never doubled up (`ytsearch5:ytsearch:…`
+ * makes YouTube search for the literal words "ytsearch:…", which is how a
+ * Spotify match quietly became "that song isn't on YouTube").
  */
 async function searchFor(
   query: string,
@@ -473,7 +511,7 @@ async function searchFor(
   requestedByName = "",
   limit = 5,
 ): Promise<Track | null> {
-  const entries = await downloader(() => ytdlpSearch(`${searchPrefix()}:${query}`, limit));
+  const entries = await downloader(() => ytdlpSearch(query, limit, searchPrefix()));
   const first = playable(entries)[0];
   return first ? entryToTrack(first, requestedBy, requestedByName) : null;
 }
@@ -539,14 +577,32 @@ export async function ensurePlayable(track: Track): Promise<Track> {
   if (track.sourceUrl) return track;
   if (!track.youtubeSearch) throw new SourceError("I don't know how to play that track.");
 
-  const match = await searchFor(track.youtubeSearch, track.requestedBy, track.requestedByName);
-  if (!match) throw new SourceError(`Couldn't find a playable YouTube match for “${track.title}”.`);
+  const phrase = track.youtubeSearch.trim();
+  const match = await searchFor(phrase, track.requestedBy, track.requestedByName);
+  if (!match) {
+    // Reached only when the search itself worked and still had nothing usable:
+    // every hit was a live stream, a video without audio, or a dead entry. Say
+    // that — "couldn't find it on YouTube" reads like the song doesn't exist,
+    // and that is what sent people looking for the wrong problem.
+    throw new SourceError(
+      `**${track.title}** isn't on ${searchLabel()} in a form I can play — I searched for “${phrase}” ` +
+        "and every result was a live stream, a video without audio, or a removed upload. " +
+        "Play it from YouTube directly if you know the video.",
+    );
+  }
 
   track.sourceUrl = match.sourceUrl;
   track.videoId = match.videoId;
   track.sourceName = match.sourceName;
   track.durationMs = track.durationMs ?? match.durationMs;
   track.thumbnail = track.thumbnail ?? match.thumbnail;
-  log.info("spotify track matched on YouTube", { track: track.title, videoId: track.videoId });
+  log.info("spotify track matched on YouTube", { track: track.title, videoId: track.videoId, phrase });
   return track;
+}
+
+/** Human name of the configured search backend, for error messages. */
+export function searchLabel(prefixed = searchPrefix()): string {
+  if (prefixed === "ytmsearch") return "YouTube Music";
+  if (prefixed === "scsearch") return "SoundCloud";
+  return "YouTube";
 }

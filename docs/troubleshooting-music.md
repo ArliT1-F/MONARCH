@@ -167,7 +167,8 @@ Voice is UDP **from the bot's host**. That is the only hard requirement:
 | `MUSIC_FFMPEG_PATH` / `FFMPEG_PATH` | ffmpeg to use |
 | `MUSIC_AUDIO_PIPELINE=pcm\|opus` | Force transcode or passthrough |
 | `MUSIC_MAX_QUEUE`, `MUSIC_MAX_PLAYLIST_TRACKS` | Queue and import caps |
-| `MUSIC_SEARCH_PREFIX` | Search backend for plain-text queries (`ytsearch`) |
+| `MUSIC_SEARCH_PREFIX` | Search backend for plain-text queries (`ytsearch`, `ytmsearch`, `scsearch`) |
+| `MONARCH_OWNER_USER_ID` | The only account allowed to run `/monarch debug on` (and be immune to `!burg`) |
 | `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | Spotify link support |
 | `MUSIC_DJ_ROLE_NAMES`, `MUSIC_STAFF_ROLE_NAMES` | Who can force-skip |
 
@@ -190,6 +191,23 @@ in `apps/bot/src/music/ytdlp.ts` — and it names the fix, not just the failure:
 | `⚠️ Track cut short` in Discord, `elapsed vs expected` in the log | the download stopped early — throttling or a network flap; §5 |
 | `⚠️ Track failed` right after `/music play` | the download never started; the message says why (bot check → cookies, 404, 403, private…) — a *transient* failure here is retried once on its own |
 | "isn't in a format Discord takes directly … no ffmpeg" | install ffmpeg (§5) |
+| "**<track>** isn't on YouTube Music in a form I can play — I searched for …" | the search itself worked and every hit was live, silent or removed — not the same as "the download failed" |
 
 The raw yt-dlp stderr tail is in the bot's logs next to the message — that is
 what to paste into a bug report (it never contains your cookies).
+
+### Seeing the raw error in Discord
+
+Whoever holds the Monarch application (`MONARCH_OWNER_USER_ID`) can flip one
+switch: `/monarch debug on` (or `!debug on`). While it is on, every music
+failure is followed by the raw detail — yt-dlp's stderr tail, the exit code,
+ffmpeg's output, stack traces — posted in the same channel as the tidy
+message. `off` (or a bot restart: the switch is memory-only on purpose)
+returns to one line. Everyone else gets the same refusal and never learns
+whether the switch is on. Use it before pasting a failure into a bug report:
+
+```
+/monarch debug on
+/music play <the failing track>
+/monarch debug off
+```

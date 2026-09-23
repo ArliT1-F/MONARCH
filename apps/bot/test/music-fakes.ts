@@ -105,7 +105,7 @@ export class FakeAudioBackend extends EventEmitter implements AudioBackend {
   endTrack(
     guildId: string,
     reason: TrackEndReason,
-    extra: { trackId?: string | null; elapsedMs?: number; error?: string } = {},
+    extra: { trackId?: string | null; elapsedMs?: number; error?: string; raw?: string } = {},
   ): void {
     this.emit("trackEnd", {
       guildId,
@@ -113,6 +113,7 @@ export class FakeAudioBackend extends EventEmitter implements AudioBackend {
       reason,
       elapsedMs: extra.elapsedMs ?? 0,
       ...(extra.error ? { error: extra.error } : {}),
+      ...(extra.raw ? { raw: extra.raw } : {}),
     });
   }
 
