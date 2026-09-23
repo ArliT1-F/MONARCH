@@ -137,7 +137,11 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   bot (free app at developer.spotify.com — see `.env.example`); YouTube
   links, searches and playlists work out of the box through **yt-dlp**, which
   Monarch downloads into `.monarch/bin` on first use (`npm run music:setup`
-  does it up front, `npm run music:check` verifies the whole chain). No JVM
+  does it up front, `npm run music:check` verifies the whole chain). Spotify
+  tightened its API in February 2026 (a playlist's *contents* are only
+  readable for playlists the app owns, playlist rows renamed `track` →
+  `item`), so Monarch reads both spellings and falls back to a playlist's
+  public embed page when the API withholds it. No JVM
   and no second service to run. **ffmpeg** is optional but recommended: with
   it `/music volume` works and every source plays; without it YouTube's Opus
   is passed straight through and volume is reported as unavailable. Voice is
