@@ -146,6 +146,7 @@ function track(): Track {
 /** A backend wired to fakes: no sockets, no spawned processes. */
 function harness(pipes: ReturnType<typeof deadPipe>[]) {
   const player = new FakePlayer();
+  const ffmpegs: { stdin: PassThrough }[] = [];
   const openPipe = vi.fn(async () => {
     const next = pipes.shift();
     if (!next) throw new Error("openPipe called more often than the test expected");
@@ -160,7 +161,7 @@ function harness(pipes: ReturnType<typeof deadPipe>[]) {
       stderr,
       kill: vi.fn(),
     });
-    stdin.on("error", () => {});
+    ffmpegs.push(child);
     return child as never;
   });
   const options: AudioBackendOptions = {
@@ -173,7 +174,7 @@ function harness(pipes: ReturnType<typeof deadPipe>[]) {
   const backend = new DiscordAudioBackend(options);
   const events: { reason: string; error?: string; elapsedMs: number }[] = [];
   backend.on("trackEnd", (event: { reason: string; error?: string; elapsedMs: number }) => events.push(event));
-  return { backend, player, openPipe, events };
+  return { backend, player, openPipe, events, ffmpegs };
 }
 
 describe("a track that never gets going", () => {
@@ -209,5 +210,22 @@ describe("a track that never gets going", () => {
     expect(events[0]?.reason).toBe("failed");
     expect(events[0]?.error).toMatch(/private/i);
     expect(openPipe).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("skipping a transcoded track", () => {
+  it("survives the EPIPE ffmpeg's stdin raises when a skip kills it mid-write", async () => {
+    const { backend, player, ffmpegs } = harness([deadPipe(0, "")]);
+    await backend.join("guild", { id: "chan", guild: { id: "guild", voiceAdapterCreator: () => () => {} } });
+    await backend.play("guild", track());
+    expect(ffmpegs).toHaveLength(1);
+
+    backend.stop("guild");
+    player.emitIdle();
+    // yt-dlp's next write lands on a dead ffmpeg. An unhandled stream `error`
+    // is an uncaught exception in Node — it used to crash the worker (and
+    // wipe the queue) on every `!skip`.
+    const epipe = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    expect(() => ffmpegs[0]!.stdin.emit("error", epipe)).not.toThrow();
   });
 });

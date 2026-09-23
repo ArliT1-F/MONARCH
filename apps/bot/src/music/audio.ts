@@ -601,6 +601,17 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
           // already closed
         }
       });
+      // A skip (or `/music stop`) kills ffmpeg while yt-dlp is still writing
+      // into it: the next write fails with EPIPE on ffmpeg's stdin. That is the
+      // expected end of a stopped track, not a failure — but an `error` event
+      // nobody listens to is an uncaught exception in Node, which took the
+      // whole worker down (and the in-memory queue with it) on every skip.
+      ffmpeg.stdin?.on("error", (error: NodeJS.ErrnoException) => {
+        if (error?.code !== "EPIPE" && error?.code !== "ERR_STREAM_DESTROYED") {
+          log.warn("ffmpeg input error", { guildId: session.guildId, error: String(error).slice(0, 200) });
+        }
+        if (pipe.alive()) pipe.kill();
+      });
       pipe.stream.pipe(ffmpeg.stdin!);
       if (!ffmpeg.stdout) {
         this.killPipeline(session);
