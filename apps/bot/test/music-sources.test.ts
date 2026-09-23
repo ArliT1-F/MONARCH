@@ -82,6 +82,59 @@ function stubSpotify(routes: Record<string, unknown>, token = { access_token: "t
   return fetchMock;
 }
 
+/**
+ * Stub Spotify's API *and* its public embed page (the iframe player's HTML,
+ * which carries a playlist's tracks as JSON). `embed` null means the embed page
+ * is gone too — what a private playlist looks like.
+ */
+function stubSpotifyAndEmbed(api: Record<string, unknown>, embed: string | null) {
+  const fetchMock = vi.fn(async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("accounts.spotify.com/api/token")) {
+      return { ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 3600 }) } as Response;
+    }
+    if (url.includes("open.spotify.com/embed/")) {
+      if (embed === null) return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
+      return { ok: true, status: 200, text: async () => embed } as Response;
+    }
+    const match = Object.entries(api).find(([key]) => url.includes(key));
+    if (!match) return { ok: false, status: 404, json: async () => ({ error: "not found" }) } as unknown as Response;
+    return { ok: true, status: 200, json: async () => match[1] } as Response;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+/** The embed page for a playlist, in the shape Spotify's web app ships it. */
+function embedPlaylistHtml(
+  name: string,
+  tracks: { uri?: string; id: string; title: string; subtitle: string; duration: number }[],
+): string {
+  const payload = {
+    props: {
+      pageProps: {
+        state: {
+          data: {
+            entity: {
+              type: "playlist",
+              name,
+              trackList: tracks.map((track) => ({
+                uri: track.uri ?? `spotify:track:${track.id}`,
+                uid: `${track.id}-uid`,
+                title: track.title,
+                subtitle: track.subtitle,
+                duration: track.duration,
+                isExplicit: false,
+              })),
+            },
+          },
+        },
+      },
+    },
+  };
+  return `<!doctype html><html><body><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(payload)}</script></body></html>`;
+}
+
 const spotifyTrackPayload = {
   name: "Viti Ri Gon Kalaja",
   duration_ms: 253_000,
@@ -89,6 +142,19 @@ const spotifyTrackPayload = {
   album: { images: [{ url: "https://i.scdn.co/small.jpg" }, { url: "https://i.scdn.co/large.jpg" }] },
   artists: [{ name: "Muharrem Ahmeti" }],
 };
+
+/** The playlist from the bug report, with a track renamed per row. */
+const playlistId = "5f97psz2nm2XvRG6qqHenL";
+
+function playlistRow(name: string, id: string, extras: Record<string, unknown> = {}) {
+  return {
+    added_at: "2026-09-01T00:00:00Z",
+    added_by: { id: "icy404" },
+    is_local: false,
+    ...extras,
+    item: { ...spotifyTrackPayload, name, external_urls: { spotify: `https://open.spotify.com/track/${id}` } },
+  };
+}
 
 beforeEach(() => {
   vi.resetModules();
@@ -465,6 +531,201 @@ describe("Spotify", () => {
     expect(result.tracks.map((t) => t.title)).toEqual(["Muharrem Ahmeti – One", "Muharrem Ahmeti – Two"]);
     expect(result.skipped).toBe(1);
     expect(ytdlpSearch).not.toHaveBeenCalled();
+  });
+
+  // The bug report: a full playlist answering "has no playable tracks". Since
+  // February 2026 every row carries its payload under `item` while the old
+  // `track` key is still there as a boolean, so a parser that reads `track`
+  // first finds no tracks in a playlist that is full of them.
+  it("imports a whole playlist when every row's `track` is a boolean", async () => {
+    const rows = [playlistRow("One", "one", { track: true }), playlistRow("Two", "two", { track: true })];
+    stubSpotify({
+      [`/playlists/${playlistId}`]: {
+        name: "Phonk",
+        items: { total: rows.length, next: null, items: rows },
+        tracks: { total: rows.length, next: null, items: rows }, // deprecated alias, still sent
+      },
+    });
+    const { resolveQuery } = await sources();
+
+    const result = await resolveQuery(
+      `https://open.spotify.com/playlist/${playlistId}?si=ic1sSfbCR7-HiH5tFYkMew&utm_source=copy-link`,
+      requestedBy,
+      requestedByName,
+      250,
+    );
+
+    expect(result.kind).toBe("spotify-playlist");
+    expect(result.origin).toBe("Phonk");
+    expect(result.tracks.map((t) => t.title)).toEqual(["Muharrem Ahmeti – One", "Muharrem Ahmeti – Two"]);
+    expect(result.tracks[0]!.youtubeSearch).toBe("Muharrem Ahmeti – One");
+    expect(result.skipped).toBe(0);
+  });
+
+  it("imports a playlist that only carries the renamed `items` field", async () => {
+    stubSpotify({
+      [`/playlists/${playlistId}`]: {
+        name: "Phonk",
+        items: { total: 1, next: null, items: [playlistRow("One", "one")] },
+      },
+    });
+    const { resolveQuery } = await sources();
+
+    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+
+    expect(result.tracks.map((t) => t.title)).toEqual(["Muharrem Ahmeti – One"]);
+  });
+
+  it("reads the playlist rows from whichever spelling still holds them", async () => {
+    stubSpotify({
+      [`/playlists/${playlistId}`]: {
+        name: "Phonk",
+        // The renamed field arrived empty for this app; the legacy alias kept
+        // the rows, so that is what gets read.
+        items: { total: 1, next: null, items: [] },
+        tracks: { total: 1, next: null, items: [{ track: playlistRow("One", "one").item }] },
+      },
+    });
+    const { resolveQuery } = await sources();
+
+    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+
+    expect(result.tracks.map((t) => t.title)).toEqual(["Muharrem Ahmeti – One"]);
+  });
+
+  it("walks a legacy cursor on the renamed endpoint and keeps what it already read", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.includes("accounts.spotify.com")) {
+          return { ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 3600 }) } as Response;
+        }
+        // Spotify's legacy `/tracks` cursor is dead: the endpoint answers 403.
+        if (url.includes("offset=1")) return { ok: false, status: 403, json: async () => ({}) } as unknown as Response;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            name: "Long list",
+            tracks: {
+              total: 3,
+              next: `https://api.spotify.com/v1/playlists/${playlistId}/tracks?offset=1`,
+              items: [{ track: playlistRow("One", "one").item }],
+            },
+          }),
+        } as Response;
+      }),
+    );
+    const { resolveQuery } = await sources();
+
+    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+
+    expect(calls).toContain(`https://api.spotify.com/v1/playlists/${playlistId}/items?offset=1`);
+    expect(result.tracks.map((t) => t.title)).toEqual(["Muharrem Ahmeti – One"]);
+    // The two tracks the dead page never delivered are reported as left out.
+    expect(result.skipped).toBe(2);
+  });
+
+  it("falls back to the public embed page when Spotify withholds the tracks", async () => {
+    const fetchMock = stubSpotifyAndEmbed(
+      // What a Development Mode app gets for a playlist it doesn't own: a name,
+      // a count, and no rows.
+      { [`/playlists/${playlistId}`]: { name: "Phonk", items: { total: 137, next: null, items: [] } } },
+      embedPlaylistHtml("Phonk", [
+        { id: "one", title: "One", subtitle: "Artist A", duration: 180_000 },
+        { id: "two", title: "Two", subtitle: "Artist B", duration: 200_000 },
+        { uri: "spotify:episode:cast", id: "cast", title: "A podcast episode", subtitle: "Some show", duration: 600_000 },
+      ]),
+    );
+    const { resolveQuery } = await sources();
+
+    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(
+      `https://open.spotify.com/embed/playlist/${playlistId}`,
+    );
+    expect(result.origin).toBe("Phonk");
+    expect(result.tracks.map((t) => t.title)).toEqual(["Artist A – One", "Artist B – Two"]);
+    expect(result.tracks[0]).toMatchObject({
+      url: "https://open.spotify.com/track/one",
+      durationMs: 180_000,
+      youtubeSearch: "Artist A – One",
+      sourceKind: "spotify",
+    });
+    // 137 listed by the API, two of them readable from the embed.
+    expect(result.skipped).toBe(135);
+  });
+
+  it("rescues a playlist the API refuses outright (404 on Spotify's own playlists)", async () => {
+    stubSpotifyAndEmbed(
+      // Spotify's editorial playlists have answered 404 here for years.
+      { [`/playlists/${playlistId}`]: { error: { status: 404, message: "Not found" } } },
+      embedPlaylistHtml("Phonk", [{ id: "one", title: "One", subtitle: "Artist A", duration: 180_000 }]),
+    );
+    const { resolveQuery } = await sources();
+
+    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+
+    expect(result.origin).toBe("Phonk");
+    expect(result.tracks.map((t) => t.title)).toEqual(["Artist A – One"]);
+  });
+
+  it("treats rows that carry no readable payload as withheld, not as an empty playlist", async () => {
+    stubSpotifyAndEmbed(
+      // Nothing but the boolean stub under the old key — a shape rename that a
+      // lenient reader would let pass as "this playlist is empty".
+      { [`/playlists/${playlistId}`]: { name: "Phonk", tracks: { total: 2, next: null, items: [{ track: true }, { track: true }] } } },
+      embedPlaylistHtml("Phonk", [{ id: "one", title: "One", subtitle: "Artist A", duration: 180_000 }]),
+    );
+    const { resolveQuery } = await sources();
+
+    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+
+    expect(result.tracks.map((t) => t.title)).toEqual(["Artist A – One"]);
+  });
+
+  it("says why when Spotify withholds a playlist's tracks", async () => {
+    stubSpotifyAndEmbed(
+      { [`/playlists/${playlistId}`]: { name: "Phonk", items: { total: 137, next: null, items: [] } } },
+      null, // private playlist: the embed page isn't readable either
+    );
+    const { resolveQuery } = await sources();
+
+    const error = (await resolveQuery(
+      `https://open.spotify.com/playlist/${playlistId}`,
+      requestedBy,
+      requestedByName,
+      250,
+    ).catch((thrown: unknown) => thrown)) as Error;
+
+    expect(error.message).toMatch(/an app can only read playlists it owns itself/);
+    expect(error.message).toMatch(/137 listed/);
+    // The old wording blamed the playlist — it was never the empty one.
+    expect(error.message).not.toMatch(/no playable tracks/);
+  });
+
+  it("treats a playlist response with no contents field at all the same way", async () => {
+    stubSpotifyAndEmbed({ [`/playlists/${playlistId}`]: { name: "Phonk", tracks: { total: 12 } } }, null);
+    const { resolveQuery } = await sources();
+
+    await expect(resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250))
+      .rejects.toThrow(/12 listed/);
+  });
+
+  it("doesn't reach for the embed page when the API already answered", async () => {
+    const fetchMock = stubSpotifyAndEmbed(
+      { [`/playlists/${playlistId}`]: { name: "Phonk", items: { total: 1, next: null, items: [playlistRow("One", "one")] } } },
+      embedPlaylistHtml("Phonk", [{ id: "stale", title: "Stale", subtitle: "Old", duration: 1_000 }]),
+    );
+    const { resolveQuery } = await sources();
+
+    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+
+    expect(result.tracks.map((t) => t.title)).toEqual(["Muharrem Ahmeti – One"]);
+    expect(fetchMock.mock.calls.map((call) => String(call[0])).some((url) => url.includes("/embed/"))).toBe(false);
   });
 
   it("says when Spotify isn't configured", async () => {

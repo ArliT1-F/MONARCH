@@ -25,6 +25,11 @@ import {
  * tokens) and matched to a YouTube track lazily — when the track actually
  * starts playing. That keeps queuing a 200-song playlist instant.
  *
+ * That API is picky about playlists since February 2026 (renamed fields, and
+ * contents only for playlists the app owns), so playlist reads go through
+ * {@link SpotifyClient.playlist}, which understands both spellings and can fall
+ * back to the playlist's public embed page.
+ *
  * Failure here always throws {@link SourceError}: the command layer turns it
  * into a plain, human-readable reply instead of an error log.
  */
@@ -153,9 +158,24 @@ function playable(entries: (YtdlpEntry | null)[]): YtdlpEntry[] {
 interface SpotifyTrackMeta {
   name: string;
   artists: string;
-  durationMs: number;
+  /** Spotify's length in ms — null when only the embed fallback could answer. */
+  durationMs: number | null;
   url: string;
   thumbnail: string | null;
+}
+
+/** The sentence a failed Web API call turns into. */
+function spotifyHttpMessage(status: number): string {
+  if (status === 401) return "Spotify rejected the bot's credentials — check SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET.";
+  if (status === 403) {
+    return (
+      "Spotify refused that request (HTTP 403) — since their February 2026 API change an app may only read " +
+      "the playlists it owns itself."
+    );
+  }
+  if (status === 404) return "That Spotify link doesn't exist (or was removed).";
+  if (status === 429) return "Spotify is rate-limiting the bot right now — try that again in a few minutes.";
+  return `Spotify API error (HTTP ${status}).`;
 }
 
 export function spotifyConfigured(): boolean {
@@ -191,9 +211,7 @@ class SpotifyClient {
     const res = await fetch(`https://api.spotify.com/v1${path}`, {
       headers: { Authorization: await this.authHeader() },
     });
-    if (res.status === 404) throw new SourceError("That Spotify link doesn't exist (or was removed).");
-    if (res.status === 401) throw new SourceError("Spotify rejected the bot's credentials — check SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET.");
-    if (!res.ok) throw new SourceError(`Spotify API error (HTTP ${res.status}).`);
+    if (!res.ok) throw new SourceError(spotifyHttpMessage(res.status));
     return (await res.json()) as T;
   }
 
@@ -244,42 +262,105 @@ class SpotifyClient {
     };
   }
 
+  /**
+   * A playlist's tracks.
+   *
+   * Two different things look like "this playlist has no playable tracks", and
+   * neither one means that: Spotify's February 2026 rename (the playlist's
+   * `tracks` object became `items`, a row's `track` payload became `item` — and
+   * `track` stayed behind as a *boolean*) and the same change's ownership rule
+   * (an app only ever gets the contents of playlists it owns itself). Rows are
+   * read under either spelling, and a playlist whose contents Spotify withholds
+   * is loaded from its public embed page instead — {@link spotifyEmbedPlaylist}.
+   */
   async playlist(
     id: string,
     cap: number,
   ): Promise<{ name: string; tracks: SpotifyTrackMeta[]; unavailable: number }> {
-    const data = await this.get<{
-      name: string;
-      tracks: {
-        items: PlaylistItemEntry[];
-        next: string | null;
-      };
-    }>(`/playlists/${id}`);
-    // A playlist holds more than songs: podcast episodes and local files come
-    // back in the same list. They have no `artists`, so treating one as a track
-    // used to throw and take the whole import down with it — they are counted
-    // as unavailable instead.
-    const first = data.tracks.items.map(playlistTrack).filter((t): t is PlaylistItem => t !== null);
-    const unavailable = data.tracks.items.length - first.length;
-    const items = await this.paged<PlaylistItem>(
-      { items: first, next: data.tracks.next },
-      cap,
-      (entry) => playlistTrack(entry as PlaylistItemEntry),
-    );
-    return {
-      name: data.name,
-      unavailable,
-      tracks: items.map((item) => ({
-        name: item.name,
-        artists: (item.artists ?? []).map((a) => a.name).join(", "),
-        durationMs: item.duration_ms,
-        url: item.external_urls?.spotify ?? (item.id ? `https://open.spotify.com/track/${item.id}` : item.name),
-        thumbnail: item.album?.images?.at(-1)?.url ?? null,
-      })),
-    };
+    const viaApi = await this.playlistFromApi(id, cap);
+    if (viaApi.ok) return { name: viaApi.name, tracks: viaApi.tracks, unavailable: viaApi.unavailable };
+
+    // The API wouldn't hand it over — withheld contents, the 404 Spotify
+    // answers for its own editorial playlists, a dead endpoint. The public embed
+    // page still lists public playlists, so try that before giving up.
+    log.warn("Spotify wouldn't hand over a playlist", {
+      id,
+      name: viaApi.name,
+      total: viaApi.total,
+      rows: viaApi.rows,
+      error: viaApi.error.message,
+    });
+    const embedded = await spotifyEmbedPlaylist(id);
+    if (embedded && embedded.tracks.length > 0) {
+      const tracks = embedded.tracks.slice(0, cap);
+      const name = embedded.name ?? viaApi.name ?? "that playlist";
+      log.info("read a Spotify playlist from its public embed page", { id, name, tracks: tracks.length });
+      const listed = viaApi.total ?? embedded.listed;
+      return { name, tracks, unavailable: Math.max(0, listed - tracks.length) };
+    }
+    throw viaApi.error;
   }
 
-  /** Spotify search → up to `limit` tracks (used by `/music play spotify …`). */
+  /**
+   * What the Web API reports for a playlist: the tracks, or the reason it has
+   * none. Never throws for a Spotify-side failure — the caller decides whether
+   * the embed page is worth a try before the failure reaches the user.
+   */
+  private async playlistFromApi(
+    id: string,
+    cap: number,
+  ): Promise<
+    | { ok: true; name: string; tracks: SpotifyTrackMeta[]; unavailable: number }
+    | { ok: false; name: string | null; total: number | null; rows: number; error: SourceError }
+  > {
+    try {
+      const data = await this.get<{ name: string; items?: unknown; tracks?: unknown }>(`/playlists/${id}`);
+      const page = playlistPage(data);
+      const rows = page?.items ?? [];
+      // A playlist holds more than songs: podcast episodes and local files come
+      // back in the same list. They have no `artists`, so treating one as a track
+      // used to throw and take the whole import down with it — they are counted
+      // as unavailable instead.
+      const songs = rows.map(playlistTrack).filter((track): track is PlaylistItem => track !== null);
+      const items = await this.paged<PlaylistItem>({ items: songs, next: page?.next ?? null }, cap, playlistTrack, {
+        // Spotify keeps handing out legacy `/tracks` cursors, and that endpoint
+        // is gone (403) since the rename.
+        nextUrl: playlistItemsUrl,
+        partial: true,
+      });
+      const declared = page?.total ?? playlistTotal(data);
+      const tracks = items.map(playlistMeta);
+
+      // Rows that came back holding nothing readable: either Spotify withheld
+      // the contents (a count, no rows) or the entry shape moved again (rows,
+      // none of them naming a song). Podcasts and local files do name their
+      // entries, so they stay "nothing playable" rather than unreadable.
+      const withheld = rows.length
+        ? rows.every((row) => playlistRowObject(row) === null)
+        : page === null || (page.total ?? 0) > 0;
+
+      if (tracks.length > 0 || !withheld) {
+        const missing = declared === null ? rows.length - songs.length : declared - tracks.length;
+        return { ok: true, name: data.name, tracks, unavailable: Math.max(0, missing) };
+      }
+      return {
+        ok: false,
+        name: data.name,
+        total: declared,
+        rows: rows.length,
+        error: new SourceError(playlistUnreadableMessage(data.name, declared, rows.length)),
+      };
+    } catch (error) {
+      if (!(error instanceof SourceError)) throw error;
+      return { ok: false, name: null, total: null, rows: 0, error };
+    }
+  }
+
+  /**
+   * Spotify search → up to `limit` tracks (used by `/music play spotify …`).
+   * Spotify capped `limit` at 10 in February 2026 — bigger values are silently
+   * trimmed, so there is nothing to gain by asking for more.
+   */
   async searchTracks(query: string, limit: number): Promise<SpotifyTrackMeta[]> {
     const data = await this.get<{
       tracks: {
@@ -291,7 +372,7 @@ class SpotifyClient {
           album?: { images?: { url: string }[] };
         }[];
       };
-    }>(`/search?type=track&limit=${Math.min(20, Math.max(1, limit))}&q=${encodeURIComponent(query)}`);
+    }>(`/search?type=track&limit=${Math.min(10, Math.max(1, limit))}&q=${encodeURIComponent(query)}`);
     return data.tracks.items.map((item) => ({
       name: item.name,
       artists: item.artists.map((a) => a.name).join(", "),
@@ -305,11 +386,17 @@ class SpotifyClient {
    * Follows Spotify's `next` cursor, collecting up to `cap` items. `unwrap`
    * turns one raw page entry into an item (or null to leave it out) — playlist
    * pages wrap their entries, albums don't.
+   *
+   * `nextUrl` rewrites a cursor before following it: the 2026 rename moved
+   * playlist pages to `/items` while Spotify kept handing out `/tracks` cursors,
+   * and that endpoint now answers 403. `partial` keeps the pages already
+   * collected when a later one fails, instead of throwing the whole list away.
    */
   private async paged<T>(
     first: { items: unknown[]; next: string | null },
     cap: number,
     unwrap: (raw: unknown) => T | null = (raw) => raw as T,
+    options: { nextUrl?: (url: string) => string; partial?: boolean } = {},
   ): Promise<T[]> {
     const collect = (raw: unknown[]): T[] => raw.map(unwrap).filter((item): item is T => item !== null);
     const out: T[] = collect(first.items);
@@ -317,34 +404,256 @@ class SpotifyClient {
     let guard = 0;
     while (next && out.length < cap && guard < 20) {
       guard += 1;
-      const res = await fetch(next, { headers: { Authorization: await this.authHeader() } });
-      if (!res.ok) throw new SourceError(`Spotify API error (HTTP ${res.status}).`);
-      const data = (await res.json()) as { items: unknown[]; next: string | null };
-      out.push(...collect(data.items));
-      next = data.next;
+      const url = options.nextUrl ? options.nextUrl(next) : next;
+      let page: { items?: unknown; next?: unknown };
+      try {
+        const res = await fetch(url, { headers: { Authorization: await this.authHeader() } });
+        if (!res.ok) throw new SourceError(spotifyHttpMessage(res.status));
+        page = (await res.json()) as { items?: unknown; next?: unknown };
+      } catch (error) {
+        // A partly-read playlist is still worth playing; a dead cursor is
+        // reported as "left out" by the caller, not as a failed import.
+        if (!options.partial || out.length === 0) throw error;
+        log.warn("stopped following a Spotify cursor", { url, error: String(error) });
+        break;
+      }
+      out.push(...collect(Array.isArray(page.items) ? page.items : []));
+      next = typeof page.next === "string" ? page.next : null;
     }
     return out.slice(0, cap);
   }
 }
 
 type PlaylistItem = {
-  id: string;
+  id?: string;
   name: string;
-  duration_ms: number;
+  duration_ms?: number | null;
   external_urls?: { spotify: string };
   album?: { images?: { url: string }[] };
   artists: { name: string }[];
 };
 
-/** One playlist page entry: a wrapped track, or the newer `item` spelling. */
-type PlaylistItemEntry = { track?: PlaylistItem | null; item?: PlaylistItem | null } | null;
+/** One page of playlist rows, under whichever name the API used for it. */
+interface SpotifyPage {
+  items: unknown[];
+  next: string | null;
+  total: number | null;
+}
+
+function spotifyPage(value: unknown): SpotifyPage | null {
+  if (!value || typeof value !== "object") return null;
+  const page = value as { items?: unknown; next?: unknown; total?: unknown };
+  if (!Array.isArray(page.items)) return null;
+  return {
+    items: page.items,
+    next: typeof page.next === "string" ? page.next : null,
+    total: typeof page.total === "number" ? page.total : null,
+  };
+}
+
+/**
+ * The playlist's first page of rows.
+ *
+ * February 2026 renamed the playlist's `tracks` object to `items`; a response
+ * can carry either spelling (the old one lingers as a deprecated alias), so both
+ * are read and whichever actually holds rows wins. `null` means the response
+ * came back without contents at all — an app only gets the rows of playlists it
+ * owns itself, and that must never be mistaken for an empty playlist.
+ */
+function playlistPage(data: { items?: unknown; tracks?: unknown }): SpotifyPage | null {
+  const pages = [spotifyPage(data.items), spotifyPage(data.tracks)].filter((page): page is SpotifyPage => page !== null);
+  return pages.find((page) => page.items.length > 0) ?? pages[0] ?? null;
+}
+
+/**
+ * The playlist's declared track count, under either spelling and even when no
+ * rows came with it — that number is what tells a withheld playlist apart from
+ * an empty one, and what gets reported to the user.
+ */
+function playlistTotal(data: { items?: unknown; tracks?: unknown }): number | null {
+  for (const value of [data.items, data.tracks]) {
+    if (value && typeof value === "object") {
+      const total = (value as { total?: unknown }).total;
+      if (typeof total === "number") return total;
+    }
+  }
+  return null;
+}
+
+/**
+ * The media object a playlist row carries, or null when there is none.
+ *
+ * The payload sits under `item` (2026 spelling) or `track` (the older one) — and
+ * since the rename `track` survives as a **boolean** flag, which is exactly what
+ * a parser that reads the old name first and checks the shape second turns into
+ * "every single row is unreadable".
+ */
+function playlistRowObject(entry: unknown): Record<string, unknown> | null {
+  if (!entry || typeof entry !== "object") return null;
+  const row = entry as Record<string, unknown>;
+  for (const candidate of [row.item, row.track, entry]) {
+    if (candidate && typeof candidate === "object" && typeof (candidate as { name?: unknown }).name === "string") {
+      return candidate as Record<string, unknown>;
+    }
+  }
+  return null;
+}
 
 /** A page entry → a song, or null when it is an episode/local file/removed. */
 function playlistTrack(entry: unknown): PlaylistItem | null {
-  const raw = (entry ?? null) as PlaylistItemEntry | PlaylistItem | null;
-  const item = raw && "track" in raw ? raw.track : raw && "item" in raw ? raw.item : (raw as PlaylistItem | null);
-  if (!item || typeof item.name !== "string" || !Array.isArray(item.artists)) return null;
-  return item;
+  const item = playlistRowObject(entry);
+  return item && Array.isArray(item.artists) ? (item as unknown as PlaylistItem) : null;
+}
+
+/** A playlist row → the metadata the queue needs (matched to YouTube later). */
+function playlistMeta(item: PlaylistItem): SpotifyTrackMeta {
+  return {
+    name: item.name,
+    artists: (item.artists ?? []).map((artist) => artist.name).join(", "),
+    durationMs: typeof item.duration_ms === "number" ? item.duration_ms : null,
+    url: item.external_urls?.spotify ?? (item.id ? `https://open.spotify.com/track/${item.id}` : item.name),
+    thumbnail: item.album?.images?.at(-1)?.url ?? null,
+  };
+}
+
+/** `/playlists/{id}/tracks?offset=…` → `/playlists/{id}/items?offset=…`. */
+function playlistItemsUrl(url: string): string {
+  return url.replace(/\/playlists\/([^/?]+)\/tracks(\?|$)/, "/playlists/$1/items$2");
+}
+
+/**
+ * What a user reads when Spotify answers with a playlist's name and none of its
+ * tracks. It names the reason — the ownership rule, or an entry shape this bot
+ * doesn't recognize — instead of the "no playable tracks" that sent people
+ * hunting for a bug in a playlist that was never empty.
+ */
+function playlistUnreadableMessage(name: string, total: number | null, rows: number): string {
+  const size = total && total > 0 ? ` (${total} listed, none I can read)` : "";
+  const why =
+    rows === 0
+      ? "since their February 2026 API change an app can only read playlists it owns itself"
+      : "their playlist entries now come in a shape I don't recognize";
+  return (
+    `Spotify wouldn't give me the tracks of “${name}”${size} — ${why}. ` +
+    "A YouTube playlist link works straight away, and single Spotify links still play."
+  );
+}
+
+// ── Spotify embed fallback (public playlists) ──────────────────────────
+//
+// The last way in when the Web API withholds a playlist's contents: the embed
+// page the iframe player renders is public and carries the first ~100 tracks as
+// JSON inside its HTML. That is an undocumented corner of Spotify's web app, so
+// everything below is defensive — anything unexpected yields null and the caller
+// reports the API's own failure instead.
+
+const EMBED_TIMEOUT_MS = 8_000;
+
+async function spotifyEmbedPlaylist(
+  id: string,
+): Promise<{ name: string | null; tracks: SpotifyTrackMeta[]; listed: number } | null> {
+  let html: string;
+  try {
+    const res = await fetch(`https://open.spotify.com/embed/playlist/${id}`, {
+      headers: { Accept: "text/html", "User-Agent": "monarch-music-bot" },
+      signal: AbortSignal.timeout(EMBED_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    html = await res.text();
+  } catch (error) {
+    log.warn("Spotify's embed page couldn't be read", { id, error: String(error) });
+    return null;
+  }
+
+  const payload = embedPayload(html);
+  const entity = payload ? findTrackList(payload) : null;
+  if (!entity) return null;
+
+  const tracks = entity.list.map(embedTrack).filter((track): track is SpotifyTrackMeta => track !== null);
+  return { name: textField(entity.owner.name) ?? textField(entity.owner.title), tracks, listed: tracks.length };
+}
+
+/** The JSON blob an embed page carries: `__NEXT_DATA__`, or a `resource=` attribute. */
+function embedPayload(html: string): unknown {
+  const blobs = [
+    html.match(/<script[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i)?.[1],
+    html.match(/resource="([^"]+)"/)?.[1],
+  ];
+  for (const blob of blobs) {
+    if (!blob) continue;
+    const decoded = decodeEntities(blob).trim();
+    for (const candidate of [decoded, safeDecodeURIComponent(decoded)]) {
+      if (candidate === null) continue;
+      try {
+        return JSON.parse(candidate) as unknown;
+      } catch {
+        // try the next spelling
+      }
+    }
+  }
+  return null;
+}
+
+/** HTML attribute values arrive escaped; the JSON inside them does not expect that. */
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function safeDecodeURIComponent(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+/** The first track list anywhere in an embed payload, with the object holding it. */
+function findTrackList(value: unknown, depth = 0): { owner: Record<string, unknown>; list: unknown[] } | null {
+  if (depth > 12 || !value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ["trackList", "tracklist", "tracks", "items"]) {
+    const list = record[key];
+    if (Array.isArray(list) && list.some((entry) => embedTrack(entry) !== null)) return { owner: record, list };
+  }
+  for (const child of Object.values(record)) {
+    const found = findTrackList(child, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** One entry of an embed track list → Spotify metadata (null for episodes etc.). */
+function embedTrack(raw: unknown): SpotifyTrackMeta | null {
+  if (!raw || typeof raw !== "object") return null;
+  const entry = raw as Record<string, unknown>;
+  const name = textField(entry.title) ?? textField(entry.name);
+  const uri = textField(entry.uri);
+  const id = textField(entry.id) ?? uri?.split(":").filter(Boolean).at(-1) ?? null;
+  if (!name || !id) return null;
+  // A playlist also holds podcast episodes and audiobook chapters: the uri's
+  // scheme (or `type`) is what tells a song apart from those.
+  const kind = textField(entry.type) ?? uri?.split(":")[1] ?? null;
+  if (kind && kind !== "track") return null;
+  return {
+    name,
+    artists: textField(entry.subtitle) ?? "",
+    durationMs: numberField(entry.duration) ?? numberField(entry.duration_ms),
+    url: `https://open.spotify.com/track/${id}`,
+    thumbnail: null,
+  };
+}
+
+function textField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberField(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 let spotifyClient: SpotifyClient | null = null;

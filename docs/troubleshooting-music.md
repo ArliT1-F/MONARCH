@@ -138,6 +138,26 @@ developer.spotify.com). Without them, YouTube links, searches and playlists
 still work; only Spotify links are refused. With them, the track's metadata is
 read from Spotify and matched to YouTube at play time.
 
+### "Spotify wouldn't give me the tracks of …" (playlists)
+
+Spotify changed the Web API in **February 2026**:
+
+- an app may only read the *contents* of playlists it owns itself — every other
+  playlist answers with metadata and no rows (the old endpoint it used to read
+  them from, `/playlists/{id}/tracks`, is gone and answers `403`);
+- the playlist's `tracks` object was renamed to `items`, and each row's payload
+  from `track` to `item` — the old `track` key is still there as a **boolean**,
+  which is what turns every full playlist into "no playable tracks" for readers
+  that trust it;
+- search `limit` is capped at 10.
+
+Monarch reads both spellings, and when Spotify withholds a playlist's rows it
+falls back to the playlist's **public embed page** — the page the iframe player
+renders still lists the first ~100 tracks of any public playlist, no account
+needed. If that fails too (private playlist), `/music play` says why instead of
+claiming the playlist is empty, and a YouTube playlist link always works.
+Single Spotify tracks and albums are unaffected by the ownership rule.
+
 ## 8. Which hosts can run `/music`
 
 Voice is UDP **from the bot's host**. That is the only hard requirement:
