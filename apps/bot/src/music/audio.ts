@@ -167,6 +167,11 @@ export interface TrackEndEvent {
   elapsedMs: number;
   /** Human-readable cause, when `reason` is `failed`. */
   error?: string;
+  /**
+   * The same failure in the downloader's own words (yt-dlp's stderr tail).
+   * Only ever posted to Discord under `/monarch debug on` — see debug.ts.
+   */
+  raw?: string;
 }
 
 export interface VoiceClosedEvent {
@@ -262,6 +267,8 @@ interface GuildSession {
   stopping: boolean;
   /** Set when the track died → the next idle is a "failed". */
   failure: string | null;
+  /** The downloader's own words for {@link failure}, for `/monarch debug on`. */
+  failureDetail: string | null;
   volume: number;
   leaving: boolean;
 }
@@ -348,6 +355,7 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
       ffmpeg: null,
       stopping: false,
       failure: null,
+      failureDetail: null,
       volume: 100,
       leaving: false,
     };
@@ -397,6 +405,7 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
     player.on("error", (error: Error) => {
       log.warn("audio player error", { guildId: session.guildId, error: String(error?.message ?? error).slice(0, 300) });
       session.failure ??= `The audio stream failed (${String(error?.message ?? error).slice(0, 160)}).`;
+      session.failureDetail ??= String((error as Error)?.stack ?? error);
     });
   }
 
@@ -475,6 +484,7 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
     this.killPipeline(session);
     session.stopping = false;
     session.failure = null;
+    session.failureDetail = null;
     session.current = {
       trackId: track.id,
       title: track.title,
@@ -570,6 +580,7 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
       ffmpeg.on("error", (error) => {
         stderr += `\n${String(error)}`;
         session.failure ??= `ffmpeg couldn't start: ${String((error as Error)?.message ?? error).slice(0, 160)}`;
+        session.failureDetail ??= `ffmpeg error: ${String((error as Error)?.stack ?? error)}`;
       });
       ffmpeg.on("close", (code) => {
         if (session.ffmpeg === ffmpeg) session.ffmpeg = null;
@@ -578,6 +589,7 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
         if (code !== 0 && code !== null && !session.stopping && session.current) {
           log.warn("ffmpeg exited early", { guildId: session.guildId, code, stderr: stderrTail(stderr) });
           session.failure ??= "The audio transcoder (ffmpeg) failed on this track.";
+          session.failureDetail ??= `ffmpeg exited with code ${code}\n${stderr.slice(-1_500)}`;
         }
         // ffmpeg is gone: stop yt-dlp writing into a dead pipe.
         if (pipe.alive()) pipe.kill();
@@ -673,11 +685,14 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
     }
     const exit = pipe && !pipe.alive() ? pipe.result() : null;
     let failure = session.failure;
+    let failureDetail = session.failureDetail;
     if (!failure && !stopping && exit && exit.code !== 0) {
       // Killed by us on the way out? Then it is a stop, not a failure.
       failure = exit.signaled && session.leaving ? null : explainYtdlpFailure(exit.stderr);
+      failureDetail ??= [stderrTail(exit.stderr, 20), `yt-dlp exited with code ${exit.code}`].filter(Boolean).join("\n");
     }
     session.failure = null;
+    session.failureDetail = null;
     this.killPipeline(session);
 
     if (stopping) {
@@ -708,7 +723,15 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
     }
     if (failure) {
       log.warn("track failed", { guildId: session.guildId, track: ended.title, error: failure.slice(0, 200) });
-      this.emit("trackEnd", { guildId: session.guildId, trackId: ended.trackId, reason: "failed", elapsedMs, error: failure });
+      const raw = [failureDetail, stderrTail(exit?.stderr ?? "")].filter(Boolean).join("\n");
+      this.emit("trackEnd", {
+        guildId: session.guildId,
+        trackId: ended.trackId,
+        reason: "failed",
+        elapsedMs,
+        error: failure,
+        ...(raw ? { raw } : {}),
+      });
       return;
     }
     this.emit("trackEnd", { guildId: session.guildId, trackId: ended.trackId, reason: "finished", elapsedMs });

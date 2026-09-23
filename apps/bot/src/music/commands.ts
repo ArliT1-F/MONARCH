@@ -208,6 +208,8 @@ export class MusicCommands {
       // Resolver failures are user-facing (bad link, no Spotify credentials,
       // unavailable track): they become a plain reply, not an error log.
       if (e instanceof SourceError) {
+        // `/monarch debug on` pastes the raw resolver error next to the reply.
+        this.manager.reportDebug?.(guildId, e);
         await ctx.reply(`⚠️ ${e.message}`);
         return;
       }

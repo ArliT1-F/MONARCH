@@ -18,6 +18,8 @@ import {
   type TrackEndReason,
 } from "./audio.js";
 import { SourceError, ensurePlayable, isDownloaderFailure, musicLimits } from "./sources.js";
+import { YtdlpError } from "./ytdlp.js";
+import type { DebugReporter } from "../debug.js";
 
 /**
  * The voice layer: one audio session per guild, driven by the pure
@@ -87,8 +89,24 @@ export class MusicManager {
     private readonly announce: Announce,
     private readonly config: MusicManagerConfig = musicManagerConfigFromEnv(),
     private readonly backend: AudioBackend = new DiscordAudioBackend(),
+    /**
+     * Owner-only switch (`/monarch debug on`). Absent in tests and when the
+     * feature is off, which is the safe default: failures stay one tidy line.
+     */
+    private readonly debug?: DebugReporter,
   ) {
     this.wireBackend();
+  }
+
+  /**
+   * Post raw failure detail when the owner turned debugging on. Callers hand
+   * over the original error (or the backend's own words) untouched — the switch
+   * decides whether a soul sees it.
+   */
+  reportDebug(guildId: string, error: unknown): void {
+    if (!this.debug?.enabled()) return;
+    const text = rawFailureDetail(error);
+    if (text) this.debug.post(guildId, text);
   }
 
   // ── session plumbing ──────────────────────────────────────────────
@@ -117,7 +135,7 @@ export class MusicManager {
 
   /** Route the audio backend's events into this manager. Wired once, in the constructor. */
   private wireBackend(): void {
-    this.backend.on("trackEnd", ({ guildId, trackId, reason, elapsedMs, error }) => {
+    this.backend.on("trackEnd", ({ guildId, trackId, reason, elapsedMs, error, raw }) => {
       const s = this.sessions.get(guildId);
       if (!s) return; // torn down; a late event is not our business
       const current = s.queue.nowPlaying();
@@ -135,7 +153,7 @@ export class MusicManager {
         elapsedMs: Math.round(elapsedMs),
         ...(reason === "finished" ? {} : { error: error ?? null }),
       });
-      void this.onTrackEnd(guildId, s, reason, elapsedMs, error);
+      void this.onTrackEnd(guildId, s, reason, elapsedMs, error, raw);
     });
 
     this.backend.on("voiceClosed", ({ guildId, reason }) => {
@@ -163,12 +181,14 @@ export class MusicManager {
     return s.queue.size === 0;
   }
 
-  private announceFailure(guildId: string, reason: string): void {
+  private announceFailure(guildId: string, reason: string, raw?: string): void {
     this.announce(guildId, {
       color: 0xed4245,
       title: "⚠️ Track failed",
       description: reason,
     });
+    // `/monarch debug on` — the same failure, in the downloader's own words.
+    if (raw) this.reportDebug(guildId, raw);
   }
 
   // ── track endings ──────────────────────────────────────────────────
@@ -183,13 +203,17 @@ export class MusicManager {
     reason: TrackEndReason,
     elapsedMs: number,
     error?: string,
+    raw?: string,
   ): Promise<void> {
     const wasSkipping = s.skipping;
     s.skipping = false;
 
     if (reason === "stopped") {
       if (!wasSkipping) return; // teardown already owns this
-      await this.playNext(guildId, "skipped");
+      // A skip drops the track it stopped — only that one, whatever the loop
+      // mode says. `dropCurrent` is what keeps "skip" from ever replaying the
+      // song it was asked to leave.
+      await this.playNext(guildId, "skipped", true);
       return;
     }
 
@@ -202,12 +226,14 @@ export class MusicManager {
         guildId,
         error ??
           `**${finishedTrack?.title ?? "That track"}** couldn't be played — skipping ahead.`,
+        raw,
       );
       if (s.failStreak >= MAX_CONSECUTIVE_FAILURES) {
         await this.giveUp(guildId);
         return;
       }
-      await this.playNext(guildId, "load-failed");
+      // A track that failed is dropped regardless of the loop mode.
+      await this.playNext(guildId, "load-failed", true);
       return;
     }
 
@@ -248,7 +274,7 @@ export class MusicManager {
       log.info("track ended with no current track", { guildId, reason, why: "finished" });
     }
 
-    await this.playNext(guildId, wasSkipping ? "skipped" : "finished");
+    await this.playNext(guildId, wasSkipping ? "skipped" : "finished", wasSkipping);
   }
 
   private async giveUp(guildId: string): Promise<void> {
@@ -267,12 +293,15 @@ export class MusicManager {
    * logs. When the queue runs dry the bot stays connected for a few minutes
    * (IDLE_LEAVE_MS) in case someone queues more, then leaves.
    */
-  private async playNext(guildId: string, why: string): Promise<void> {
+  private async playNext(guildId: string, why: string, dropCurrent = false): Promise<void> {
     const s = this.session(guildId);
     if (s.advancing || s.stopping) return;
     s.advancing = true;
     try {
-      let skipFailed = false;
+      // `skipFailed` (and the caller's `dropCurrent`) discard the track that
+      // was current: a failed one, or the one a user just skipped. Loop modes
+      // never resurrect a track that was explicitly left behind.
+      let skipFailed = dropCurrent;
       while (!s.stopping) {
         const track = s.queue.next(skipFailed);
         s.elector.reset(guildId);
@@ -293,6 +322,16 @@ export class MusicManager {
           if (s.stopping || this.sessions.get(guildId) !== s) return;
           await this.ensureVoice(guildId, s);
           if (s.stopping || this.sessions.get(guildId) !== s) return;
+          if (s.skipping) {
+            // A skip landed while this track was being resolved (a Spotify
+            // match, a slow voice join). Drop this one track and move on — a
+            // skip should never be swallowed, and never take more than the
+            // track it was aimed at.
+            log.info("skip landed while a track was being prepared", { guildId, track: track.title });
+            s.skipping = false;
+            skipFailed = true;
+            continue;
+          }
 
           await this.backend.play(guildId, track);
         } catch (e) {
@@ -305,7 +344,7 @@ export class MusicManager {
               : isDownloaderFailure(e)
                 ? String(e instanceof Error ? e.message : e)
                 : `**${track.title}** couldn't be played.`;
-          this.announceFailure(guildId, message);
+          this.announceFailure(guildId, message, rawFailureDetail(e));
           if (s.failStreak >= MAX_CONSECUTIVE_FAILURES) {
             await this.giveUp(guildId);
             return;
@@ -507,20 +546,35 @@ export class MusicManager {
     return this.sessions.get(guildId)?.paused ?? false;
   }
 
-  /** Force-skip. The vote flow lives in the command handler. */
+  /**
+   * Force-skip. The vote flow lives in the command handler.
+   *
+   * Exactly one track is dropped, whether the track is playing, paused, or
+   * still being prepared:
+   *
+   * - **playing/paused** → the backend stops it and answers with a `stopped`
+   *   end event, which advances the queue;
+   * - **being prepared** (resolving a Spotify match, joining voice) → the
+   *   in-flight `playNext` owns the queue here, so the skip waits for it and
+   *   `playNext` drops that one track once it is resolved — previously the
+   *   skip was swallowed and the track played anyway;
+   * - **nothing live** → advance directly.
+   */
   skip(guildId: string): boolean {
     const s = this.sessions.get(guildId);
     if (!s || !s.queue.nowPlaying()) return false;
     s.elector.reset(guildId);
     s.skipping = true;
-    // The backend answers with a `stopped` end event, which advances the queue.
-    // If the stop somehow doesn't land (no live player), advance directly.
     const playing = s.playing || s.paused;
     this.backend.stop(guildId);
-    if (!playing) {
-      s.skipping = false;
-      void this.playNext(guildId, "skip-no-player");
+    if (playing) return true;
+    if (s.advancing) {
+      // A track is on its way in; the skip is handed to it (see the check
+      // after `ensureVoice` in playNext).
+      return true;
     }
+    s.skipping = false;
+    void this.playNext(guildId, "skip-no-player", true);
     return true;
   }
 
@@ -638,6 +692,20 @@ export class MusicManager {
       this.cancelLeaveTimer(s);
     }
   }
+}
+
+/**
+ * The failure exactly as the downloader (or the runtime) reported it, for
+ * `/monarch debug on`. Never shown without that switch.
+ */
+function rawFailureDetail(error: unknown): string {
+  if (error instanceof YtdlpError) {
+    return [error.message, error.stderr.trim()].filter(Boolean).join("\n\n");
+  }
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+  return String(error ?? "");
 }
 
 // ── embed builders ───────────────────────────────────────────────────

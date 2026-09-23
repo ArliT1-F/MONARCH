@@ -542,6 +542,21 @@ export async function ytdlpJson(
   target: string,
   options: { flat?: boolean; limit?: number; extraArgs?: string[] } = {},
 ): Promise<YtdlpEntry> {
+  return (await ytdlpJsonWithStderr(target, options)).entry;
+}
+
+/**
+ * {@link ytdlpJson} plus the run's stderr.
+ *
+ * Searches need the stderr even on a *successful* exit: yt-dlp logs a failed
+ * search there (`ERROR: query "…" page 1: Unable to download API page: …`) and
+ * still exits 0 with `entries: [null]`, so stdout alone can't tell "the song
+ * doesn't exist" from "we couldn't ask".
+ */
+export async function ytdlpJsonWithStderr(
+  target: string,
+  options: { flat?: boolean; limit?: number; extraArgs?: string[] } = {},
+): Promise<{ entry: YtdlpEntry; stderr: string }> {
   const bin = await resolveYtdlpOrNull();
   if (!bin) {
     throw new YtdlpError(
@@ -578,17 +593,72 @@ export async function ytdlpJson(
 
   try {
     // `-J` prints exactly one JSON document; a trailing newline is normal.
-    return JSON.parse(payload.split("\n").filter(Boolean).pop()!) as YtdlpEntry;
+    const entry = JSON.parse(payload.split("\n").filter(Boolean).pop()!) as YtdlpEntry;
+    return { entry, stderr: result.stderr };
   } catch {
     throw new YtdlpError("The downloader returned something that wasn't valid JSON — its version may be too old.", result.stderr);
   }
 }
 
-/** `ytsearchN:query` — the entries yt-dlp's own YouTube search returned. */
-export async function ytdlpSearch(query: string, limit = 5): Promise<YtdlpEntry[]> {
+/** The search backends yt-dlp accepts as `<key>N:<query>`. */
+export const SEARCH_KEYS = ["ytsearch", "ytmsearch", "scsearch"] as const;
+export type SearchKey = (typeof SEARCH_KEYS)[number];
+
+/** A valid search backend, falling back to plain YouTube search. */
+export function normalizeSearchKey(key: string | null | undefined): SearchKey {
+  const raw = (key ?? "").trim().toLowerCase().replace(/:$/, "");
+  return (SEARCH_KEYS as readonly string[]).includes(raw) ? (raw as SearchKey) : "ytsearch";
+}
+
+/**
+ * The `yt-dlp` target for a search: `<key><count>:<query>`.
+ *
+ * The query is the *bare* phrase — the search key and the count belong to this
+ * one function, because yt-dlp treats everything after the first colon as the
+ * search text. Prefixing it twice (`ytsearch5:ytsearch:…`) makes YouTube search
+ * for the literal words "ytsearch:…", which is how a Spotify match quietly
+ * turned into "that song isn't on YouTube".
+ */
+export function searchTarget(query: string, limit = 5, key: string = "ytsearch"): string {
   const count = Math.min(20, Math.max(1, limit));
-  const result = await ytdlpJson(`ytsearch${count}:${query}`, { flat: true, limit: count });
-  return (result.entries ?? []).filter((entry): entry is YtdlpEntry => Boolean(entry));
+  return `${normalizeSearchKey(key)}${count}:${query}`;
+}
+
+/**
+ * The reason a search yt-dlp itself reports as failed, or null when the search
+ * ran and simply found nothing.
+ *
+ * `yt-dlp -J --flat-playlist` exits 0 even when the search never reached the
+ * source: the JSON says `entries: [null]` and the reason is an `ERROR:` line on
+ * stderr. Reading that as "no match" is how a blocked network, a bot check or
+ * a broken install turned into "the song isn't on YouTube".
+ */
+export function searchFailure(stderr: string): string | null {
+  return /^\s*ERROR:/im.test(stderr) ? explainYtdlpFailure(stderr) : null;
+}
+
+/**
+ * `ytsearchN:query` — the entries yt-dlp's own search returned.
+ *
+ * A search can *fail* while yt-dlp still exits 0: the log line goes to stderr
+ * and the JSON says `entries: [null]`. That is a downloader problem (bot check,
+ * network, blocked IP), not "the song doesn't exist", so the reason is raised
+ * as a {@link YtdlpError} carrying yt-dlp's own words.
+ */
+export async function ytdlpSearch(query: string, limit = 5, key: string = "ytsearch"): Promise<YtdlpEntry[]> {
+  const count = Math.min(20, Math.max(1, limit));
+  const { entry, stderr } = await ytdlpJsonWithStderr(searchTarget(query, count, key), {
+    flat: true,
+    limit: count,
+  });
+  const entries = (entry.entries ?? []).filter((item): item is YtdlpEntry => Boolean(item));
+  const failed = entries.length === 0 ? searchFailure(stderr) : null;
+  if (failed) {
+    // yt-dlp said what went wrong — the user deserves that, not "not found".
+    log.warn("yt-dlp search failed", { target: searchTarget(query, count, key).slice(0, 120), stderr: stderrTail(stderr) });
+    throw new YtdlpError(failed, stderr);
+  }
+  return entries;
 }
 
 /** Expand a playlist URL (capped, so a 5000-video list can't stall the bot). */

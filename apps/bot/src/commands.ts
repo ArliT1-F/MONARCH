@@ -114,6 +114,20 @@ export function monarchCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
         ),
     )
     .addSubcommand((s) => s.setName("burged").setDescription("List who is currently burg'd here"))
+    .addSubcommand((s) =>
+      s
+        .setName("debug")
+        .setDescription("Owner-only: toggle raw error reporting for music failures")
+        .addStringOption((o) =>
+          o
+            .setName("state")
+            .setDescription("on turns raw errors on, off turns them off — omit to see the current state")
+            .addChoices(
+              { name: "On — post raw errors", value: "on" },
+              { name: "Off — one clean line", value: "off" },
+            ),
+        ),
+    )
     .addSubcommandGroup((g) =>
       g
         .setName("confession")

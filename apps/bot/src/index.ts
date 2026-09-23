@@ -32,6 +32,7 @@ import { ConfessionCooldowns, internalConfessionCooldownStore } from "./confessi
 import { MonarchCommands } from "./monarch-commands.js";
 import { MusicCommands, musicCommandJSON } from "./music/commands.js";
 import { MusicManager } from "./music/player.js";
+import { DebugFlags, clampDebugText, type DebugReporter } from "./debug.js";
 import { ensureYtdlp } from "./music/ytdlp.js";
 import { resolveFfmpegPath } from "./music/audio.js";
 import { handlePrefixMessage, type PrefixDispatcherDeps } from "./prefix/dispatch.js";
@@ -121,6 +122,30 @@ const burg = new BurgRegistry((entry) => {
  */
 let music: MusicManager | null = null;
 
+/**
+ * Owner-only debugging (`/monarch debug on`). Off unless the bot's owner asks
+ * for it, and memory-only: a restart puts it back to off. When it is on, raw
+ * failure detail (yt-dlp's stderr, stack traces) is posted next to the
+ * human-readable line in the same channel music announcements go to.
+ */
+const debugFlags = new DebugFlags();
+
+const debugReporter: DebugReporter = {
+  enabled: () => debugFlags.enabled,
+  post: (guildId, text) => {
+    const channelId = music?.announcementChannelId(guildId);
+    if (!channelId) return;
+    void client.channels
+      .fetch(channelId)
+      .then(async (channel) => {
+        if (channel?.isSendable()) {
+          await channel.send({ content: `\`\`\`\n${clampDebugText(text)}\n\`\`\`` });
+        }
+      })
+      .catch((e) => log.warn("debug report failed", { guildId, error: String(e) }));
+  },
+};
+
 function getMusic(): MusicManager {
   music ??= new MusicManager(client, (guildId, embed: APIEmbed, content?: string) => {
     const channelId = music?.announcementChannelId(guildId);
@@ -131,7 +156,7 @@ function getMusic(): MusicManager {
         if (channel?.isSendable()) await channel.send({ embeds: [embed], content });
       })
       .catch((e) => log.warn("music announcement failed", { guildId, error: String(e) }));
-  });
+  }, undefined, undefined, debugReporter);
   return music;
 }
 
@@ -495,6 +520,7 @@ const monarchCommands = new MonarchCommands({
   burgEnabled: () => messageContentEnabled,
   clientId, // for `!invite` — falls back to the bot's own user id below
   ownerUserId,
+  debug: debugFlags,
   log,
 });
 // A bot's user id *is* its application id, so a worker without

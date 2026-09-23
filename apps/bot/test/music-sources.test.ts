@@ -53,6 +53,10 @@ const entry = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+// The mock above spreads the real module, so the pure helpers stay testable.
+import { normalizeSearchKey, searchFailure, searchTarget } from "../src/music/ytdlp.js";
+import { searchLabel } from "../src/music/sources.js";
+
 const requestedBy = "user-1";
 const requestedByName = "User";
 
@@ -251,7 +255,7 @@ describe("search", () => {
 
     const result = await resolveQuery("the song", requestedBy, requestedByName, 250);
 
-    expect(ytdlpSearch).toHaveBeenCalledWith("ytsearch:the song", 5);
+    expect(ytdlpSearch).toHaveBeenCalledWith("the song", 5, "ytsearch");
     expect(result.kind).toBe("search");
     expect(result.tracks[0]!.videoId).toBe("second"); // the live one is skipped
   });
@@ -262,7 +266,7 @@ describe("search", () => {
     const { resolveQuery, searchPrefix } = await sources();
     expect(searchPrefix()).toBe("ytmsearch");
     await resolveQuery("the song", requestedBy, requestedByName, 250);
-    expect(ytdlpSearch).toHaveBeenCalledWith("ytmsearch:the song", 5);
+    expect(ytdlpSearch).toHaveBeenCalledWith("the song", 5, "ytmsearch");
   });
 
   it("ignores a search prefix it doesn't know", async () => {
@@ -281,6 +285,42 @@ describe("search", () => {
     const { resolveQuery } = await sources();
     await expect(resolveQuery("   ", requestedBy, requestedByName, 250)).rejects.toThrow(/Tell me what to play/);
     expect(ytdlpSearch).not.toHaveBeenCalled();
+  });
+});
+
+describe("search targets", () => {
+  it("composes the search key, the count and the phrase exactly once", () => {
+    expect(searchTarget("Never Gonna Give You Up", 5)).toBe("ytsearch5:Never Gonna Give You Up");
+    expect(searchTarget("Never Gonna Give You Up", 5, "ytmsearch")).toBe(
+      "ytmsearch5:Never Gonna Give You Up",
+    );
+    // A doubled key (`ytsearch5:ytsearch:…`) makes YouTube search for the
+    // literal words "ytsearch:…" — that is the bug this pins shut.
+    expect(searchTarget("a song", 5, "ytsearch")).not.toContain("ytsearch:ytsearch");
+    expect(searchTarget("x", 500, "scsearch")).toBe("scsearch20:x"); // clamped
+  });
+
+  it("falls back to a plain YouTube search for a key it doesn't know", () => {
+    expect(normalizeSearchKey("ytsearch:")).toBe("ytsearch");
+    expect(normalizeSearchKey("YTSEARCH")).toBe("ytsearch");
+    expect(normalizeSearchKey("spsearch")).toBe("ytsearch");
+    expect(normalizeSearchKey(null)).toBe("ytsearch");
+  });
+
+  it("calls a search yt-dlp reports as failed a downloader problem, not a missing song", () => {
+    // What a blocked network looks like: exit 0, `entries: [null]`, the reason
+    // on stderr only.
+    const stderr =
+      'ERROR: [youtube:search] query "the song": Unable to download API page: TLS/SSL connection has been closed (EOF) (_ssl.c:992)';
+    expect(searchFailure(stderr)).toMatch(/couldn't reach the source/);
+    expect(searchFailure("")).toBeNull();
+    expect(searchFailure("[youtube] Downloading 1 format(s)")).toBeNull();
+  });
+
+  it("names the backend it actually searched", () => {
+    expect(searchLabel("ytsearch")).toBe("YouTube");
+    expect(searchLabel("ytmsearch")).toBe("YouTube Music");
+    expect(searchLabel("scsearch")).toBe("SoundCloud");
   });
 });
 
@@ -323,7 +363,7 @@ describe("other sources yt-dlp can load", () => {
 
     const result = await resolveQuery("https://example.com/mystery", requestedBy, requestedByName, 250);
 
-    expect(ytdlpSearch).toHaveBeenCalledWith("ytsearch:https://example.com/mystery", 5);
+    expect(ytdlpSearch).toHaveBeenCalledWith("https://example.com/mystery", 5, "ytsearch");
     expect(result.tracks[0]!.videoId).toBe("searched");
   });
 });
@@ -356,7 +396,7 @@ describe("Spotify", () => {
 
     ytdlpSearch.mockResolvedValue([entry({ id: "matched", duration: 250 })]);
     const playable = await ensurePlayable(result.tracks[0]!);
-    expect(ytdlpSearch).toHaveBeenCalledWith("ytsearch:Muharrem Ahmeti – Viti Ri Gon Kalaja", 5);
+    expect(ytdlpSearch).toHaveBeenCalledWith("Muharrem Ahmeti – Viti Ri Gon Kalaja", 5, "ytsearch");
     expect(playable.sourceUrl).toBe("https://www.youtube.com/watch?v=matched");
     expect(playable.videoId).toBe("matched");
     // The user-facing link stays the Spotify one; only the audio is YouTube's.
@@ -373,6 +413,17 @@ describe("Spotify", () => {
     expect(playable.durationMs).toBe(253_000); // Spotify's, not the downloader's unknown
     expect(playable.thumbnail).toBe("https://i.scdn.co/large.jpg");
     expect(playable.title).toBe("Muharrem Ahmeti – Viti Ri Gon Kalaja");
+  });
+
+  it("says what it searched when every match was unplayable", async () => {
+    stubSpotify({ "/tracks/abc123abc123abc1": spotifyTrackPayload });
+    const { resolveQuery, ensurePlayable } = await sources();
+    const result = await resolveQuery("spotify:track:abc123abc123abc1", requestedBy, requestedByName, 250);
+
+    ytdlpSearch.mockResolvedValue([]); // the search worked; nothing was playable
+    await expect(ensurePlayable(result.tracks[0]!)).rejects.toThrow(
+      /isn't on YouTube in a form I can play — I searched for “Muharrem Ahmeti – Viti Ri Gon Kalaja”/,
+    );
   });
 
   it("refuses to replay a track with nothing to play", async () => {

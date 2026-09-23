@@ -87,6 +87,7 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   | `/monarch embed` · `/monarch test` | Embed Builder link · test/publish the saved design | Manage Server / Admin |
   | `/burg @user [duration] [style] [reason]` | Delete everything the user posts and re-post it as cute uwu/owo text under their name and avatar. Run it again with no options to turn it off (or with options to update the timer/style); styles include random, soft, cat and chaotic | Administrator or Kick Members |
   | `/monarch burged` | List burg'd members | Administrator or Kick Members |
+  | `/monarch debug on\|off` | **Owner only** (`MONARCH_OWNER_USER_ID`): post the raw error (yt-dlp stderr, stack traces) next to every music failure after `on`, back to one clean line after `off` | the bot's owner |
   | `/monarch confession setup [channel] [logs]` | Set up the anonymous confession channel (and optional staff log channel) and post the starter confession. `/monarch confession disable` switches it off. Anyone can confess from the **Confess** button on any confession — one per person every 6 hours, across every server (Manage Server / Admin skip the wait) | Manage Server / Admin (confessing: everyone) |
   | `/music play <link or search>` | Play/queue YouTube & Spotify tracks, playlists and albums | everyone in voice |
   | `/music pause` · `/music resume` · `/music stop` | Pause · resume · stop + clear + leave | everyone in the bot's channel |
@@ -103,6 +104,7 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   | `!dashboard` · `!status` · `!prefix [set <new>\|reset]` · `!invite` (`!add`) | `/monarch dashboard` · `status` · `prefix` · `invite` |
   | `!backup [name]` · `!export` · `!embed` · `!test embed [publish] [#channel]` | `/monarch backup` · `export` · `embed` · `test` |
   | `!burg @user [duration] [style] [reason]` · `!burged` | `/burg` · `/monarch burged` |
+  | `!debug on` · `!debug off` (owner only) | `/monarch debug` |
   | `!confession setup [#channel] [#logs]` · `!confession disable` | `/monarch confession setup` · `disable` |
   | `!play <link or search>` (`!p`) · `!skip` · `!queue [page]` (`!q`) · `!np` | `/music play` · `skip` · `queue` · `nowplaying` |
   | `!pause` · `!resume` · `!stop` (`!leave`) · `!volume [0-150]` · `!loop [off\|track\|queue]` | `/music pause` · `resume` · `stop` · `volume` · `loop` |

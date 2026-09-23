@@ -219,6 +219,29 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     notes: ["Needs INTERNAL_API_TOKEN set in both the dashboard and the bot."],
   },
   {
+    name: "/monarch debug",
+    usage: "/monarch debug [state]",
+    prefixUsage: "!monarch debug [state]",
+    prefixAliases: ["debug"],
+    group: "general",
+    summary: "Owner-only: toggle raw error reporting for music failures.",
+    who: "the Monarch application owner (MONARCH_OWNER_USER_ID)",
+    details:
+      "A switch only the bot's owner can flip. With debugging **on**, every music failure is followed by the raw error — the downloader's own words (yt-dlp stderr), the exit code, the stack trace — posted in the same channel as the tidied-up message. With it **off** (the default) failures stay one human-readable line. The state is kept in memory: a bot restart puts it back to off, so a forgotten switch can never leave raw internals in a server forever. Everyone else gets the same refusal, and never learns whether the switch is on.",
+    args: [
+      {
+        name: "state",
+        description: "`on` or `off` — omit to see the current state.",
+        required: false,
+      },
+    ],
+    examples: ["/monarch debug on", "/monarch debug off", "!debug on", "!debug"],
+    notes: [
+      "Only the user id in `MONARCH_OWNER_USER_ID` can use it; without that variable set the command refuses everyone.",
+      "Debug output is raw by design — it can include URLs, cookies names and stack traces. Turn it off when you're done.",
+    ],
+  },
+  {
     name: "/monarch burged",
     usage: "/monarch burged",
   prefixUsage: "!monarch burged",

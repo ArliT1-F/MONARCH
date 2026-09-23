@@ -14,6 +14,7 @@ import type { CommandContext } from "./context.js";
 import { confessButtonRow, starterEmbed, type ConfessionRegistry } from "./confession.js";
 import { formatDuration, parseDuration } from "./durations.js";
 import type { PrefixRegistry } from "./prefix/registry.js";
+import type { DebugFlags } from "./debug.js";
 
 /**
  * The `/monarch` command family, written once against {@link CommandContext}
@@ -47,6 +48,13 @@ export interface MonarchCommandDeps {
   clientId?: string | null;
   /** Discord user id of the person who owns the Monarch application. */
   ownerUserId?: string | null;
+  /**
+   * Owner-only `/monarch debug on|off` switch: while it is on, raw failure
+   * detail is posted alongside the human-readable one. Optional — without it
+   * (or without {@link MonarchCommandDeps.ownerUserId}) the subcommand
+   * explains that it is not available.
+   */
+  debug?: DebugFlags;
   botUserId?: () => string | null;
   log: {
     info: (msg: string, meta?: Record<string, unknown>) => void;
@@ -69,6 +77,7 @@ export const MONARCH_SUBCOMMANDS = [
   "test",
   "burged",
   "confession",
+  "debug",
 ] as const;
 
 export type MonarchSubcommand = (typeof MONARCH_SUBCOMMANDS)[number];
@@ -227,11 +236,72 @@ export class MonarchCommands {
         return this.burged(ctx);
       case "confession":
         return this.confession(ctx);
+      case "debug":
+        return this.debug(ctx);
       default:
         await ctx.replyHidden(
           `❓ I don't know \`${sub}\`. Try \`${ctx.commandPrefix}help\` or \`/monarch help\` for the full list.`,
         );
     }
+  }
+
+  // ── owner-only tooling ─────────────────────────────────────────────
+
+  /**
+   * `/monarch debug [state]` — the owner's switch for raw failure detail.
+   *
+   * Gated on `MONARCH_OWNER_USER_ID`: anyone else gets the same answer no
+   * matter what they type, and never learns whether the switch is on. When it
+   * is on, the music player posts the downloader's own words next to every
+   * failure it announces (see {@link MusicManager.reportDebug}).
+   */
+  private async debug(ctx: CommandContext): Promise<void> {
+    const owner = this.deps.ownerUserId?.trim();
+    if (!owner || ctx.user.id !== owner) {
+      this.deps.log.warn("debug command refused", { userId: ctx.user.id, guildId: ctx.guildId });
+      await ctx.replyHidden("🔒 That command is reserved for the bot's owner.");
+      return;
+    }
+
+    const flags = this.deps.debug;
+    if (!flags) {
+      await ctx.replyHidden("🐞 Debugging isn't wired up on this worker.");
+      return;
+    }
+
+    const asked = (ctx.args[0] ?? ctx.getStringOption("state") ?? "").trim().toLowerCase();
+    const on = ["on", "enable", "enabled", "true", "1", "yes"].includes(asked);
+    const off = ["off", "disable", "disabled", "false", "0", "no"].includes(asked);
+
+    if (on || off) {
+      const state = flags.set(on);
+      this.deps.log.info("debug mode changed", { userId: ctx.user.id, enabled: state });
+      await ctx.replyHidden(
+        state
+          ? "🐞 **Debug on.** Raw errors (the downloader's own words) will be posted next to every failure. " +
+              "Turn it off with `/monarch debug off`."
+          : "🐞 **Debug off.** Failures go back to one tidy line.",
+      );
+      return;
+    }
+
+    if (asked.length > 0 && !on && !off) {
+      await ctx.replyHidden(
+        `❓ \`${asked}\` isn't a state I know. Use \`/monarch debug on\` or \`/monarch debug off\` ` +
+          `(\`${ctx.commandPrefix}debug on\` works too).`,
+      );
+      return;
+    }
+
+    await ctx.replyHidden(
+      [
+        `🐞 **Debug is ${flags.enabled ? "on" : "off"}.**`,
+        "• `on` — post the raw error (yt-dlp's stderr, stack traces) next to every music failure.",
+        "• `off` — failures stay one human-readable line, which is the default.",
+        `• Turn it on with \`/monarch debug on\` or \`${ctx.commandPrefix}debug on\`.`,
+        "• Only the bot's owner can use this, and a restart puts it back to off.",
+      ].join("\n"),
+    );
   }
 
   // ── general ────────────────────────────────────────────────────────
