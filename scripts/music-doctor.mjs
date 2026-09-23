@@ -108,8 +108,17 @@ if (!ffmpegBin) {
 }
 
 // ── 3. the voice stack ───────────────────────────────────────────────────────
+let voiceLoaded = false;
+let opusReady = false;
 try {
-  const voice = await import("@discordjs/voice");
+  let voice;
+  try {
+    voice = await import("@discordjs/voice");
+  } catch {
+    const botRequire = createRequire(path.join(root, "apps", "bot", "package.json"));
+    voice = await import(botRequire.resolve("@discordjs/voice"));
+  }
+  voiceLoaded = true;
   const report = voice.generateDependencyReport();
   const field = (name) => new RegExp(`^- ${name.replace(/[/@.\-]/g, "\\$&")}: (.+)$`, "m").exec(report)?.[1]?.trim() ?? null;
   const opus = field("opusscript");
@@ -117,9 +126,13 @@ try {
   const dave = field("@snazzah/davey");
   const aes = field("native crypto support for aes-256-gcm");
 
-  if (native && native !== "not found") ok(`Opus encoder: @discordjs/opus ${native} (native, fastest)`);
-  else if (opus && opus !== "not found") ok(`Opus encoder: opusscript ${opus} (pure JS — fine, but native is faster)`);
-  else {
+  if (native && native !== "not found") {
+    opusReady = true;
+    ok(`Opus encoder: @discordjs/opus ${native} (native, fastest)`);
+  } else if (opus && opus !== "not found") {
+    opusReady = true;
+    ok(`Opus encoder: opusscript ${opus} (pure JS — fine, but native is faster)`);
+  } else {
     bad("no Opus encoder: PCM playback (and therefore volume) is unavailable");
     info("fix: npm install opusscript      # no compiler needed");
   }
@@ -139,8 +152,15 @@ try {
 
 // ── 4. the pipeline this machine will use ────────────────────────────────────
 if (ytdlpBin) {
-  const mode = ffmpegBin ? "yt-dlp → ffmpeg → Opus (volume ✓, all sources)" : "yt-dlp → Opus passthrough (no volume)";
-  ok(`pipeline: ${mode}`);
+  if (!voiceLoaded) {
+    bad("pipeline: voice connection unavailable until @discordjs/voice is installed");
+  } else if (ffmpegBin && opusReady) {
+    ok("pipeline: yt-dlp → ffmpeg → Opus (volume ✓, all sources)");
+  } else if (ffmpegBin && !opusReady) {
+    ok("pipeline: yt-dlp → Opus passthrough (no Opus encoder — volume unavailable)");
+  } else {
+    ok("pipeline: yt-dlp → Opus passthrough (no ffmpeg — volume unavailable)");
+  }
 }
 
 // ── 5. throttling defences ───────────────────────────────────────────────────
