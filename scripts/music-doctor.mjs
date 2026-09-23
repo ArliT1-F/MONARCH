@@ -108,17 +108,15 @@ if (!ffmpegBin) {
 }
 
 // ── 3. the voice stack ───────────────────────────────────────────────────────
-let voiceLoaded = false;
+let voice = null;
 let opusReady = false;
 try {
-  let voice;
   try {
     voice = await import("@discordjs/voice");
   } catch {
     const botRequire = createRequire(path.join(root, "apps", "bot", "package.json"));
     voice = await import(botRequire.resolve("@discordjs/voice"));
   }
-  voiceLoaded = true;
   const report = voice.generateDependencyReport();
   const field = (name) => new RegExp(`^- ${name.replace(/[/@.\-]/g, "\\$&")}: (.+)$`, "m").exec(report)?.[1]?.trim() ?? null;
   const opus = field("opusscript");
@@ -152,7 +150,7 @@ try {
 
 // ── 4. the pipeline this machine will use ────────────────────────────────────
 if (ytdlpBin) {
-  if (!voiceLoaded) {
+  if (!voice) {
     bad("pipeline: voice connection unavailable until @discordjs/voice is installed");
   } else if (ffmpegBin && opusReady) {
     ok("pipeline: yt-dlp → ffmpeg → Opus (volume ✓, all sources)");
