@@ -31,3 +31,7 @@ coverage/
 
 # prisma generated client (npm run db:generate / postinstall)
 apps/dashboard/lib/generated/
+
+# images for the `!era zhvishu` easter egg — personal, never commit these
+/era_img/*
+!/era_img/README.md

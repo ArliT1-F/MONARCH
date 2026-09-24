@@ -1,4 +1,5 @@
 import type { Message } from "discord.js";
+import { runEra } from "../era.js";
 import type { MonarchCommands } from "../monarch-commands.js";
 import { canReplyIn, PrefixCommandContext } from "./context.js";
 import { extractPrefixCommand, matchCommand, type PrefixInvocation } from "./parse.js";
@@ -109,11 +110,12 @@ export async function handlePrefixMessage(
       error: String(e),
     });
     if (!ctx.answered) {
-      await ctx
-        .replyHidden(
-          `❌ Something went wrong running that command — try again, or use the slash version (\`/${match.kind === "command" ? match.surface : "monarch"}\`).`,
-        )
-        .catch(() => {});
+      // `era` has no slash counterpart — it's a prefix-only easter egg.
+      const hint =
+        match.kind === "command" && match.surface !== "era"
+          ? ` — try again, or use the slash version (\`/${match.surface}\`)`
+          : " — try again";
+      await ctx.replyHidden(`❌ Something went wrong running that command${hint}.`).catch(() => {});
     }
     return true;
   }
@@ -137,6 +139,9 @@ async function runCommand(
       return;
     case "music":
       await deps.music().run(ctx, match.sub);
+      return;
+    case "era":
+      await runEra(ctx, match.sub);
       return;
   }
 }

@@ -34,6 +34,8 @@ export type PrefixMatch =
   | { kind: "command"; surface: "monarch"; sub: string; args: string[]; viaMention: boolean }
   | { kind: "command"; surface: "burg"; args: string[]; viaMention: boolean }
   | { kind: "command"; surface: "music"; sub: string; args: string[]; viaMention: boolean }
+  /** `!era zhvishu` — an unlisted easter egg, not part of the documented catalog. */
+  | { kind: "command"; surface: "era"; sub: string; args: string[]; viaMention: boolean }
   /**
    * The prefix (or a bare mention) with nothing after it. Only mentions get
    * an answer — a lone `!` in a busy channel must stay silent.
@@ -77,7 +79,7 @@ export const MONARCH_PREFIX_ALIASES: Readonly<Record<string, readonly string[]>>
 };
 
 /** Roots that mean "the next word is a subcommand". */
-const GROUP_ROOTS = new Set(["monarch", "music"]);
+const GROUP_ROOTS = new Set(["monarch", "music", "era"]);
 
 /** Every short alias, used to tell command words from arguments. */
 const ALIAS_WORDS = new Set<string>([
@@ -248,9 +250,11 @@ export function matchCommand(invocation: PrefixInvocation): PrefixMatch {
   if (GROUP_ROOTS.has(head!)) {
     if (!second) return { kind: "unknown", token: head!, viaMention };
     const rest = args;
-    return head === "music"
-      ? { kind: "command", surface: "music", sub: second, args: rest, viaMention }
-      : { kind: "command", surface: "monarch", sub: second, args: rest, viaMention };
+    if (head === "music")
+      return { kind: "command", surface: "music", sub: second, args: rest, viaMention };
+    if (head === "era")
+      return { kind: "command", surface: "era", sub: second, args: rest, viaMention };
+    return { kind: "command", surface: "monarch", sub: second, args: rest, viaMention };
   }
 
   // Short aliases. `prefix` and `burg` are their own words; everything else

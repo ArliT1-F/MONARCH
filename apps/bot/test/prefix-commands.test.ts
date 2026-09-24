@@ -258,6 +258,21 @@ describe("dispatch: what counts as a command", () => {
     expect(text(message)).toContain("!help");
   });
 
+  it("routes !era zhvishu all the way to the easter egg handler", async () => {
+    // No fixture images checked into the repo's era_img/ (see its README), so
+    // this exercises the real routing end to end and lands on the "nothing
+    // to post yet" reply rather than a crash or a silent no-op.
+    const message = fakeMessage({ content: "!era zhvishu" });
+    expect(await handlePrefixMessage(message, deps)).toBe(true);
+    expect(text(message)).toContain("era_img");
+  });
+
+  it("treats any other era subcommand as not-a-thing instead of crashing", async () => {
+    const message = fakeMessage({ content: "!era wave" });
+    expect(await handlePrefixMessage(message, deps)).toBe(true);
+    expect(text(message)).toContain("era zhvishu");
+  });
+
   it("does nothing at all when the Message Content intent is off", async () => {
     setup({ enabled: false });
     const message = fakeMessage({ content: "!help" });

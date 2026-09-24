@@ -95,7 +95,10 @@ export class SlashCommandContext implements CommandContext {
 
   async attach(content: string, files: CommandFile[]): Promise<unknown> {
     const attachments = files.map(
-      (file) => new AttachmentBuilder(Buffer.from(file.body, "utf8"), { name: file.name }),
+      (file) =>
+        new AttachmentBuilder(Buffer.from(file.body, file.encoding ?? "utf8"), {
+          name: file.name,
+        }),
     );
     if (this.deferred || this.interaction.deferred || this.interaction.replied) {
       this.responded = true;

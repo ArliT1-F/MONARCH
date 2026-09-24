@@ -114,8 +114,10 @@ export interface CommandContext {
 /** A file to attach to a reply — the surface turns it into an AttachmentBuilder. */
 export interface CommandFile {
   name: string;
-  /** Serialized body; handlers build JSON/text, never raw Discord payloads. */
+  /** Serialized body; handlers build JSON/text/base64, never raw Discord payloads. */
   body: string;
+  /** How `body` is encoded. Defaults to `"utf8"` (JSON/text exports). */
+  encoding?: "utf8" | "base64";
 }
 
 export interface ReplyOptions {

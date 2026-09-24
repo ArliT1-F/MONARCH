@@ -211,6 +211,17 @@ describe("matchCommand", () => {
     expect(match(">>help", [">>"])).toMatchObject({ surface: "monarch", sub: "help" });
   });
 
+  it("routes the era easter egg like any other group root", () => {
+    expect(match("!era zhvishu")).toMatchObject({
+      kind: "command",
+      surface: "era",
+      sub: "zhvishu",
+      args: [],
+    });
+    // A bare root still answers (the handler is what says "not a thing").
+    expect(match("!era")).toEqual({ kind: "unknown", token: "era", viaMention: false });
+  });
+
   it("silently ignores unknown !words — other bots' prefixes are not ours", () => {
     expect(match("!ban @user")).toEqual({ kind: "ignore" });
     expect(match("!ping")).toEqual({ kind: "ignore" });
@@ -230,6 +241,7 @@ describe("matchCommand", () => {
     expect(match(`<@${BOT_ID}>`)).toEqual({ kind: "bare", viaMention: true });
     expect(match("!monarch")).toEqual({ kind: "unknown", token: "monarch", viaMention: false });
     expect(match("!music")).toEqual({ kind: "unknown", token: "music", viaMention: false });
+    expect(match("!era")).toEqual({ kind: "unknown", token: "era", viaMention: false });
   });
 });
 

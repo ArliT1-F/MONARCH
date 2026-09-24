@@ -144,7 +144,10 @@ export class PrefixCommandContext implements CommandContext {
     return this.channel.send({
       content,
       files: files.map(
-        (file) => new AttachmentBuilder(Buffer.from(file.body, "utf8"), { name: file.name }),
+        (file) =>
+          new AttachmentBuilder(Buffer.from(file.body, file.encoding ?? "utf8"), {
+            name: file.name,
+          }),
       ),
       allowedMentions: allowedMentionsFor(),
     });
