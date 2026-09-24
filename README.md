@@ -74,7 +74,9 @@ setup [channel] [logs]` posts a starter confession with a **Confess**
   the default `!` and an @Monarch mention always keep working), and unknown
   `!words` are ignored so other bots' prefixes stay theirs
 - 🤖 Slash commands (the full manual lives at **Help → Commands & Help** in
-  the dashboard; `/monarch help` shows the short version):
+  the dashboard; `/monarch help` shows the short version). That command is
+  also the bot's Discord status, so it sits under Monarch's name in the
+  member list (`!help` does the same thing):
 
   | Command                                                                                                               | What it does                                                                                                                                                                                                                                                                                                        | Who                                          |
   | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |

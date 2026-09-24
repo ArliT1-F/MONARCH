@@ -1,5 +1,5 @@
 import type { Message } from "discord.js";
-import { runEra } from "../era.js";
+import { runEra, type EraContext, type EraOutgoing } from "../era.js";
 import type { MonarchCommands } from "../monarch-commands.js";
 import { canReplyIn, PrefixCommandContext } from "./context.js";
 import { extractPrefixCommand, matchCommand, type PrefixInvocation } from "./parse.js";
@@ -30,6 +30,14 @@ export interface PrefixDispatcherDeps {
   botUserId: () => string | null;
   /** False when the Message Content intent is off (prefix commands need it). */
   enabled: () => boolean;
+  /**
+   * Hidden `!era` commands. Not part of the help catalog — the handler
+   * stays silent unless the invoker is the server owner or the bot owner.
+   */
+  era: {
+    botOwnerId: () => string | null;
+    postAsPersona: (message: Message<true>, posts: EraOutgoing[]) => Promise<void>;
+  };
   log: {
     info: (msg: string, meta?: Record<string, unknown>) => void;
     warn: (msg: string, meta?: Record<string, unknown>) => void;
@@ -91,10 +99,16 @@ export async function handlePrefixMessage(
         await ctx.replyHidden(greeting(prefix));
         return true;
       case "unknown":
+        // Bare `!era` is the hidden root. Don't tell the channel it "isn't a
+        // command" — owners get a private hint, everyone else gets silence.
+        if (match.token === "era") {
+          await runEra(eraContext(ctx, message, deps), "");
+          return true;
+        }
         await ctx.replyHidden(unknownCommand(match.token, prefix));
         return true;
       case "command":
-        await runCommand(match, ctx, deps, botUserId);
+        await runCommand(match, ctx, deps, botUserId, message);
         return true;
       default:
         return false;
@@ -126,6 +140,7 @@ async function runCommand(
   ctx: PrefixCommandContext,
   deps: PrefixDispatcherDeps,
   botUserId: string | null,
+  message: Message<true>,
 ): Promise<void> {
   switch (match.surface) {
     case "monarch":
@@ -141,9 +156,49 @@ async function runCommand(
       await deps.music().run(ctx, match.sub);
       return;
     case "era":
-      await runEra(ctx, match.sub);
+      await runEra(eraContext(ctx, message, deps), match.sub);
       return;
   }
+}
+
+function eraContext(
+  ctx: PrefixCommandContext,
+  message: Message<true>,
+  deps: PrefixDispatcherDeps,
+): EraContext {
+  return {
+    commandPrefix: ctx.commandPrefix,
+    userId: ctx.user.id,
+    guildId: ctx.guildId,
+    guildOwnerId: ctx.guild.ownerId || null,
+    botOwnerId: deps.era.botOwnerId(),
+    rawContent: ctx.invocation.content,
+    args: ctx.args,
+    log: deps.log,
+    replyPrivate: (content) => replyPrivate(message, ctx, content),
+    postAsPersona: (posts) => deps.era.postAsPersona(message, posts),
+  };
+}
+
+/**
+ * Owner-only era replies. A DM keeps the hidden list out of the channel;
+ * closed DMs fall back to the channel, which is the only place left to say it.
+ */
+async function replyPrivate(
+  message: Message<true>,
+  ctx: PrefixCommandContext,
+  content: string,
+): Promise<void> {
+  const author = message.author as { send?: (payload: unknown) => Promise<unknown> };
+  if (typeof author.send === "function") {
+    try {
+      await author.send({ content, allowedMentions: { parse: [] } });
+      return;
+    } catch {
+      // DMs closed — the channel is the fallback, not a second copy.
+    }
+  }
+  await ctx.replyHidden(content);
 }
 
 /** "@Monarch" with nothing after it — point at help instead of staying mute. */

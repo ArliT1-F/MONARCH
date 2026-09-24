@@ -449,6 +449,11 @@ This is the cheat sheet for "where do I make change X".
   `MusicManager`, `onMessage` (1. prefix dispatch → 2. burg relay) and
   `onInteraction`. All command bodies live in `monarch-commands.ts` /
   `music/commands.ts` and are shared by both surfaces.
+  **Discord status** is the help command (`/monarch help`), set in
+  `presence.ts` and passed as `Client` `presence` (identify) plus
+  `user.setPresence` on ready — a custom status, so the member list shows
+  the command itself rather than "Playing …". The intent fallback builds a
+  new client, so it has to go through `createClient` to keep the status.
   **Graceful shutdown:** SIGTERM/SIGINT → log → `client.destroy()` → `exit(0)`.
   **Idempotent, never throws on `destroy()`.** `unhandledRejection` logged
   not fatal. Slash-command registration is non-fatal (transient Discord
@@ -456,6 +461,13 @@ This is the cheat sheet for "where do I make change X".
   - **CMD in Dockerfile: `node --import tsx apps/bot/src/index.ts`** so the
     bot is PID 1 and gets SIGTERM directly. `npm run start` absorbs the
     signal — never use that as the container entrypoint.
+- `era.ts` + `era-relay.ts` — hidden `!era` (not in the command catalog, so
+  help cannot list it). Server owner or `MONARCH_OWNER_USER_ID` only;
+  everyone else is silence. `!era zhvishu` posts via the shared `Monarch Burg`
+  webhook as user `1484616497568550985` (name + avatar): one random saved
+  line (`<message> @invoker`), then a random image from `era_img/`. Lines are
+  per server in `era_img/messages.json` (`!era add` / `messages` / `remove`);
+  `!era photos` lists the folder. Owner replies are DMed.
 - `commands.ts` — `monarchCommandJSON()` is the single source of truth
   (worker + `register-commands` script). `COMMAND_HELP` manifest rendered
   for `/monarch help`; **a test enforces the help is in sync with
@@ -1036,6 +1048,8 @@ needed.
 | Add a new content rule                                    | `packages/validation/src/content-rules.ts`                                                                                                                                                             |
 | Change OAuth token encryption                             | `apps/dashboard/lib/secure-token.ts` (remember rotating `SESSION_SECRET` invalidates everything)                                                                                                       |
 | Change the bot's graceful-shutdown behaviour              | `apps/bot/src/index.ts` `shutdown()`                                                                                                                                                                   |
+| Change the bot's Discord status                           | `apps/bot/src/presence.ts` (`BOT_STATUS_TEXT`) — wired in `createClient`                                                                                                                               |
+| Change the hidden `!era` commands                         | `apps/bot/src/era.ts` + `era-relay.ts` — do **not** add them to the help catalog                                                                                                                       |
 | Change the mobile/desktop layout                          | `apps/dashboard/components/nav/GuildShell.tsx` and individual page components                                                                                                                          |
 | Add a guild setting                                       | `prisma/schema.prisma` + migration, `lib/prisma-store.ts` mappers, `lib/store.ts` interface, `lib/file-backed-store.ts` (or whatever the file store is)                                                |
 | Add a bot-to-dashboard route                              | `app/api/internal/guilds/[guildId]/<name>/route.ts` + `assertInternalAuth` first                                                                                                                       |
