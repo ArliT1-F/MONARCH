@@ -218,7 +218,20 @@ describe("matchCommand", () => {
       sub: "zhvishu",
       args: [],
     });
-    // A bare root still answers (the handler is what says "not a thing").
+    // The words after `add` stay arguments, original casing included.
+    expect(match("!era add Hello there")).toMatchObject({
+      surface: "era",
+      sub: "add",
+      args: ["Hello", "there"],
+    });
+    expect(match("!era messages")).toMatchObject({ surface: "era", sub: "messages", args: [] });
+    expect(match("!era photos")).toMatchObject({ surface: "era", sub: "photos", args: [] });
+    expect(match("!era remove 2")).toMatchObject({
+      surface: "era",
+      sub: "remove",
+      args: ["2"],
+    });
+    // A bare root is still "unknown" here — the dispatcher decides who hears it.
     expect(match("!era")).toEqual({ kind: "unknown", token: "era", viaMention: false });
   });
 

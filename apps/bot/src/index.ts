@@ -37,6 +37,8 @@ import { ensureYtdlp } from "./music/ytdlp.js";
 import { resolveFfmpegPath } from "./music/audio.js";
 import { handlePrefixMessage, type PrefixDispatcherDeps } from "./prefix/dispatch.js";
 import { internalPrefixStore, PrefixRegistry } from "./prefix/registry.js";
+import { postAsEraPersona, resolveEraPersona } from "./era-relay.js";
+import { applyHelpStatus, BOT_STATUS_TEXT, helpCommandPresence } from "./presence.js";
 import { SlashCommandContext } from "./slash-context.js";
 
 /**
@@ -204,14 +206,23 @@ async function checkMusicReady(): Promise<void> {
 }
 
 function createClient(intents: number[]): Client {
-  const c = new Client({ intents });
+  // Presence rides the identify payload, so the status is the help command
+  // the moment the gateway session opens — including after a reconnect.
+  const c = new Client({ intents, presence: helpCommandPresence() });
   c.once(Events.ClientReady, (ready) => {
+    // Identify carries the presence, but a custom status set only there is
+    // dropped by some gateway sessions. Setting it again once the user
+    // exists is what actually sticks. A failure here must not skip the
+    // ready log or the music warmup.
+    const statusSet = applyHelpStatus(ready.user);
+    if (!statusSet) log.warn("could not set help-command status");
     log.info("bot ready", {
       user: ready.user.tag,
       // Which machine/container this is: two workers sharing one token each
       // log a ready line, and the hostname tells them apart.
       instance: os.hostname(),
       guilds: ready.guilds.cache.size,
+      status: BOT_STATUS_TEXT,
       burg: messageContentEnabled,
       // The same flag gates the relay and text commands: both need to read
       // other people's message content.
@@ -550,6 +561,14 @@ const prefixDeps: PrefixDispatcherDeps = {
   music: () => getMusicCommands(),
   botUserId: () => client.user?.id ?? null,
   enabled: () => messageContentEnabled, // MessageContent intent → text commands at all
+  era: {
+    botOwnerId: () => ownerUserId,
+    postAsPersona: (message, posts) =>
+      postAsEraPersona(message, posts, {
+        botUserId: client.user?.id ?? null,
+        resolvePersona: () => resolveEraPersona(message.guild, (id) => client.users.fetch(id)),
+      }),
+  },
   log,
 };
 

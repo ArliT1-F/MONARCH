@@ -1,4 +1,6 @@
+import { Client } from "discord.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { helpCommandPresence } from "../src/presence.js";
 
 /**
  * The bot entry point runs its startup sequence at import time, so every test
@@ -30,6 +32,7 @@ vi.mock("discord.js", () => {
       on: mocks.clientOn,
       once: mocks.clientOnce,
     })),
+    ActivityType: { Custom: 4, Playing: 0, Watching: 3, Listening: 2 },
     Events: {
       ClientReady: "ready",
       InteractionCreate: "interactionCreate",
@@ -220,6 +223,24 @@ describe("bot startup", () => {
       lines.filter((l) => typeof l.msg === "string" && l.msg.includes("MONARCH_OWNER_USER_ID")),
     ).toHaveLength(0);
     expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it("comes online with the help command as its Discord status", async () => {
+    vi.mocked(Client).mockClear();
+    await boot();
+
+    expect(Client).toHaveBeenCalledWith(
+      expect.objectContaining({ presence: helpCommandPresence() }),
+    );
+    // The intent fallback builds a second client; that one carries it too.
+    const err = Object.assign(new Error("Used disallowed intents"), { code: "DisallowedIntents" });
+    mocks.login.mockRejectedValueOnce(err).mockResolvedValue("test-token");
+    vi.mocked(Client).mockClear();
+    await boot();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(Client).toHaveBeenLastCalledWith(
+      expect.objectContaining({ presence: helpCommandPresence() }),
+    );
   });
 
   it("exits 0 when the bot token is missing (dashboard demo mode needs no bot)", async () => {

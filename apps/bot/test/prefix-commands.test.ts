@@ -194,7 +194,12 @@ let log: {
 };
 
 function setup(
-  options: { internalToken?: string; enabled?: boolean; clientId?: string | null } = {},
+  options: {
+    internalToken?: string;
+    enabled?: boolean;
+    clientId?: string | null;
+    botOwnerId?: string | null;
+  } = {},
 ) {
   burg = new BurgRegistry();
   prefixes = new PrefixRegistry();
@@ -217,6 +222,10 @@ function setup(
     music: () => musicStub as unknown as MusicCommands,
     botUserId: () => BOT_ID,
     enabled: () => options.enabled ?? true,
+    era: {
+      botOwnerId: () => options.botOwnerId ?? null,
+      postAsPersona: vi.fn(async () => {}),
+    },
     log,
   };
 }
@@ -249,6 +258,7 @@ describe("dispatch: what counts as a command", () => {
     expect(await handlePrefixMessage(mention, deps)).toBe(true);
     expect(text(mention)).toContain("Monarch — Design your Discord");
     expect(text(mention)).toContain("!help");
+    expect(text(mention)).not.toContain("zhvishu");
   });
 
   it("answers an unknown command addressed to Monarch", async () => {
@@ -258,19 +268,36 @@ describe("dispatch: what counts as a command", () => {
     expect(text(message)).toContain("!help");
   });
 
-  it("routes !era zhvishu all the way to the easter egg handler", async () => {
-    // No fixture images checked into the repo's era_img/ (see its README), so
-    // this exercises the real routing end to end and lands on the "nothing
-    // to post yet" reply rather than a crash or a silent no-op.
+  it("hides !era from anyone who isn't the server owner or the bot owner", async () => {
+    const message = fakeMessage({ content: "!era zhvishu" });
+    expect(await handlePrefixMessage(message, deps)).toBe(true);
+    expect(sent(message)).toHaveLength(0);
+    expect(text(message)).not.toContain("zhvishu");
+    expect(text(message)).not.toContain("era_img");
+
+    const bare = fakeMessage({ content: "!era" });
+    expect(await handlePrefixMessage(bare, deps)).toBe(true);
+    expect(sent(bare)).toHaveLength(0);
+  });
+
+  it("lets the bot owner through even when they don't own the server", async () => {
+    setup({ botOwnerId: MOD_ID });
     const message = fakeMessage({ content: "!era zhvishu" });
     expect(await handlePrefixMessage(message, deps)).toBe(true);
     expect(text(message)).toContain("era_img");
   });
 
-  it("treats any other era subcommand as not-a-thing instead of crashing", async () => {
-    const message = fakeMessage({ content: "!era wave" });
+  it("lets the server owner reach !era without putting it in the channel help", async () => {
+    // No fixture images in era_img/ (see its README), so this lands on the
+    // empty-folder note. The fake author has no DM channel, so the private
+    // reply falls back to the channel — still not the public help list.
+    const message = fakeMessage({
+      content: "!era zhvishu",
+      authorId: "111111111111111111",
+    });
     expect(await handlePrefixMessage(message, deps)).toBe(true);
-    expect(text(message)).toContain("era zhvishu");
+    expect(text(message)).toContain("era_img");
+    expect(text(message)).not.toContain("!help");
   });
 
   it("does nothing at all when the Message Content intent is off", async () => {
