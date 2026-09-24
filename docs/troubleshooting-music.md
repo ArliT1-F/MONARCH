@@ -63,17 +63,17 @@ what a residential proxy is for.
   no Opus encoder), so Monarch passes YouTube's Opus through untouched —
   cheaper, but volume can't change without re-encoding. Install ffmpeg to get it.
 - **Silence, no error.** Check the bot's voice permissions in the channel
-  (Connect + Speak) and that the *bot's* host allows outbound UDP; Discord voice
+  (Connect + Speak) and that the _bot's_ host allows outbound UDP; Discord voice
   is UDP, and containers on hosts without UDP egress join the channel, then sit
   in `signalling` until they time out.
 - **Track cut short / `⚠️ Track cut short`.** The audio stream ended before the
   advertised length. See §6 — that is YouTube throttling, and there are three
-  things to check. A track that dies within a few seconds *is* retried
+  things to check. A track that dies within a few seconds _is_ retried
   automatically once, silently; if it still fails you get the reason.
 
 ## 5. Throttling, "the song stops after a minute", robot voices
 
-YouTube throttles a *connection*, not an account: the download starts at full
+YouTube throttles a _connection_, not an account: the download starts at full
 speed and then crawls to a few KB/s, the player runs out of buffered audio and
 the track ends early. Monarch ships three defences, in order of how much they
 usually matter:
@@ -86,9 +86,9 @@ usually matter:
    YouTube's `n`/signature challenge; a stream whose challenge went unsolved is
    exactly the stream YouTube rate-limits. yt-dlp only enables Deno by default,
    so Monarch hands it the Node it is already running (`--js-runtimes
-   node:…`). `YTDLP_JS_RUNTIME=deno` if you have Deno, `=none` to opt out.
+node:…`). `YTDLP_JS_RUNTIME=deno` if you have Deno, `=none` to opt out.
 3. **A fresh yt-dlp.** Extractors are updated within hours of a YouTube change
-   and a stale binary *is* a throttled binary. `yt-dlp -U`, or
+   and a stale binary _is_ a throttled binary. `yt-dlp -U`, or
    `npm run music:setup -- --force`; `music:check` warns past 90 days.
 
 If a track still stops early on a specific machine:
@@ -100,11 +100,10 @@ YTDLP_PROXY=socks5://…                # residential/proxy IP, when the host is
 ```
 
 `--throttled-rate` is the aggressive one: on a slow-but-honest connection it
-will re-extract instead of just being slow, so try it *after* the first two.
+will re-extract instead of just being slow, so try it _after_ the first two.
 The bot logs `elapsed vs expected` for every premature end, and the yt-dlp
 stderr tail sits next to it in the logs — that is what tells "throttled" apart
 from "the source 403'd us".
-
 
 ffmpeg is **optional**: with it, Monarch decodes to PCM and re-encodes Opus, so
 volume works and every source (AAC/M4A, MP3, radio) plays. Without it, only
@@ -142,7 +141,7 @@ read from Spotify and matched to YouTube at play time.
 
 Spotify changed the Web API in **February 2026**:
 
-- an app may only read the *contents* of playlists it owns itself — every other
+- an app may only read the _contents_ of playlists it owns itself — every other
   playlist answers with metadata and no rows (the old endpoint it used to read
   them from, `/playlists/{id}/tracks`, is gone and answers `403`);
 - the playlist's `tracks` object was renamed to `items`, and each row's payload
@@ -162,35 +161,35 @@ Single Spotify tracks and albums are unaffected by the ownership rule.
 
 Voice is UDP **from the bot's host**. That is the only hard requirement:
 
-| Host | `/music` | Notes |
-| --- | --- | --- |
-| Your own machine / VPS | ✅ | `deploy/laptop-install.sh` sets up both services |
-| Fly.io / Railway (Docker) | ✅ | UDP egress is allowed |
-| Docker anywhere | ✅ | `docker compose -f docker/docker-compose.yml up -d`; the bot image ships ffmpeg + yt-dlp |
-| Render (worker) | ❌ | no UDP egress: joins, then times out in `signalling` |
-| Vercel | ❌ | serverless; the bot is not a Vercel workload at all |
+| Host                      | `/music` | Notes                                                                                    |
+| ------------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| Your own machine / VPS    | ✅       | `deploy/laptop-install.sh` sets up both services                                         |
+| Fly.io / Railway (Docker) | ✅       | UDP egress is allowed                                                                    |
+| Docker anywhere           | ✅       | `docker compose -f docker/docker-compose.yml up -d`; the bot image ships ffmpeg + yt-dlp |
+| Render (worker)           | ❌       | no UDP egress: joins, then times out in `signalling`                                     |
+| Vercel                    | ❌       | serverless; the bot is not a Vercel workload at all                                      |
 
 ## 9. Knobs
 
-| Variable | What it does |
-| --- | --- |
-| `YTDLP_PATH` | Use your own yt-dlp instead of the managed copy |
-| `YTDLP_BIN_DIR` / `MONARCH_BIN_DIR` | Where the managed binaries live (default `.monarch/bin`) |
-| `YTDLP_AUTO_DOWNLOAD=0` | Never download yt-dlp automatically |
-| `YTDLP_DISABLED=1` | Turn the music player off entirely (commands explain why) |
-| `YTDLP_COOKIES` / `YTDLP_COOKIE_FILE` | cookies.txt for age/bot checks |
-| `YTDLP_PROXY` | SOCKS/HTTP proxy for every yt-dlp call |
-| `YTDLP_ARGS` | Extra argv; quoted values stay together (`--throttled-rate 100K`, `--extractor-args "youtube:player_client=tv"`) |
-| `YTDLP_JS_RUNTIME` | JS runtime for YouTube's challenge solver: default `node:<this bot's node>`, or `deno`, or `none` |
-| `YTDLP_FORMAT` | Format selector; default prefers Opus-in-WebM |
-| `YTDLP_CACHE_DIR` | Where yt-dlp keeps its cache |
-| `MUSIC_FFMPEG_PATH` / `FFMPEG_PATH` | ffmpeg to use |
-| `MUSIC_AUDIO_PIPELINE=pcm\|opus` | Force transcode or passthrough |
-| `MUSIC_MAX_QUEUE`, `MUSIC_MAX_PLAYLIST_TRACKS` | Queue and import caps |
-| `MUSIC_SEARCH_PREFIX` | Search backend for plain-text queries (`ytsearch`, `ytmsearch`, `scsearch`) |
-| `MONARCH_OWNER_USER_ID` | The only account allowed to run `/monarch debug on` (and be immune to `!burg`) |
-| `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | Spotify link support |
-| `MUSIC_DJ_ROLE_NAMES`, `MUSIC_STAFF_ROLE_NAMES` | Who can force-skip |
+| Variable                                        | What it does                                                                                                     |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `YTDLP_PATH`                                    | Use your own yt-dlp instead of the managed copy                                                                  |
+| `YTDLP_BIN_DIR` / `MONARCH_BIN_DIR`             | Where the managed binaries live (default `.monarch/bin`)                                                         |
+| `YTDLP_AUTO_DOWNLOAD=0`                         | Never download yt-dlp automatically                                                                              |
+| `YTDLP_DISABLED=1`                              | Turn the music player off entirely (commands explain why)                                                        |
+| `YTDLP_COOKIES` / `YTDLP_COOKIE_FILE`           | cookies.txt for age/bot checks                                                                                   |
+| `YTDLP_PROXY`                                   | SOCKS/HTTP proxy for every yt-dlp call                                                                           |
+| `YTDLP_ARGS`                                    | Extra argv; quoted values stay together (`--throttled-rate 100K`, `--extractor-args "youtube:player_client=tv"`) |
+| `YTDLP_JS_RUNTIME`                              | JS runtime for YouTube's challenge solver: default `node:<this bot's node>`, or `deno`, or `none`                |
+| `YTDLP_FORMAT`                                  | Format selector; default prefers Opus-in-WebM                                                                    |
+| `YTDLP_CACHE_DIR`                               | Where yt-dlp keeps its cache                                                                                     |
+| `MUSIC_FFMPEG_PATH` / `FFMPEG_PATH`             | ffmpeg to use                                                                                                    |
+| `MUSIC_AUDIO_PIPELINE=pcm\|opus`                | Force transcode or passthrough                                                                                   |
+| `MUSIC_MAX_QUEUE`, `MUSIC_MAX_PLAYLIST_TRACKS`  | Queue and import caps                                                                                            |
+| `MUSIC_SEARCH_PREFIX`                           | Search backend for plain-text queries (`ytsearch`, `ytmsearch`, `scsearch`)                                      |
+| `MONARCH_OWNER_USER_ID`                         | The only account allowed to run `/monarch debug on` (and be immune to `!burg`)                                   |
+| `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`    | Spotify link support                                                                                             |
+| `MUSIC_DJ_ROLE_NAMES`, `MUSIC_STAFF_ROLE_NAMES` | Who can force-skip                                                                                               |
 
 The bot's boot log (`apps/bot/src/index.ts`) prints which of these are in
 effect; `npm run music:check` prints the resolved paths.
@@ -200,18 +199,18 @@ effect; `npm run music:check` prints the resolved paths.
 Every user-facing music error comes from one place — `explainYtdlpFailure()`
 in `apps/bot/src/music/ytdlp.ts` — and it names the fix, not just the failure:
 
-| Message | Meaning |
-| --- | --- |
-| "YouTube asked the downloader to prove it isn't a bot" | cookies (see §3) |
-| "couldn't reach the source (network problem or a blocked IP)" | DNS/TLS/firewall, not the bot |
-| "the site answered 404" | the link is dead |
-| "the source refused the download (403)" | bot check or region block |
-| "region-locked for the machine running the bot" | geo-restricted track |
-| "live stream — wait for it to end" | live URLs aren't supported mid-stream |
-| `⚠️ Track cut short` in Discord, `elapsed vs expected` in the log | the download stopped early — throttling or a network flap; §5 |
-| `⚠️ Track failed` right after `/music play` | the download never started; the message says why (bot check → cookies, 404, 403, private…) — a *transient* failure here is retried once on its own |
-| "isn't in a format Discord takes directly … no ffmpeg" | install ffmpeg (§5) |
-| "**<track>** isn't on YouTube Music in a form I can play — I searched for …" | the search itself worked and every hit was live, silent or removed — not the same as "the download failed" |
+| Message                                                                      | Meaning                                                                                                                                            |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "YouTube asked the downloader to prove it isn't a bot"                       | cookies (see §3)                                                                                                                                   |
+| "couldn't reach the source (network problem or a blocked IP)"                | DNS/TLS/firewall, not the bot                                                                                                                      |
+| "the site answered 404"                                                      | the link is dead                                                                                                                                   |
+| "the source refused the download (403)"                                      | bot check or region block                                                                                                                          |
+| "region-locked for the machine running the bot"                              | geo-restricted track                                                                                                                               |
+| "live stream — wait for it to end"                                           | live URLs aren't supported mid-stream                                                                                                              |
+| `⚠️ Track cut short` in Discord, `elapsed vs expected` in the log            | the download stopped early — throttling or a network flap; §5                                                                                      |
+| `⚠️ Track failed` right after `/music play`                                  | the download never started; the message says why (bot check → cookies, 404, 403, private…) — a _transient_ failure here is retried once on its own |
+| "isn't in a format Discord takes directly … no ffmpeg"                       | install ffmpeg (§5)                                                                                                                                |
+| "**<track>** isn't on YouTube Music in a form I can play — I searched for …" | the search itself worked and every hit was live, silent or removed — not the same as "the download failed"                                         |
 
 The raw yt-dlp stderr tail is in the bot's logs next to the message — that is
 what to paste into a bug report (it never contains your cookies).

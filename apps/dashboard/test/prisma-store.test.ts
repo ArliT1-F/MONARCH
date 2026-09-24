@@ -48,7 +48,12 @@ describe("secure-token (AES-256-GCM)", () => {
     expect(decryptSecret("garbage")).toBeUndefined();
     const stored = encryptSecret("super-secret-token");
     const parts = stored.split(".");
-    const flipped = [parts[0], parts[1], parts[2], Buffer.from("tampered!").toString("base64url")].join(".");
+    const flipped = [
+      parts[0],
+      parts[1],
+      parts[2],
+      Buffer.from("tampered!").toString("base64url"),
+    ].join(".");
     expect(decryptSecret(flipped)).toBeUndefined();
   });
 });
@@ -58,16 +63,34 @@ describe("row → record mappers", () => {
     const createdAt = new Date("2026-01-01T00:00:00.000Z");
     expect(
       sessionRowToRecord(
-        { id: "sess_1", userId: "u1", accessTokenEnc: null, createdAt, expiresAt: new Date(createdAt.getTime() + 1000) },
+        {
+          id: "sess_1",
+          userId: "u1",
+          accessTokenEnc: null,
+          createdAt,
+          expiresAt: new Date(createdAt.getTime() + 1000),
+        },
         { id: "u1", username: "alice", avatarUrl: null },
       ),
-    ).toEqual({ id: "sess_1", userId: "u1", username: "alice", avatarUrl: null, createdAt: createdAt.toISOString() });
+    ).toEqual({
+      id: "sess_1",
+      userId: "u1",
+      username: "alice",
+      avatarUrl: null,
+      createdAt: createdAt.toISOString(),
+    });
   });
 
   it("maps drafts (Json columns cast to ServerDesign)", () => {
     const updatedAt = new Date("2026-02-02T00:00:00.000Z");
     const design = { guildId: "g1", channels: [] } as never;
-    const record = draftRowToRecord({ guildId: "g1", userId: "u1", design, baseDesign: design, updatedAt });
+    const record = draftRowToRecord({
+      guildId: "g1",
+      userId: "u1",
+      design,
+      baseDesign: design,
+      updatedAt,
+    });
     expect(record.guildId).toBe("g1");
     expect(record.design).toBe(design);
     expect(record.updatedAt).toBe(updatedAt.toISOString());
@@ -76,8 +99,12 @@ describe("row → record mappers", () => {
   it("maps snapshots with kind preserved", () => {
     const createdAt = new Date("2026-03-03T00:00:00.000Z");
     const record = snapshotRowToRecord({
-      id: "snap_1", guildId: "g1", name: "before apply", kind: "pre-apply",
-      design: { guildId: "g1" } as never, createdAt,
+      id: "snap_1",
+      guildId: "g1",
+      name: "before apply",
+      kind: "pre-apply",
+      design: { guildId: "g1" } as never,
+      createdAt,
     });
     expect(record.kind).toBe("pre-apply");
     expect(record.createdAt).toBe(createdAt.toISOString());
@@ -114,9 +141,21 @@ describe("row → record mappers", () => {
   it("maps audit entries", () => {
     const createdAt = new Date("2026-04-04T00:00:00.000Z");
     expect(
-      auditRowToRecord({ id: "a1", guildId: "g1", userId: "u1", action: "apply", summary: "Applied 2 changes", createdAt }),
+      auditRowToRecord({
+        id: "a1",
+        guildId: "g1",
+        userId: "u1",
+        action: "apply",
+        summary: "Applied 2 changes",
+        createdAt,
+      }),
     ).toEqual({
-      id: "a1", guildId: "g1", userId: "u1", action: "apply", summary: "Applied 2 changes", createdAt: createdAt.toISOString(),
+      id: "a1",
+      guildId: "g1",
+      userId: "u1",
+      action: "apply",
+      summary: "Applied 2 changes",
+      createdAt: createdAt.toISOString(),
     });
   });
 
@@ -125,17 +164,37 @@ describe("row → record mappers", () => {
     const updatedAt = new Date("2026-05-06T00:00:00.000Z");
     const data = { categories: [], channels: [], roles: [] };
     const record = templateRowToRecord({
-      id: "tpl_1", ownerId: "u1", name: "Starter", type: "server", format: 1,
-      data, createdAt, updatedAt,
+      id: "tpl_1",
+      ownerId: "u1",
+      name: "Starter",
+      type: "server",
+      format: 1,
+      data,
+      createdAt,
+      updatedAt,
     });
     expect(record).toEqual({
-      id: "tpl_1", ownerId: "u1", name: "Starter", type: "server", format: 1,
-      data, createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString(),
+      id: "tpl_1",
+      ownerId: "u1",
+      name: "Starter",
+      type: "server",
+      format: 1,
+      data,
+      createdAt: createdAt.toISOString(),
+      updatedAt: updatedAt.toISOString(),
     });
-    expect(templateRowToRecord({
-      id: "tpl_2", ownerId: "u1", name: "Empty", type: "server", format: 1,
-      data: null, createdAt, updatedAt,
-    }).data).toEqual({});
+    expect(
+      templateRowToRecord({
+        id: "tpl_2",
+        ownerId: "u1",
+        name: "Empty",
+        type: "server",
+        format: 1,
+        data: null,
+        createdAt,
+        updatedAt,
+      }).data,
+    ).toEqual({});
   });
 });
 
@@ -145,7 +204,9 @@ type CooldownRow = { userId: string; nextAllowedAt: Date };
 
 /** Prisma's P2002, the way the client raises it: a duplicate key. */
 function uniqueViolation(): Error {
-  return Object.assign(new Error("Unique constraint failed on the fields: (`userId`)"), { code: "P2002" });
+  return Object.assign(new Error("Unique constraint failed on the fields: (`userId`)"), {
+    code: "P2002",
+  });
 }
 
 /**
@@ -177,7 +238,8 @@ function fakeCooldownTable(rows: CooldownRow[] = []) {
     }),
     delete: vi.fn(async (args: any) => {
       const row = table.get(args.where.userId);
-      if (!row) throw Object.assign(new Error("Record to delete does not exist."), { code: "P2025" });
+      if (!row)
+        throw Object.assign(new Error("Record to delete does not exist."), { code: "P2025" });
       table.delete(args.where.userId);
       return row;
     }),
@@ -192,17 +254,31 @@ const NOW = new Date("2026-09-13T12:00:00.000Z");
 describe("confessionCooldownRowToRecord", () => {
   it("reports a running window and reads an expired one as free", () => {
     const until = new Date(NOW.getTime() + 60_000);
-    expect(confessionCooldownRowToRecord(USER, { userId: USER, nextAllowedAt: until }, NOW)).toEqual({
+    expect(
+      confessionCooldownRowToRecord(USER, { userId: USER, nextAllowedAt: until }, NOW),
+    ).toEqual({
       userId: USER,
       nextAllowedAt: until.toISOString(),
     });
-    expect(confessionCooldownRowToRecord(USER, { userId: USER, nextAllowedAt: until }, new Date(until.getTime() + 1))).toEqual({
+    expect(
+      confessionCooldownRowToRecord(
+        USER,
+        { userId: USER, nextAllowedAt: until },
+        new Date(until.getTime() + 1),
+      ),
+    ).toEqual({
       userId: USER,
       nextAllowedAt: null,
     });
-    expect(confessionCooldownRowToRecord(USER, null, NOW)).toEqual({ userId: USER, nextAllowedAt: null });
+    expect(confessionCooldownRowToRecord(USER, null, NOW)).toEqual({
+      userId: USER,
+      nextAllowedAt: null,
+    });
     // A window that ends exactly now is already over.
-    expect(confessionCooldownRowToRecord(USER, { userId: USER, nextAllowedAt: until }, until).nextAllowedAt).toBeNull();
+    expect(
+      confessionCooldownRowToRecord(USER, { userId: USER, nextAllowedAt: until }, until)
+        .nextAllowedAt,
+    ).toBeNull();
   });
 });
 
@@ -238,7 +314,9 @@ describe("PrismaStore.claimConfessionCooldown", () => {
 
   it("flips an expired row instead of inserting a second one", async () => {
     const expired = new Date(NOW.getTime() - 1_000);
-    const { store, table, delegate } = fakeCooldownTable([{ userId: USER, nextAllowedAt: expired }]);
+    const { store, table, delegate } = fakeCooldownTable([
+      { userId: USER, nextAllowedAt: expired },
+    ]);
 
     const claim = await store.claimConfessionCooldown(USER, { now: NOW });
     expect(claim.claimed).toBe(true);
@@ -266,7 +344,9 @@ describe("PrismaStore.claimConfessionCooldown", () => {
   it("rethrows anything that isn't a duplicate key", async () => {
     const { store, delegate } = fakeCooldownTable();
     delegate.create.mockRejectedValueOnce(new Error("connection lost"));
-    await expect(store.claimConfessionCooldown(USER, { now: NOW })).rejects.toThrow("connection lost");
+    await expect(store.claimConfessionCooldown(USER, { now: NOW })).rejects.toThrow(
+      "connection lost",
+    );
   });
 
   it("defaults to the shared six hour window", async () => {
@@ -274,7 +354,9 @@ describe("PrismaStore.claimConfessionCooldown", () => {
     const before = Date.now();
     const claim = await store.claimConfessionCooldown(USER);
     expect(claim.claimed).toBe(true);
-    expect(Date.parse(claim.nextAllowedAt) - before).toBeGreaterThan(CONFESSION_COOLDOWN_MS - 5_000);
+    expect(Date.parse(claim.nextAllowedAt) - before).toBeGreaterThan(
+      CONFESSION_COOLDOWN_MS - 5_000,
+    );
     expect(Date.parse(claim.nextAllowedAt) - before).toBeLessThanOrEqual(CONFESSION_COOLDOWN_MS);
   });
 });
@@ -283,7 +365,10 @@ describe("PrismaStore confession cooldown reads and releases", () => {
   it("reads a live window, an expired one and a missing one", async () => {
     const until = new Date(Date.now() + 60_000);
     const { store, table } = fakeCooldownTable([{ userId: USER, nextAllowedAt: until }]);
-    expect(await store.getConfessionCooldown(USER)).toEqual({ userId: USER, nextAllowedAt: until.toISOString() });
+    expect(await store.getConfessionCooldown(USER)).toEqual({
+      userId: USER,
+      nextAllowedAt: until.toISOString(),
+    });
 
     table.set(USER, { userId: USER, nextAllowedAt: new Date(Date.now() - 1) });
     expect(await store.getConfessionCooldown(USER)).toEqual({ userId: USER, nextAllowedAt: null });
@@ -293,7 +378,9 @@ describe("PrismaStore confession cooldown reads and releases", () => {
   });
 
   it("releases a window, and swallows a release with nothing to delete", async () => {
-    const { store, table, delegate } = fakeCooldownTable([{ userId: USER, nextAllowedAt: new Date(Date.now() + 60_000) }]);
+    const { store, table, delegate } = fakeCooldownTable([
+      { userId: USER, nextAllowedAt: new Date(Date.now() + 60_000) },
+    ]);
     await store.releaseConfessionCooldown(USER);
     expect(table.has(USER)).toBe(false);
     expect(delegate.delete).toHaveBeenCalledOnce();

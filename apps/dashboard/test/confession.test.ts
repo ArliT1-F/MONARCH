@@ -73,7 +73,11 @@ function request(body?: unknown, token: string | null = "test-internal-token") {
 const params = { params: Promise.resolve({ guildId: GUILD }) };
 
 beforeEach(async () => {
-  await getStore().putConfessionChannels(GUILD, { guildId: GUILD, channelId: null, logChannelId: null });
+  await getStore().putConfessionChannels(GUILD, {
+    guildId: GUILD,
+    channelId: null,
+    logChannelId: null,
+  });
   await getStore().releaseConfessionCooldown(USER);
   await getStore().releaseConfessionCooldown(OTHER_USER);
 });
@@ -96,7 +100,11 @@ describe("confession channel store", () => {
   });
 
   it("round-trips both channels per guild", async () => {
-    await getStore().putConfessionChannels(GUILD, { guildId: GUILD, channelId: CHANNEL, logChannelId: LOG_CHANNEL });
+    await getStore().putConfessionChannels(GUILD, {
+      guildId: GUILD,
+      channelId: CHANNEL,
+      logChannelId: LOG_CHANNEL,
+    });
     await getStore().putConfessionChannels("111111111111111111", {
       guildId: "111111111111111111",
       channelId: "222222222222222222",
@@ -114,14 +122,27 @@ describe("confession channel store", () => {
       logChannelId: null,
     });
 
-    await getStore().putConfessionChannels(GUILD, { guildId: GUILD, channelId: null, logChannelId: null });
-    expect(await getStore().getConfessionChannels(GUILD)).toMatchObject({ channelId: null, logChannelId: null });
+    await getStore().putConfessionChannels(GUILD, {
+      guildId: GUILD,
+      channelId: null,
+      logChannelId: null,
+    });
+    expect(await getStore().getConfessionChannels(GUILD)).toMatchObject({
+      channelId: null,
+      logChannelId: null,
+    });
     // The other guild is untouched.
-    expect(await getStore().getConfessionChannels("111111111111111111")).toMatchObject({ channelId: "222222222222222222" });
+    expect(await getStore().getConfessionChannels("111111111111111111")).toMatchObject({
+      channelId: "222222222222222222",
+    });
   });
 
   it("is untouched by the designated-channels settings form", async () => {
-    await getStore().putConfessionChannels(GUILD, { guildId: GUILD, channelId: CHANNEL, logChannelId: LOG_CHANNEL });
+    await getStore().putConfessionChannels(GUILD, {
+      guildId: GUILD,
+      channelId: CHANNEL,
+      logChannelId: LOG_CHANNEL,
+    });
     // The settings PUT rewrites the whole GuildSettingsRecord — the
     // confession channels live outside it on purpose (same rule as the
     // command prefix).
@@ -149,7 +170,11 @@ describe("GET /api/internal/guilds/:id/confession", () => {
   });
 
   it("reports the saved channels", async () => {
-    await getStore().putConfessionChannels(GUILD, { guildId: GUILD, channelId: CHANNEL, logChannelId: LOG_CHANNEL });
+    await getStore().putConfessionChannels(GUILD, {
+      guildId: GUILD,
+      channelId: CHANNEL,
+      logChannelId: LOG_CHANNEL,
+    });
     const res = await GET(request(), params);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ channelId: CHANNEL, logChannelId: LOG_CHANNEL });
@@ -166,14 +191,24 @@ describe("PUT /api/internal/guilds/:id/confession", () => {
     const res = await PUT(request({ channelId: CHANNEL, logChannelId: LOG_CHANNEL }), params);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, channelId: CHANNEL, logChannelId: LOG_CHANNEL });
-    expect(await getStore().getConfessionChannels(GUILD)).toMatchObject({ channelId: CHANNEL, logChannelId: LOG_CHANNEL });
+    expect(await getStore().getConfessionChannels(GUILD)).toMatchObject({
+      channelId: CHANNEL,
+      logChannelId: LOG_CHANNEL,
+    });
   });
 
   it("turns the feature off with both nulls", async () => {
-    await getStore().putConfessionChannels(GUILD, { guildId: GUILD, channelId: CHANNEL, logChannelId: LOG_CHANNEL });
+    await getStore().putConfessionChannels(GUILD, {
+      guildId: GUILD,
+      channelId: CHANNEL,
+      logChannelId: LOG_CHANNEL,
+    });
     const res = await PUT(request({ channelId: null, logChannelId: null }), params);
     expect(res.status).toBe(200);
-    expect(await getStore().getConfessionChannels(GUILD)).toMatchObject({ channelId: null, logChannelId: null });
+    expect(await getStore().getConfessionChannels(GUILD)).toMatchObject({
+      channelId: null,
+      logChannelId: null,
+    });
   });
 
   it("refuses a channel id that is not a snowflake", async () => {
@@ -191,7 +226,9 @@ describe("PUT /api/internal/guilds/:id/confession", () => {
   });
 
   it("is closed without the internal token", async () => {
-    expect((await PUT(request({ channelId: CHANNEL, logChannelId: null }, null), params)).status).toBe(401);
+    expect(
+      (await PUT(request({ channelId: CHANNEL, logChannelId: null }, null), params)).status,
+    ).toBe(401);
   });
 });
 
@@ -202,7 +239,10 @@ describe("PUT /api/internal/guilds/:id/confession", () => {
 
 describe("confession cooldown store", () => {
   it("is free by default", async () => {
-    expect(await getStore().getConfessionCooldown(USER)).toEqual({ userId: USER, nextAllowedAt: null });
+    expect(await getStore().getConfessionCooldown(USER)).toEqual({
+      userId: USER,
+      nextAllowedAt: null,
+    });
   });
 
   it("claims a six hour window and refuses the next claim", async () => {
@@ -227,14 +267,20 @@ describe("confession cooldown store", () => {
     // The record carries no guild id at all — confessing in one server is
     // what makes the person wait in every other server too.
     await getStore().claimConfessionCooldown(USER);
-    expect(Object.keys(await getStore().getConfessionCooldown(USER))).toEqual(["userId", "nextAllowedAt"]);
+    expect(Object.keys(await getStore().getConfessionCooldown(USER))).toEqual([
+      "userId",
+      "nextAllowedAt",
+    ]);
     expect((await getStore().claimConfessionCooldown(OTHER_USER)).claimed).toBe(true);
   });
 
   it("releases a window so the person can confess again at once", async () => {
     await getStore().claimConfessionCooldown(USER);
     await getStore().releaseConfessionCooldown(USER);
-    expect(await getStore().getConfessionCooldown(USER)).toEqual({ userId: USER, nextAllowedAt: null });
+    expect(await getStore().getConfessionCooldown(USER)).toEqual({
+      userId: USER,
+      nextAllowedAt: null,
+    });
     expect((await getStore().claimConfessionCooldown(USER)).claimed).toBe(true);
   });
 
@@ -245,7 +291,10 @@ describe("confession cooldown store", () => {
   it("treats an expired window as free and claims over it", async () => {
     const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1000);
     await getStore().claimConfessionCooldown(USER, { now: sevenHoursAgo });
-    expect(await getStore().getConfessionCooldown(USER)).toEqual({ userId: USER, nextAllowedAt: null });
+    expect(await getStore().getConfessionCooldown(USER)).toEqual({
+      userId: USER,
+      nextAllowedAt: null,
+    });
     const reclaimed = await getStore().claimConfessionCooldown(USER);
     expect(reclaimed.claimed).toBe(true);
     expect(Date.parse(reclaimed.nextAllowedAt)).toBeGreaterThan(Date.now());
@@ -274,21 +323,34 @@ describe("GET /api/internal/users/:id/confession-cooldown", () => {
   it("reports a running window instead", async () => {
     await getStore().claimConfessionCooldown(USER);
     const res = await cooldownGET(cooldownRequest("GET"), cooldownParams());
-    const data = (await res.json()) as { ready: boolean; nextAllowedAt: string; cooldownMs: number };
+    const data = (await res.json()) as {
+      ready: boolean;
+      nextAllowedAt: string;
+      cooldownMs: number;
+    };
     expect(data.ready).toBe(false);
     expect(Date.parse(data.nextAllowedAt)).toBeGreaterThan(Date.now());
     expect(data.cooldownMs).toBe(CONFESSION_COOLDOWN_MS);
   });
 
   it("refuses a user id that is not a snowflake", async () => {
-    const res = await cooldownGET(cooldownRequest("GET", "not-a-user"), cooldownParams("not-a-user"));
+    const res = await cooldownGET(
+      cooldownRequest("GET", "not-a-user"),
+      cooldownParams("not-a-user"),
+    );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("confession.invalid-user");
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      "confession.invalid-user",
+    );
   });
 
   it("is closed without the internal token", async () => {
-    expect((await cooldownGET(cooldownRequest("GET", USER, null), cooldownParams())).status).toBe(401);
-    expect((await cooldownGET(cooldownRequest("GET", USER, "wrong"), cooldownParams())).status).toBe(401);
+    expect((await cooldownGET(cooldownRequest("GET", USER, null), cooldownParams())).status).toBe(
+      401,
+    );
+    expect(
+      (await cooldownGET(cooldownRequest("GET", USER, "wrong"), cooldownParams())).status,
+    ).toBe(401);
   });
 });
 
@@ -296,7 +358,11 @@ describe("POST /api/internal/users/:id/confession-cooldown", () => {
   it("claims the window and stores it", async () => {
     const res = await cooldownPOST(cooldownRequest("POST"), cooldownParams());
     expect(res.status).toBe(200);
-    const data = (await res.json()) as { claimed: boolean; nextAllowedAt: string; retryAfterMs: number };
+    const data = (await res.json()) as {
+      claimed: boolean;
+      nextAllowedAt: string;
+      retryAfterMs: number;
+    };
     expect(data.claimed).toBe(true);
     expect(data.retryAfterMs).toBeGreaterThan(CONFESSION_COOLDOWN_MS - 10_000);
     expect((await getStore().getConfessionCooldown(USER)).nextAllowedAt).toBe(data.nextAllowedAt);
@@ -308,14 +374,20 @@ describe("POST /api/internal/users/:id/confession-cooldown", () => {
 
     const second = await cooldownPOST(cooldownRequest("POST"), cooldownParams());
     expect(second.status).toBe(200);
-    const data = (await second.json()) as { claimed: boolean; nextAllowedAt: string; retryAfterMs: number };
+    const data = (await second.json()) as {
+      claimed: boolean;
+      nextAllowedAt: string;
+      retryAfterMs: number;
+    };
     expect(data.claimed).toBe(false);
     expect(data.nextAllowedAt).toBe(firstData.nextAllowedAt);
     expect(data.retryAfterMs).toBeGreaterThan(0);
   });
 
   it("is closed without the internal token", async () => {
-    expect((await cooldownPOST(cooldownRequest("POST", USER, null), cooldownParams())).status).toBe(401);
+    expect((await cooldownPOST(cooldownRequest("POST", USER, null), cooldownParams())).status).toBe(
+      401,
+    );
     expect((await getStore().getConfessionCooldown(USER)).nextAllowedAt).toBeNull();
   });
 });
@@ -330,7 +402,11 @@ describe("DELETE /api/internal/users/:id/confession-cooldown", () => {
     const ready = await cooldownGET(cooldownRequest("GET"), cooldownParams());
     expect(((await ready.json()) as { ready: boolean }).ready).toBe(true);
     expect(
-      ((await (await cooldownPOST(cooldownRequest("POST"), cooldownParams())).json()) as { claimed: boolean }).claimed,
+      (
+        (await (await cooldownPOST(cooldownRequest("POST"), cooldownParams())).json()) as {
+          claimed: boolean;
+        }
+      ).claimed,
     ).toBe(true);
   });
 
@@ -339,6 +415,8 @@ describe("DELETE /api/internal/users/:id/confession-cooldown", () => {
   });
 
   it("is closed without the internal token", async () => {
-    expect((await cooldownDELETE(cooldownRequest("DELETE", USER, null), cooldownParams())).status).toBe(401);
+    expect(
+      (await cooldownDELETE(cooldownRequest("DELETE", USER, null), cooldownParams())).status,
+    ).toBe(401);
   });
 });

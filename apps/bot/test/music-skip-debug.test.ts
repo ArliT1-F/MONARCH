@@ -164,7 +164,10 @@ describe("the debug switch", () => {
     const post = vi.fn();
     const { manager } = setup({ enabled: () => true, post });
 
-    manager.reportDebug("guild", new YtdlpError("the downloader couldn't reach the source", "ERROR: TLS EOF"));
+    manager.reportDebug(
+      "guild",
+      new YtdlpError("the downloader couldn't reach the source", "ERROR: TLS EOF"),
+    );
 
     expect(post).toHaveBeenCalledWith("guild", expect.stringContaining("ERROR: TLS EOF"));
   });
@@ -195,7 +198,7 @@ describe("/monarch debug", () => {
       user: { id: userId, displayName: "User" },
       options: {
         getSubcommand: () => "debug",
-        getString: (name: string) => (name === "state" ? state ?? null : null),
+        getString: (name: string) => (name === "state" ? (state ?? null) : null),
       },
       deferred: false,
       replied: false,

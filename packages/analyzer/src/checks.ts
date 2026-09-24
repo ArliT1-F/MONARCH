@@ -77,7 +77,8 @@ export const CHECKS: AnalyzerCheck[] = [
         score,
         suggestion: {
           title: `${uncategorized.length} channel${uncategorized.length === 1 ? " sits" : "s sit"} outside any category.`,
-          detail: "Top-level channels float above your categories and make the sidebar harder to scan.",
+          detail:
+            "Top-level channels float above your categories and make the sidebar harder to scan.",
           fix: "Move them into the category they belong to.",
           affected: capAffected(uncategorized.map((c) => `#${c.name}`)),
         },
@@ -302,7 +303,7 @@ export const CHECKS: AnalyzerCheck[] = [
       const plainList = editable.filter((r) => !r.color);
       const p = coloredList.length / editable.length;
       // Consistent schemes are p=0 (all plain) and p=1 (all colored); the
-      // least consistent is a 50/50 mix. 4p(1-p) peaks at 1 when p=0.5.
+      // least consistant is a 50/50 mix. 4p(1-p) peaks at 1 when p=0.5.
       const score = 1 - 4 * p * (1 - p);
       if (score >= 0.999) return { score: 1 };
       const minority = coloredList.length >= plainList.length ? plainList : coloredList;

@@ -57,7 +57,10 @@ export function TemplateLibrary({
       });
       const data = await readJsonSafe<{ template?: { name: string } }>(res);
       if (!res.ok || !data?.template) {
-        setNotice({ tone: "error", text: apiErrorMessage(data, res, "Monarch couldn't save this server as a template.") });
+        setNotice({
+          tone: "error",
+          text: apiErrorMessage(data, res, "Monarch couldn't save this server as a template."),
+        });
         return;
       }
       setSaveName("");
@@ -90,7 +93,10 @@ export function TemplateLibrary({
       });
       const data = await readJsonSafe<{ template?: { name: string } }>(res);
       if (!res.ok || !data?.template) {
-        setNotice({ tone: "error", text: apiErrorMessage(data, res, "Monarch couldn't add that template to your library.") });
+        setNotice({
+          tone: "error",
+          text: apiErrorMessage(data, res, "Monarch couldn't add that template to your library."),
+        });
         return;
       }
       if (fileInput.current) fileInput.current.value = "";
@@ -118,7 +124,10 @@ export function TemplateLibrary({
       const envelopeRes = await fetch(`/api/library/templates/${t.id}`);
       const envelope = await readJsonSafe<Record<string, unknown>>(envelopeRes);
       if (!envelopeRes.ok || !envelope) {
-        setNotice({ tone: "error", text: apiErrorMessage(envelope, envelopeRes, "Monarch couldn't read that template.") });
+        setNotice({
+          tone: "error",
+          text: apiErrorMessage(envelope, envelopeRes, "Monarch couldn't read that template."),
+        });
         return;
       }
       const res = await fetch(`/api/guilds/${guildId}/template`, {
@@ -126,9 +135,16 @@ export function TemplateLibrary({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ template: envelope, mode }),
       });
-      const data = await readJsonSafe<{ designerUrl?: string; categoryCount?: number; channelCount?: number }>(res);
+      const data = await readJsonSafe<{
+        designerUrl?: string;
+        categoryCount?: number;
+        channelCount?: number;
+      }>(res);
       if (!res.ok || !data?.designerUrl) {
-        setNotice({ tone: "error", text: apiErrorMessage(data, res, "Monarch couldn't stage the template for this server.") });
+        setNotice({
+          tone: "error",
+          text: apiErrorMessage(data, res, "Monarch couldn't stage the template for this server."),
+        });
         return;
       }
       setNotice({
@@ -157,7 +173,10 @@ export function TemplateLibrary({
       });
       const data = await readJsonSafe<{ template?: LibraryTemplate }>(res);
       if (!res.ok || !data?.template) {
-        setNotice({ tone: "error", text: apiErrorMessage(data, res, "Monarch couldn't rename that template.") });
+        setNotice({
+          tone: "error",
+          text: apiErrorMessage(data, res, "Monarch couldn't rename that template."),
+        });
         return;
       }
       await refresh();
@@ -179,7 +198,10 @@ export function TemplateLibrary({
       });
       if (!res.ok) {
         const data = await readJsonSafe(res);
-        setNotice({ tone: "error", text: apiErrorMessage(data, res, "Monarch couldn't duplicate that template.") });
+        setNotice({
+          tone: "error",
+          text: apiErrorMessage(data, res, "Monarch couldn't duplicate that template."),
+        });
         return;
       }
       await refresh();
@@ -198,7 +220,10 @@ export function TemplateLibrary({
       const res = await fetch(`/api/library/templates/${t.id}`, { method: "DELETE" });
       if (!res.ok) {
         const data = await readJsonSafe(res);
-        setNotice({ tone: "error", text: apiErrorMessage(data, res, "Monarch couldn't delete that template.") });
+        setNotice({
+          tone: "error",
+          text: apiErrorMessage(data, res, "Monarch couldn't delete that template."),
+        });
         return;
       }
       setTemplates((all) => all.filter((x) => x.id !== t.id));
@@ -244,8 +269,9 @@ export function TemplateLibrary({
       <section className="rounded-2xl border border-ink-700 bg-ink-900 p-4 sm:p-5">
         <h2 className="mb-1 text-sm font-semibold text-ink-100">Upload a template file</h2>
         <p className="mb-3 text-xs leading-relaxed text-ink-300">
-          Add a downloaded <code className="rounded bg-ink-800 px-1 py-0.5 text-ink-200">monarch-template</code>{" "}
-          JSON file to your library.
+          Add a downloaded{" "}
+          <code className="rounded bg-ink-800 px-1 py-0.5 text-ink-200">monarch-template</code> JSON
+          file to your library.
         </p>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
@@ -266,12 +292,14 @@ export function TemplateLibrary({
 
       <section>
         <h2 className="mb-3 text-sm font-semibold text-ink-100">
-          Your templates <span className="ml-1 text-xs font-normal text-ink-400">{templates.length}</span>
+          Your templates{" "}
+          <span className="ml-1 text-xs font-normal text-ink-400">{templates.length}</span>
         </h2>
         {templates.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-ink-700 px-4 py-8 text-center text-xs text-ink-400">
             Nothing here yet. Save this server as a template, or upload a{" "}
-            <code className="rounded bg-ink-800 px-1 py-0.5 text-ink-200">monarch-template</code> file.
+            <code className="rounded bg-ink-800 px-1 py-0.5 text-ink-200">monarch-template</code>{" "}
+            file.
           </p>
         ) : (
           <ul className="space-y-2">
@@ -281,7 +309,9 @@ export function TemplateLibrary({
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-ink-100">{t.name}</p>
                     <p className="mt-0.5 text-[11px] text-ink-400">
-                      <span className="mr-2 rounded bg-royal-500/15 px-1.5 py-0.5 font-medium text-royal-400">server</span>
+                      <span className="mr-2 rounded bg-royal-500/15 px-1.5 py-0.5 font-medium text-royal-400">
+                        server
+                      </span>
                       {t.categories} categories · {t.channels} channels · {t.roles} roles · saved{" "}
                       {formatDate(t.createdAt)}
                     </p>

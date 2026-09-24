@@ -92,7 +92,8 @@ function describeApiError(e: ApiError | undefined, fallback: string): string {
 }
 
 /** One wording for "that duration makes no sense", on both surfaces. */
-export const DURATION_ERROR = "❌ I didn't understand that duration. Use `30s`, `10m`, `2h`, `1d` or `1h30m`.";
+export const DURATION_ERROR =
+  "❌ I didn't understand that duration. Use `30s`, `10m`, `2h`, `1d` or `1h30m`.";
 
 /** Burg styles, shared with the slash command's choices. */
 const BURG_STYLE_WORDS = ["random", "soft", "cat", "chaotic"];
@@ -177,7 +178,12 @@ export function parseGagArgs(args: readonly string[]): {
 
   // A lone unit word with nothing else (`!burg @user minutes`) is a
   // forgotten number, not a one-word reason.
-  if (!duration && !invalidDuration && rest.length === 1 && DURATIONISH_BARE_UNIT.test(rest[0]!.toLowerCase())) {
+  if (
+    !duration &&
+    !invalidDuration &&
+    rest.length === 1 &&
+    DURATIONISH_BARE_UNIT.test(rest[0]!.toLowerCase())
+  ) {
     invalidDuration = rest.pop()!;
   }
 
@@ -309,7 +315,9 @@ export class MonarchCommands {
   private async help(ctx: CommandContext): Promise<void> {
     // ctx.commandPrefix is already the guild's own prefix on both surfaces —
     // no second lookup (and no chance of quoting the wrong one).
-    await ctx.replyEmbeds(renderHelpEmbeds(this.appUrl, ctx.guildId, ctx.commandPrefix), { hidden: true });
+    await ctx.replyEmbeds(renderHelpEmbeds(this.appUrl, ctx.guildId, ctx.commandPrefix), {
+      hidden: true,
+    });
   }
 
   private async dashboard(ctx: CommandContext): Promise<void> {
@@ -332,7 +340,7 @@ export class MonarchCommands {
    * typed in — which already has the bot.
    */
   private async invite(ctx: CommandContext): Promise<void> {
-    const clientId = this.deps.clientId ?? (this.botUserId?.() ?? this.deps.botUserId?.()) ?? null;
+    const clientId = this.deps.clientId ?? this.botUserId?.() ?? this.deps.botUserId?.() ?? null;
     const url = buildBotInviteUrl({ clientId });
     if (!url) {
       await ctx.replyHidden(
@@ -408,14 +416,16 @@ export class MonarchCommands {
     }
 
     if (!ctx.memberHasAny(DESIGN_PERMISSIONS)) {
-      await ctx.replyHidden("❌ You need **Manage Server** or **Administrator** to change the prefix.");
+      await ctx.replyHidden(
+        "❌ You need **Manage Server** or **Administrator** to change the prefix.",
+      );
       return;
     }
 
     const [verb, maybeValue] = args as [string, string | undefined];
     const lowerVerb = verb!.toLowerCase();
     const isVerb = ["set", "change", "reset", "clear", "default"].includes(lowerVerb);
-    const requested = isVerb ? maybeValue ?? null : verb;
+    const requested = isVerb ? (maybeValue ?? null) : verb;
 
     if (isVerb && (["reset", "clear", "default"].includes(lowerVerb) || requested === null)) {
       const outcome = await this.deps.prefixes.set(ctx.guildId, null);
@@ -454,16 +464,21 @@ export class MonarchCommands {
 
   private async backup(ctx: CommandContext): Promise<void> {
     if (!ctx.memberHasAny(DESIGN_PERMISSIONS)) {
-      await ctx.replyHidden("❌ You need **Manage Server** or **Administrator** to back up this server.");
+      await ctx.replyHidden(
+        "❌ You need **Manage Server** or **Administrator** to back up this server.",
+      );
       return;
     }
     if (!this.internalToken) {
-      await ctx.replyHidden("❌ Backups need `INTERNAL_API_TOKEN` set in the dashboard and bot environments.");
+      await ctx.replyHidden(
+        "❌ Backups need `INTERNAL_API_TOKEN` set in the dashboard and bot environments.",
+      );
       return;
     }
     await ctx.defer({ hidden: true });
     // Slash passes one `name` option; a text command just types the words.
-    const name = (ctx.getStringOption("name") ?? joinArgs(ctx.args) ?? undefined)?.slice(0, 100) || undefined;
+    const name =
+      (ctx.getStringOption("name") ?? joinArgs(ctx.args) ?? undefined)?.slice(0, 100) || undefined;
     try {
       const res = await fetch(`${this.appUrl}/api/internal/guilds/${ctx.guildId}/backup`, {
         method: "POST",
@@ -492,11 +507,15 @@ export class MonarchCommands {
 
   private async export(ctx: CommandContext): Promise<void> {
     if (!ctx.memberHasAny(DESIGN_PERMISSIONS)) {
-      await ctx.replyHidden("❌ You need **Manage Server** or **Administrator** to export this server.");
+      await ctx.replyHidden(
+        "❌ You need **Manage Server** or **Administrator** to export this server.",
+      );
       return;
     }
     if (!this.internalToken) {
-      await ctx.replyHidden("❌ Export needs `INTERNAL_API_TOKEN` set in the dashboard and bot environments.");
+      await ctx.replyHidden(
+        "❌ Export needs `INTERNAL_API_TOKEN` set in the dashboard and bot environments.",
+      );
       return;
     }
     await ctx.defer({ hidden: true });
@@ -535,7 +554,8 @@ export class MonarchCommands {
     const url = `${this.appUrl}/s/${ctx.guildId}/embeds`;
     let info = "";
     if (!this.internalToken) {
-      info = "\n\nℹ Tip: set `INTERNAL_API_TOKEN` in the dashboard and bot to see the saved embed here.";
+      info =
+        "\n\nℹ Tip: set `INTERNAL_API_TOKEN` in the dashboard and bot to see the saved embed here.";
     } else {
       try {
         const res = await fetch(`${this.appUrl}/api/internal/guilds/${ctx.guildId}/workspace`, {
@@ -581,7 +601,9 @@ export class MonarchCommands {
     }
     const mode = this.readMode(ctx) ?? "test";
     const channel = ctx.getChannelOption("channel");
-    const target = channel ? { kind: "explicit", guildId: ctx.guildId, channelId: channel.id } : undefined;
+    const target = channel
+      ? { kind: "explicit", guildId: ctx.guildId, channelId: channel.id }
+      : undefined;
 
     try {
       const res = await fetch(`${this.appUrl}/api/internal/guilds/${ctx.guildId}/workspace/send`, {
@@ -591,7 +613,9 @@ export class MonarchCommands {
       });
       const data = (await res.json()) as { ok?: boolean; channelName?: string; error?: ApiError };
       if (res.ok && data.ok) {
-        await ctx.replyHidden(`✅ ${mode === "publish" ? "Published" : "Tested"} **${kind}** to #${data.channelName}.`);
+        await ctx.replyHidden(
+          `✅ ${mode === "publish" ? "Published" : "Tested"} **${kind}** to #${data.channelName}.`,
+        );
       } else {
         await ctx.replyHidden(describeApiError(data?.error, "Monarch couldn't send the design."));
       }
@@ -629,7 +653,9 @@ export class MonarchCommands {
 
   private async burged(ctx: CommandContext): Promise<void> {
     if (!ctx.memberHasAny(BURG_PERMISSIONS)) {
-      await ctx.replyHidden("❌ Only administrators and roles with **Kick Members** can see who's burg'd.");
+      await ctx.replyHidden(
+        "❌ Only administrators and roles with **Kick Members** can see who's burg'd.",
+      );
       return;
     }
     const entries = this.deps.burg.list(ctx.guildId);
@@ -659,7 +685,9 @@ export class MonarchCommands {
   async burg(ctx: CommandContext): Promise<void> {
     const { burg, log } = this.deps;
     if (!ctx.memberHasAny(BURG_PERMISSIONS)) {
-      await ctx.replyHidden("❌ Only administrators and roles with **Kick Members** can use /burg.");
+      await ctx.replyHidden(
+        "❌ Only administrators and roles with **Kick Members** can use /burg.",
+      );
       return;
     }
 
@@ -695,7 +723,9 @@ export class MonarchCommands {
         by: ctx.user.id,
         surface: ctx.surface,
       });
-      await ctx.replyHidden(`🧁 <@${target.id}> is no longer burg'd — their messages are back to normal.`);
+      await ctx.replyHidden(
+        `🧁 <@${target.id}> is no longer burg'd — their messages are back to normal.`,
+      );
       return;
     }
     if (!this.deps.burgEnabled()) {
@@ -715,7 +745,13 @@ export class MonarchCommands {
       if (!burg.get(ctx.guildId, ctx.user.id)) {
         // ...unless they're already burg'd, in which case the entry stays:
         // the reverse must not become a free toggle-off.
-        burg.burg({ guildId: ctx.guildId, userId: ctx.user.id, until: null, burgedBy: target.id, style: "random" });
+        burg.burg({
+          guildId: ctx.guildId,
+          userId: ctx.user.id,
+          until: null,
+          burgedBy: target.id,
+          style: "random",
+        });
       }
       log.info("bot owner uno-reversed burg command", {
         guildId: ctx.guildId,
@@ -754,7 +790,9 @@ export class MonarchCommands {
       return;
     }
     if (mine !== null && !mine.has(PermissionFlagsBits.ManageWebhooks)) {
-      log.warn("burg without Manage Webhooks — relaying as plain bot messages", { guildId: ctx.guildId });
+      log.warn("burg without Manage Webhooks — relaying as plain bot messages", {
+        guildId: ctx.guildId,
+      });
     }
 
     if (inputs.invalidDuration) {
@@ -796,7 +834,8 @@ export class MonarchCommands {
       const when = resolvedUntil
         ? `for **${formatDuration(resolvedUntil - Date.now())}** (until <t:${Math.floor(resolvedUntil / 1000)}:f>)`
         : `**until toggled off** with \`${ctx.commandPrefix}burg @user\``;
-      const styleLabel = resolvedStyle === "random" ? "a random cute style" : `the **${resolvedStyle}** style`;
+      const styleLabel =
+        resolvedStyle === "random" ? "a random cute style" : `the **${resolvedStyle}** style`;
       await ctx.replyHidden(
         `🧁 Updated <@${target.id}>'s burg — now ${when}${inputs.reason ? ` — ${inputs.reason}` : ""}.\n` +
           `Now using ${styleLabel}. Run \`${ctx.commandPrefix}burg @user\` with no options to turn it off.`,
@@ -854,7 +893,9 @@ export class MonarchCommands {
       return;
     }
     if (!ctx.memberHasAny(DESIGN_PERMISSIONS)) {
-      await ctx.replyHidden("❌ You need **Manage Server** or **Administrator** to set up confessions.");
+      await ctx.replyHidden(
+        "❌ You need **Manage Server** or **Administrator** to set up confessions.",
+      );
       return;
     }
     const confessions = this.deps.confessions;
@@ -915,7 +956,10 @@ export class MonarchCommands {
         allowedMentions: { parse: [] },
       });
     } catch (e) {
-      this.deps.log.warn("couldn't post the starter confession", { guildId: ctx.guildId, error: String(e) });
+      this.deps.log.warn("couldn't post the starter confession", {
+        guildId: ctx.guildId,
+        error: String(e),
+      });
       await ctx.edit(
         "✅ Confessions are set up, but I couldn't post the starter confession — check my permissions " +
           "in that channel and run the command again.",
@@ -938,7 +982,9 @@ export class MonarchCommands {
 
   private async confessionDisable(ctx: CommandContext): Promise<void> {
     if (!ctx.memberHasAny(DESIGN_PERMISSIONS)) {
-      await ctx.replyHidden("❌ You need **Manage Server** or **Administrator** to disable confessions.");
+      await ctx.replyHidden(
+        "❌ You need **Manage Server** or **Administrator** to disable confessions.",
+      );
       return;
     }
     const confessions = this.deps.confessions;
@@ -948,7 +994,10 @@ export class MonarchCommands {
       );
       return;
     }
-    const outcome = await confessions.configure(ctx.guildId, { channelId: null, logChannelId: null });
+    const outcome = await confessions.configure(ctx.guildId, {
+      channelId: null,
+      logChannelId: null,
+    });
     if (!outcome.ok) {
       await ctx.replyHidden(outcome.message);
       return;
@@ -967,7 +1016,9 @@ export class MonarchCommands {
     const me = ctx.guild.members.me;
     if (!me) return false;
     const perms = channel.permissionsFor(me);
-    return Boolean(perms?.has(PermissionFlagsBits.ViewChannel) && perms?.has(PermissionFlagsBits.SendMessages));
+    return Boolean(
+      perms?.has(PermissionFlagsBits.ViewChannel) && perms?.has(PermissionFlagsBits.SendMessages),
+    );
   }
 
   // ── shared argument plumbing ───────────────────────────────────────
@@ -980,7 +1031,12 @@ export class MonarchCommands {
   private gagInputs(
     ctx: CommandContext,
     names: string[],
-  ): { duration: string | null; invalidDuration: string | null; reason: string | null; style: string | null } {
+  ): {
+    duration: string | null;
+    invalidDuration: string | null;
+    reason: string | null;
+    style: string | null;
+  } {
     const parsed = ctx.surface === "slash" ? fromSlashOptions(ctx) : parseGagArgs(ctx.args);
     return {
       duration: names.includes("duration") ? parsed.duration : null,
@@ -993,7 +1049,7 @@ export class MonarchCommands {
   /**
    * Who the command is about: the slash `user` option, or the first mention /
    * snowflake in the prefix arguments. A bare word is never treated as a
-   * member — after `!burg` it's the reason.
+   * member — after `!burg` its the reason.
    */
   private async targetMember(ctx: CommandContext): Promise<GuildMember | null> {
     const fromOption = ctx.getMemberOption("user");

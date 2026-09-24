@@ -25,10 +25,7 @@ const Body = z.object({
   logChannelId: z.union([Snowflake, z.null()]),
 });
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const unauthorized = assertInternalAuth(req);
   if (unauthorized) return unauthorized;
   const { guildId } = await params;
@@ -43,10 +40,7 @@ export async function GET(
   }
 }
 
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const unauthorized = assertInternalAuth(req);
   if (unauthorized) return unauthorized;
   const { guildId } = await params;

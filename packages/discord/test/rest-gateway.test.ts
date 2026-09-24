@@ -160,14 +160,29 @@ describe("resolveTarget with the REST gateway", () => {
     [`/guilds/${GUILD}/channels`]: () => [
       { id: "c1", name: "announcements", type: 0, position: 0 },
     ],
-    [`/guilds/${GUILD}/roles`]: () => [{ id: GUILD, name: "@everyone", color: 0, position: 0, managed: false, hoist: false, mentionable: false, permissions: "3072" }],
+    [`/guilds/${GUILD}/roles`]: () => [
+      {
+        id: GUILD,
+        name: "@everyone",
+        color: 0,
+        position: 0,
+        managed: false,
+        hoist: false,
+        mentionable: false,
+        permissions: "3072",
+      },
+    ],
     [`/guilds/${GUILD}/members/${BOT_ID}`]: memberHandler,
   });
 
   it("publishes to an explicit channel when the bot is installed (the reported bug)", async () => {
     const gw = new RestDiscordGateway("token");
     routeMock(guildRoutes(() => ({ roles: [], permissions: "3072" })));
-    const res = await resolveTarget(gw, GUILD, { kind: "explicit", guildId: GUILD, channelId: "c1" });
+    const res = await resolveTarget(gw, GUILD, {
+      kind: "explicit",
+      guildId: GUILD,
+      channelId: "c1",
+    });
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.value.channelName).toBe("announcements");
   });
@@ -179,7 +194,11 @@ describe("resolveTarget with the REST gateway", () => {
         throw new FakeDiscordError(429);
       }),
     );
-    const res = await resolveTarget(gw, GUILD, { kind: "explicit", guildId: GUILD, channelId: "c1" });
+    const res = await resolveTarget(gw, GUILD, {
+      kind: "explicit",
+      guildId: GUILD,
+      channelId: "c1",
+    });
     expect(res.ok).toBe(true);
   });
 
@@ -190,7 +209,11 @@ describe("resolveTarget with the REST gateway", () => {
         throw new FakeDiscordError(404, 10007);
       }),
     );
-    const res = await resolveTarget(gw, GUILD, { kind: "explicit", guildId: GUILD, channelId: "c1" });
+    const res = await resolveTarget(gw, GUILD, {
+      kind: "explicit",
+      guildId: GUILD,
+      channelId: "c1",
+    });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("target.bot-missing");
   });
@@ -198,7 +221,11 @@ describe("resolveTarget with the REST gateway", () => {
   it("still reports target.bot-permissions when permissions are known and insufficient", async () => {
     const gw = new RestDiscordGateway("token");
     routeMock(guildRoutes(() => ({ roles: [], permissions: "0" })));
-    const res = await resolveTarget(gw, GUILD, { kind: "explicit", guildId: GUILD, channelId: "c1" });
+    const res = await resolveTarget(gw, GUILD, {
+      kind: "explicit",
+      guildId: GUILD,
+      channelId: "c1",
+    });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("target.bot-permissions");
   });

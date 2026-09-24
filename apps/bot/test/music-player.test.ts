@@ -14,13 +14,19 @@ import type { Track } from "@monarch/music";
  */
 
 vi.mock("../src/music/sources.js", async (original) => ({
-  ...await original<typeof import("../src/music/sources.js")>(),
+  ...(await original<typeof import("../src/music/sources.js")>()),
   ensurePlayable: vi.fn(async (track: Track) => track),
 }));
 
 import { ensurePlayable } from "../src/music/sources.js";
 import { MusicManager } from "../src/music/player.js";
-import { FakeAudioBackend, fakeClient, fakeGuild, fakeVoiceChannel, fakeVoiceChannelState } from "./music-fakes.js";
+import {
+  FakeAudioBackend,
+  fakeClient,
+  fakeGuild,
+  fakeVoiceChannel,
+  fakeVoiceChannelState,
+} from "./music-fakes.js";
 
 const track = (id: string, extra: Partial<Track> = {}): Track =>
   ({
@@ -54,7 +60,11 @@ function setup(members: string[] = []) {
 }
 
 /** Join a channel the way the bot does: one call, the backend does the rest. */
-async function joinVoice(manager: MusicManager, guild: ReturnType<typeof fakeGuild>, channelId = "voice"): Promise<void> {
+async function joinVoice(
+  manager: MusicManager,
+  guild: ReturnType<typeof fakeGuild>,
+  channelId = "voice",
+): Promise<void> {
   await manager.connect("guild", fakeVoiceChannel(channelId, guild));
 }
 
@@ -73,7 +83,9 @@ function fakeVoiceState(channelId: string | null, id = "bot-user") {
 const titles = (announce: ReturnType<typeof vi.fn>) =>
   announce.mock.calls.map(([, embed]) => (embed as { title?: string }).title);
 const descriptions = (announce: ReturnType<typeof vi.fn>) =>
-  announce.mock.calls.map(([, embed]) => String((embed as { description?: string }).description ?? ""));
+  announce.mock.calls.map(([, embed]) =>
+    String((embed as { description?: string }).description ?? ""),
+  );
 const plays = (backend: FakeAudioBackend) =>
   backend.callsTo("play").map((call) => (call.args[1] as Track).id);
 
@@ -111,7 +123,9 @@ describe("joining a voice channel", () => {
     }) as never;
 
     const { SourceError } = await import("../src/music/sources.js");
-    await expect(manager.connect("guild", fakeVoiceChannel("voice", guild))).rejects.toThrow(SourceError);
+    await expect(manager.connect("guild", fakeVoiceChannel("voice", guild))).rejects.toThrow(
+      SourceError,
+    );
     await expect(
       (() => {
         backend.join = vi.fn(async () => {
@@ -355,7 +369,10 @@ describe("when playback fails", () => {
     const { backend, guild, announce, manager } = setup();
     await playing(manager, guild);
 
-    backend.endTrack("guild", "failed", { trackId: "one", error: "That video is private, so it can't be played." });
+    backend.endTrack("guild", "failed", {
+      trackId: "one",
+      error: "That video is private, so it can't be played.",
+    });
     await tick();
 
     expect(titles(announce)).toContain("⚠️ Track failed");
@@ -441,8 +458,16 @@ describe("voice state updates", () => {
     vi.useFakeTimers();
     const { guild, client, announce, manager } = setup();
     await joinVoice(manager, guild);
-    const leave = { guild: { id: "guild" }, channelId: null, id: "listener" } as unknown as VoiceState;
-    const here = { guild: { id: "guild" }, channelId: "voice", id: "listener" } as unknown as VoiceState;
+    const leave = {
+      guild: { id: "guild" },
+      channelId: null,
+      id: "listener",
+    } as unknown as VoiceState;
+    const here = {
+      guild: { id: "guild" },
+      channelId: "voice",
+      id: "listener",
+    } as unknown as VoiceState;
 
     manager.handleVoiceStateUpdate(here, leave); // room is empty → countdown starts
     expect(titles(announce)).toContain("🌙 Everyone left");

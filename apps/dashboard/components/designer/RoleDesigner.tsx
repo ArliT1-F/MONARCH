@@ -5,11 +5,7 @@ import type { GuildSummary, ServerDesign } from "@monarch/schemas";
 import { diffServerDesign } from "@monarch/design-engine";
 import { validateServerDesign } from "@monarch/validation";
 import { apiErrorMessage, networkErrorMessage, readJsonSafe } from "@/lib/fetch-json";
-import {
-  roleDesignerReducer,
-  initialRoleDesignerState,
-  orderedRoles,
-} from "./role-designer-state";
+import { roleDesignerReducer, initialRoleDesignerState, orderedRoles } from "./role-designer-state";
 import { RoleInspector } from "./RoleInspector";
 import { ReviewModal } from "./ReviewModal";
 
@@ -151,7 +147,9 @@ export function RoleDesigner({ guildId }: { guildId: string }) {
     return (
       <div className="flex h-[70vh] items-center justify-center px-8">
         <div className="max-w-sm rounded-2xl border border-danger-400/30 bg-danger-400/5 p-6 text-center">
-          <p className="mb-2 text-sm font-medium text-danger-400">Couldn&apos;t load the role designer</p>
+          <p className="mb-2 text-sm font-medium text-danger-400">
+            Couldn&apos;t load the role designer
+          </p>
           <p className="mb-4 text-xs text-ink-300">{state.errorMessage}</p>
           <button
             onClick={() => void load()}
@@ -171,8 +169,8 @@ export function RoleDesigner({ guildId }: { guildId: string }) {
         <div className="min-w-0">
           <h1 className="text-sm font-semibold text-ink-100">Role Designer</h1>
           <p className="hidden text-[11px] text-ink-400 sm:block">
-            Names, colors, hoist, mentionable, and the curated permission grid.
-            Draft → Preview → Diff → Apply.
+            Names, colors, hoist, mentionable, and the curated permission grid. Draft → Preview →
+            Diff → Apply.
           </p>
         </div>
 
@@ -206,7 +204,9 @@ export function RoleDesigner({ guildId }: { guildId: string }) {
                 <span className="h-1.5 w-1.5 rounded-full bg-gold-400" />
                 <span className="hidden sm:inline">Unsaved changes</span>
                 <span className="sm:hidden">Unsaved</span>
-                {saveState === "saving" && <span className="hidden sm:inline"> · saving draft…</span>}
+                {saveState === "saving" && (
+                  <span className="hidden sm:inline"> · saving draft…</span>
+                )}
                 {saveState === "saved" && <span className="hidden sm:inline"> · draft saved</span>}
                 {saveState === "error" && (
                   <span className="text-danger-400"> · draft save failed</span>
@@ -241,7 +241,11 @@ export function RoleDesigner({ guildId }: { guildId: string }) {
       </header>
 
       {/* ── mobile pane switch ── */}
-      <div className="flex border-b border-ink-800 bg-ink-900/40 md:hidden" role="tablist" aria-label="Role designer panes">
+      <div
+        className="flex border-b border-ink-800 bg-ink-900/40 md:hidden"
+        role="tablist"
+        aria-label="Role designer panes"
+      >
         {(["list", "inspector"] as const).map((pane) => (
           <button
             key={pane}
@@ -348,9 +352,7 @@ function RoleList({
                   style={{ background: role.color ?? "transparent" }}
                 />
                 <span className="flex-1 truncate font-medium">{role.name}</span>
-                <span className="text-[10px] text-ink-500">
-                  @{role.position}
-                </span>
+                <span className="text-[10px] text-ink-500">@{role.position}</span>
                 {role.hoist && (
                   <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[9px] text-ink-400 uppercase">
                     hoist

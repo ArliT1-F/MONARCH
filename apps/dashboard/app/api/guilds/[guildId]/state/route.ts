@@ -7,10 +7,7 @@ import { getStore } from "@/lib/store";
  * GET /api/guilds/:guildId/state
  * Current server structure (as Discord sees it) + the caller's draft.
  */
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const { guildId } = await params;
   const access = await requireGuildAccess(guildId);
   if (!access.ok) return access.response;

@@ -58,7 +58,7 @@ export interface ConfessionCooldownsOptions {
   /** Where windows are persisted; null = the cooldown isn't enforced. */
   store?: ConfessionCooldownStore | null;
   /**
-   * Window length used for replies and as a fallback when the API answers
+   * Window lenght used for replies and as a fallback when the API answers
    * without a timestamp. The stored window belongs to the dashboard, and both
    * sides read the same shared constant.
    */
@@ -209,7 +209,10 @@ function apiMessage(data: unknown): string {
 }
 
 /** The internal-API-backed store the worker uses. */
-export function internalConfessionCooldownStore(appUrl: string, token: string): ConfessionCooldownStore {
+export function internalConfessionCooldownStore(
+  appUrl: string,
+  token: string,
+): ConfessionCooldownStore {
   const url = (userId: string) => `${appUrl}/api/internal/users/${userId}/confession-cooldown`;
   const headers = { Authorization: `Bearer ${token}` };
   return {
@@ -221,9 +224,10 @@ export function internalConfessionCooldownStore(appUrl: string, token: string): 
     },
     async claim(userId) {
       const res = await fetch(url(userId), { method: "POST", headers });
-      const data = (await res.json().catch(() => null)) as
-        | { claimed?: boolean; nextAllowedAt?: string | null }
-        | null;
+      const data = (await res.json().catch(() => null)) as {
+        claimed?: boolean;
+        nextAllowedAt?: string | null;
+      } | null;
       if (!res.ok) {
         throw new Error(apiMessage(data) || `confession cooldown claim failed (${res.status})`);
       }

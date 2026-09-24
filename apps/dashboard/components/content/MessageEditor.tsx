@@ -33,7 +33,8 @@ export function MessageEditor({
   const setButton = (i: number, patch: Partial<MessageButton>) =>
     set({ buttons: message.buttons.map((b, idx) => (idx === i ? { ...b, ...patch } : b)) });
 
-  const removeButton = (i: number) => set({ buttons: message.buttons.filter((_, idx) => idx !== i) });
+  const removeButton = (i: number) =>
+    set({ buttons: message.buttons.filter((_, idx) => idx !== i) });
 
   const moveButton = (i: number, dir: -1 | 1) => {
     const buttons = [...message.buttons];
@@ -64,8 +65,7 @@ export function MessageEditor({
     set({ embeds });
   };
 
-  const addEmbed = () =>
-    set({ embeds: [...message.embeds, { fields: [] }] });
+  const addEmbed = () => set({ embeds: [...message.embeds, { fields: [] }] });
 
   return (
     <div className="space-y-5">
@@ -78,7 +78,9 @@ export function MessageEditor({
           value={message.content}
           rows={4}
           maxLength={2000}
-          placeholder={"Say hi! Supports {user}, {display_name}, {server}, {member_count}, {channel}…"}
+          placeholder={
+            "Say hi! Supports {user}, {display_name}, {server}, {member_count}, {channel}…"
+          }
           onChange={(content) => set({ content })}
         />
         <p className="mt-2 text-[11px] text-ink-500">
@@ -87,10 +89,15 @@ export function MessageEditor({
       </section>
 
       <section>
-        <SectionTitle>Buttons {message.buttons.length > 0 && `(${message.buttons.length}/25)`}</SectionTitle>
+        <SectionTitle>
+          Buttons {message.buttons.length > 0 && `(${message.buttons.length}/25)`}
+        </SectionTitle>
         <div className="space-y-2.5">
           {message.buttons.map((b, i) => (
-            <div key={b.id} className="flex flex-wrap items-start gap-2 rounded-xl border border-ink-700 bg-ink-900/50 p-3">
+            <div
+              key={b.id}
+              className="flex flex-wrap items-start gap-2 rounded-xl border border-ink-700 bg-ink-900/50 p-3"
+            >
               <div className="w-28">
                 <Select
                   value={b.style}
@@ -123,23 +130,31 @@ export function MessageEditor({
                 </div>
               )}
               <div className="flex items-center gap-1 pt-2">
-                <Checkbox checked={b.disabled} onChange={(disabled) => setButton(i, { disabled })} label="Off" />
+                <Checkbox
+                  checked={b.disabled}
+                  onChange={(disabled) => setButton(i, { disabled })}
+                  label="Off"
+                />
                 <SmallButton onClick={() => moveButton(i, -1)}>↑</SmallButton>
                 <SmallButton onClick={() => moveButton(i, 1)}>↓</SmallButton>
-                <SmallButton tone="danger" onClick={() => removeButton(i)}>✕</SmallButton>
+                <SmallButton tone="danger" onClick={() => removeButton(i)}>
+                  ✕
+                </SmallButton>
               </div>
             </div>
           ))}
           <AddButton onClick={addButton}>+ Add button</AddButton>
         </div>
         <p className="mt-2 text-[11px] text-ink-500">
-          Monarch currently creates <strong className="text-ink-300">link buttons</strong>. Interactive buttons
-          (custom_id actions) arrive with the interaction feature.
+          Monarch currently creates <strong className="text-ink-300">link buttons</strong>.
+          Interactive buttons (custom_id actions) arrive with the interaction feature.
         </p>
       </section>
 
       <section>
-        <SectionTitle>Embeds {message.embeds.length > 0 && `(${message.embeds.length}/10)`}</SectionTitle>
+        <SectionTitle>
+          Embeds {message.embeds.length > 0 && `(${message.embeds.length}/10)`}
+        </SectionTitle>
         <div className="space-y-3">
           {message.embeds.map((e, i) => (
             <div key={i} className="rounded-xl border border-ink-700 bg-ink-900/40 p-4">
@@ -150,7 +165,9 @@ export function MessageEditor({
                 <div className="flex items-center gap-1">
                   <SmallButton onClick={() => moveEmbed(i, -1)}>↑</SmallButton>
                   <SmallButton onClick={() => moveEmbed(i, 1)}>↓</SmallButton>
-                  <SmallButton tone="danger" onClick={() => removeEmbed(i)}>Remove</SmallButton>
+                  <SmallButton tone="danger" onClick={() => removeEmbed(i)}>
+                    Remove
+                  </SmallButton>
                 </div>
               </div>
               <EmbedEditor embed={e} onChange={(embed) => setEmbed(i, embed)} />

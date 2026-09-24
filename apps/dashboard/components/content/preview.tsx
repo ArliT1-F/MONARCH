@@ -113,7 +113,9 @@ export function EmbedPreview({ embed }: { embed: EmbedDesign }) {
                 onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
               />
             )}
-            <span className="truncate">{embed.footer && renderVariableExamples(embed.footer.text)}</span>
+            <span className="truncate">
+              {embed.footer && renderVariableExamples(embed.footer.text)}
+            </span>
             {embed.footer && timestamp && <span>•</span>}
             {timestamp && (
               <span className="whitespace-nowrap">

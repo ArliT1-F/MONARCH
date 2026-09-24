@@ -83,7 +83,11 @@ function fakeMessage(options: FakeOptions = {}) {
     isTextBased: () => true,
     permissionsFor: () => ({ has: () => true }),
     send: vi.fn(async () => {
-      const message = { id: "m1", url: "https://discord.com/channels/x/y/m1", edit: vi.fn(async () => ({})) };
+      const message = {
+        id: "m1",
+        url: "https://discord.com/channels/x/y/m1",
+        edit: vi.fn(async () => ({})),
+      };
       sentMessages.push(message);
       return message;
     }),
@@ -103,7 +107,8 @@ function fakeMessage(options: FakeOptions = {}) {
     roles: { highest: { position: options.targetPosition ?? 0 } },
   });
   const mentions = new Map<string, unknown>();
-  for (const id of options.content?.match(/<@!?(\d{15,25})>/g)?.map((m) => m.replace(/\D/g, "")) ?? []) {
+  for (const id of options.content?.match(/<@!?(\d{15,25})>/g)?.map((m) => m.replace(/\D/g, "")) ??
+    []) {
     mentions.set(id, id === TARGET_ID ? target : memberFor(id, NOTHING));
   }
   // `message.mentions.channels`, the way discord.js builds it: parsed from the
@@ -172,7 +177,9 @@ function sent(message: ReturnType<typeof fakeMessage>) {
 
 function text(message: ReturnType<typeof fakeMessage>): string {
   return sent(message)
-    .map((payload) => [payload.content ?? "", ...(payload.embeds ?? []).map(() => "[embed]")].join(" "))
+    .map((payload) =>
+      [payload.content ?? "", ...(payload.embeds ?? []).map(() => "[embed]")].join(" "),
+    )
     .join("\n");
 }
 
@@ -180,9 +187,15 @@ let burg: BurgRegistry;
 let prefixes: PrefixRegistry;
 let musicStub: { run: ReturnType<typeof vi.fn> };
 let deps: PrefixDispatcherDeps;
-let log: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
+let log: {
+  info: ReturnType<typeof vi.fn>;
+  warn: ReturnType<typeof vi.fn>;
+  error: ReturnType<typeof vi.fn>;
+};
 
-function setup(options: { internalToken?: string; enabled?: boolean; clientId?: string | null } = {}) {
+function setup(
+  options: { internalToken?: string; enabled?: boolean; clientId?: string | null } = {},
+) {
   burg = new BurgRegistry();
   prefixes = new PrefixRegistry();
   musicStub = { run: vi.fn(async () => {}) };
@@ -254,8 +267,9 @@ describe("dispatch: what counts as a command", () => {
 
   it("stays quiet when Monarch can't send messages in that channel", async () => {
     const message = fakeMessage({ content: "!help" });
-    (message as unknown as { channel: { permissionsFor: () => { has: () => boolean } } }).channel.permissionsFor =
-      () => ({ has: () => false });
+    (
+      message as unknown as { channel: { permissionsFor: () => { has: () => boolean } } }
+    ).channel.permissionsFor = () => ({ has: () => false });
     expect(await handlePrefixMessage(message, deps)).toBe(true);
     expect(sent(message)).toHaveLength(0);
     expect(log.warn).toHaveBeenCalled();
@@ -273,7 +287,9 @@ describe("dispatch: general commands", () => {
     expect(embed.fields.map((f) => f.value).join("\n")).toContain("/monarch burged");
     // A help reply must not ping anybody.
     expect(payload.content ?? "").toBe("");
-    expect((payload as unknown as { allowedMentions: { parse: string[] } }).allowedMentions.parse).toEqual([]);
+    expect(
+      (payload as unknown as { allowedMentions: { parse: string[] } }).allowedMentions.parse,
+    ).toEqual([]);
   });
 
   it("!commands is the same command", async () => {
@@ -349,7 +365,9 @@ describe("dispatch: general commands", () => {
     setup({ clientId: "123456789012345678" });
     // A stored custom prefix needs a store; `set()` refuses without one.
     // Assigned *after* setup() because setup() rebinds both `prefixes` and `deps`.
-    prefixes = new PrefixRegistry({ store: { load: vi.fn(async () => "?"), save: vi.fn(async () => {}) } });
+    prefixes = new PrefixRegistry({
+      store: { load: vi.fn(async () => "?"), save: vi.fn(async () => {}) },
+    });
     deps.prefixes = prefixes;
     const withPrefix = fakeMessage({ content: "?invite", perms: NOTHING, authorId: TARGET_ID });
     await handlePrefixMessage(withPrefix, deps);
@@ -421,7 +439,9 @@ describe("dispatch: general commands", () => {
   });
 
   it("rejects a prefix that would swallow ordinary words", async () => {
-    prefixes = new PrefixRegistry({ store: { load: vi.fn(async () => null), save: vi.fn(async () => {}) } });
+    prefixes = new PrefixRegistry({
+      store: { load: vi.fn(async () => null), save: vi.fn(async () => {}) },
+    });
     deps.prefixes = prefixes;
     deps.monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
@@ -469,7 +489,11 @@ describe("dispatch: burg runs the moderation checks", () => {
   });
 
   it("refuses without Kick Members, and says who can", async () => {
-    const message = fakeMessage({ content: `!burg <@${TARGET_ID}>`, authorId: TARGET_ID, perms: NOTHING });
+    const message = fakeMessage({
+      content: `!burg <@${TARGET_ID}>`,
+      authorId: TARGET_ID,
+      perms: NOTHING,
+    });
     await handlePrefixMessage(message, deps);
     expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(false);
     expect(text(message)).toContain("Kick Members");
@@ -522,7 +546,13 @@ describe("dispatch: burg runs the moderation checks", () => {
   });
 
   it("still lets a toggle-off through while the intent is off", async () => {
-    burg.burg({ guildId: GUILD_ID, userId: TARGET_ID, until: null, burgedBy: MOD_ID, style: "cat" });
+    burg.burg({
+      guildId: GUILD_ID,
+      userId: TARGET_ID,
+      until: null,
+      burgedBy: MOD_ID,
+      style: "cat",
+    });
     deps.monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
       burg,
@@ -542,7 +572,13 @@ describe("dispatch: burg runs the moderation checks", () => {
     await handlePrefixMessage(empty, deps);
     expect(text(empty)).toContain("Nobody is burg'd");
 
-    burg.burg({ guildId: GUILD_ID, userId: TARGET_ID, until: null, burgedBy: MOD_ID, style: "cat" });
+    burg.burg({
+      guildId: GUILD_ID,
+      userId: TARGET_ID,
+      until: null,
+      burgedBy: MOD_ID,
+      style: "cat",
+    });
     const list = fakeMessage({ content: "!burged" });
     await handlePrefixMessage(list, deps);
     expect(text(list)).toContain(`<@${TARGET_ID}>`);
@@ -575,7 +611,11 @@ describe("dispatch: burg runs the moderation checks", () => {
   });
 
   it("lets natural time words stay in the reason", async () => {
-    for (const reason of ["being silly for hours", "acting up for days", "full of chaotic energy"]) {
+    for (const reason of [
+      "being silly for hours",
+      "acting up for days",
+      "full of chaotic energy",
+    ]) {
       burg.release(GUILD_ID, TARGET_ID);
       const message = fakeMessage({ content: `!burg <@${TARGET_ID}> ${reason}` });
       await handlePrefixMessage(message, deps);
@@ -631,7 +671,13 @@ describe("dispatch: the burg toggle and its update path", () => {
   });
 
   it("a typo while burg'd errors instead of toggling the gag off", async () => {
-    burg.burg({ guildId: GUILD_ID, userId: TARGET_ID, until: null, burgedBy: MOD_ID, style: "soft" });
+    burg.burg({
+      guildId: GUILD_ID,
+      userId: TARGET_ID,
+      until: null,
+      burgedBy: MOD_ID,
+      style: "soft",
+    });
     const message = fakeMessage({ content: `!burg <@${TARGET_ID}> ten minutes` });
     await handlePrefixMessage(message, deps);
     expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(true); // the gag survives the typo
@@ -657,7 +703,13 @@ describe("dispatch: the burg toggle and its update path", () => {
   });
 
   it("the reverse doesn't toggle an already-burg'd invoker off", async () => {
-    burg.burg({ guildId: GUILD_ID, userId: MOD_ID, until: null, burgedBy: TARGET_ID, style: "soft" });
+    burg.burg({
+      guildId: GUILD_ID,
+      userId: MOD_ID,
+      until: null,
+      burgedBy: TARGET_ID,
+      style: "soft",
+    });
     deps.monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
       burg,
@@ -754,9 +806,11 @@ describe("dispatch: confession commands (prefix surface)", () => {
     stored = {};
     store = {
       load: vi.fn(async (g: string) => stored[g] ?? { channelId: null, logChannelId: null }),
-      save: vi.fn(async (g: string, c: { channelId: string | null; logChannelId: string | null }) => {
-        stored[g] = c;
-      }),
+      save: vi.fn(
+        async (g: string, c: { channelId: string | null; logChannelId: string | null }) => {
+          stored[g] = c;
+        },
+      ),
     };
     confessions = new ConfessionRegistry({ store });
     deps.monarch = new MonarchCommands({
@@ -773,14 +827,17 @@ describe("dispatch: confession commands (prefix surface)", () => {
   /** The starter embed send (channel.send call carrying the embeds). */
   function starter(message: ReturnType<typeof fakeMessage>) {
     const channel = (message as unknown as { channel: { send: ReturnType<typeof vi.fn> } }).channel;
-    const call = channel.send.mock.calls.find((c) => (c[0] as { embeds?: unknown[] }).embeds?.length);
+    const call = channel.send.mock.calls.find(
+      (c) => (c[0] as { embeds?: unknown[] }).embeds?.length,
+    );
     return call?.[0] as { embeds?: { title?: string }[]; components?: unknown[] } | undefined;
   }
 
   /** The final answer: the deferred placeholder is edited with it. */
   function finalAnswer(message: ReturnType<typeof fakeMessage>): string {
-    const placeholder = (message as unknown as { sentMessages: { edit: ReturnType<typeof vi.fn> }[] })
-      .sentMessages[0];
+    const placeholder = (
+      message as unknown as { sentMessages: { edit: ReturnType<typeof vi.fn> }[] }
+    ).sentMessages[0];
     if (!placeholder) return "";
     return placeholder.edit.mock.calls
       .map((c) => (c[0] as { content?: string })?.content ?? "")
@@ -833,7 +890,10 @@ describe("dispatch: confession commands (prefix surface)", () => {
     });
     await handlePrefixMessage(message, deps);
 
-    expect(stored[GUILD_ID]).toEqual({ channelId: CURRENT_CHANNEL, logChannelId: UNCACHED_CHANNEL_ID });
+    expect(stored[GUILD_ID]).toEqual({
+      channelId: CURRENT_CHANNEL,
+      logChannelId: UNCACHED_CHANNEL_ID,
+    });
     expect(finalAnswer(message)).toContain("staff-room");
   });
 
@@ -880,7 +940,10 @@ describe("dispatch: confession commands (prefix surface)", () => {
   });
 
   it("disables confessions and clears both channels", async () => {
-    await confessions.configure(GUILD_ID, { channelId: CURRENT_CHANNEL, logChannelId: LOG_CHANNEL });
+    await confessions.configure(GUILD_ID, {
+      channelId: CURRENT_CHANNEL,
+      logChannelId: LOG_CHANNEL,
+    });
     const message = fakeMessage({ content: "!monarch confession disable" });
     await handlePrefixMessage(message, deps);
 

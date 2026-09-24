@@ -80,7 +80,7 @@ export function ytdlpCookiesPath(): string | null {
 
 /**
  * Extra CLI flags from `YTDLP_ARGS` (e.g. extractor args for a stubborn
- * source). Split on whitespace, but `"quoted values"` stay one argument —
+ * source). Split on whitespace, but `"quoted values"` stay one arguement —
  * `--extractor-args "youtube:player_client=tv,web"` is a single flag pair, and
  * splitting it blindly used to hand yt-dlp two broken arguments.
  */
@@ -300,7 +300,9 @@ export async function downloadYtdlp(): Promise<string> {
   }
   const buffer = Buffer.from(await response.arrayBuffer());
   if (buffer.byteLength < 1_000_000) {
-    throw new Error(`Downloaded file looks wrong (${buffer.byteLength} bytes) — refusing to install it`);
+    throw new Error(
+      `Downloaded file looks wrong (${buffer.byteLength} bytes) — refusing to install it`,
+    );
   }
   writeFileSync(tmp, buffer);
   if (process.platform !== "win32") chmodSync(tmp, 0o755);
@@ -348,18 +350,22 @@ export async function ensureYtdlp(force = false): Promise<YtdlpProbe> {
       bin: configured,
       version,
       source: version !== null ? "env" : "missing",
-      ...(version === null ? { detail: `YTDLP_PATH=${configured} is not a working yt-dlp binary.` } : {}),
+      ...(version === null
+        ? { detail: `YTDLP_PATH=${configured} is not a working yt-dlp binary.` }
+        : {}),
     });
   }
 
   const local = downloadedYtdlpPath();
   if (existsSync(local)) {
     const version = await probeBinary(local);
-    if (version !== null) return finish({ available: true, bin: local, version, source: "downloaded" });
+    if (version !== null)
+      return finish({ available: true, bin: local, version, source: "downloaded" });
   }
 
   const onPath = await probeBinary("yt-dlp");
-  if (onPath !== null) return finish({ available: true, bin: "yt-dlp", version: onPath, source: "path" });
+  if (onPath !== null)
+    return finish({ available: true, bin: "yt-dlp", version: onPath, source: "path" });
 
   if (!ytdlpAutoDownload()) {
     return finish({
@@ -482,18 +488,18 @@ export function explainYtdlpFailure(stderr: string): string {
   if (lower.includes("is not a valid url") || lower.includes("unsupported url")) {
     return "That link isn't something the downloader supports.";
   }
-  const firstLine = text.split("\n").find((line) => line.trim().length > 0)?.replace(/^ERROR:\s*/i, "");
-  return firstLine ? `The downloader said: ${firstLine.slice(0, 300)}` : "The downloader failed without saying why.";
+  const firstLine = text
+    .split("\n")
+    .find((line) => line.trim().length > 0)
+    ?.replace(/^ERROR:\s*/i, "");
+  return firstLine
+    ? `The downloader said: ${firstLine.slice(0, 300)}`
+    : "The downloader failed without saying why.";
 }
 
 /** Last few stderr lines, for logs (never shown raw to users). */
 export function stderrTail(stderr: string, lines = 3): string {
-  return stderr
-    .trim()
-    .split("\n")
-    .slice(-lines)
-    .join(" | ")
-    .slice(0, 500);
+  return stderr.trim().split("\n").slice(-lines).join(" | ").slice(0, 500);
 }
 
 // ── JSON metadata ──────────────────────────────────────────────────────
@@ -588,7 +594,10 @@ export async function ytdlpJsonWithStderr(
       code: result.code,
       stderr: stderrTail(result.stderr),
     });
-    throw new YtdlpError(explainYtdlpFailure(result.stderr || String(result.spawnError ?? "no output")), result.stderr);
+    throw new YtdlpError(
+      explainYtdlpFailure(result.stderr || String(result.spawnError ?? "no output")),
+      result.stderr,
+    );
   }
 
   try {
@@ -596,7 +605,10 @@ export async function ytdlpJsonWithStderr(
     const entry = JSON.parse(payload.split("\n").filter(Boolean).pop()!) as YtdlpEntry;
     return { entry, stderr: result.stderr };
   } catch {
-    throw new YtdlpError("The downloader returned something that wasn't valid JSON — its version may be too old.", result.stderr);
+    throw new YtdlpError(
+      "The downloader returned something that wasn't valid JSON — its version may be too old.",
+      result.stderr,
+    );
   }
 }
 
@@ -614,7 +626,7 @@ export function normalizeSearchKey(key: string | null | undefined): SearchKey {
  * The `yt-dlp` target for a search: `<key><count>:<query>`.
  *
  * The query is the *bare* phrase — the search key and the count belong to this
- * one function, because yt-dlp treats everything after the first colon as the
+ * one function, becuase yt-dlp treats everything after the first colon as the
  * search text. Prefixing it twice (`ytsearch5:ytsearch:…`) makes YouTube search
  * for the literal words "ytsearch:…", which is how a Spotify match quietly
  * turned into "that song isn't on YouTube".
@@ -645,7 +657,11 @@ export function searchFailure(stderr: string): string | null {
  * network, blocked IP), not "the song doesn't exist", so the reason is raised
  * as a {@link YtdlpError} carrying yt-dlp's own words.
  */
-export async function ytdlpSearch(query: string, limit = 5, key: string = "ytsearch"): Promise<YtdlpEntry[]> {
+export async function ytdlpSearch(
+  query: string,
+  limit = 5,
+  key: string = "ytsearch",
+): Promise<YtdlpEntry[]> {
   const count = Math.min(20, Math.max(1, limit));
   const { entry, stderr } = await ytdlpJsonWithStderr(searchTarget(query, count, key), {
     flat: true,
@@ -655,7 +671,10 @@ export async function ytdlpSearch(query: string, limit = 5, key: string = "ytsea
   const failed = entries.length === 0 ? searchFailure(stderr) : null;
   if (failed) {
     // yt-dlp said what went wrong — the user deserves that, not "not found".
-    log.warn("yt-dlp search failed", { target: searchTarget(query, count, key).slice(0, 120), stderr: stderrTail(stderr) });
+    log.warn("yt-dlp search failed", {
+      target: searchTarget(query, count, key).slice(0, 120),
+      stderr: stderrTail(stderr),
+    });
     throw new YtdlpError(failed, stderr);
   }
   return entries;
@@ -739,31 +758,36 @@ export async function openAudioPipe(target: string): Promise<AudioPipe> {
     if (stderr.length < 8_000) stderr += chunk.toString("utf8");
   });
 
-  const exitPromise = new Promise<{ code: number | null; stderr: string; signaled: boolean }>((resolve) => {
-    child.on("close", (exitCode, signal) => {
-      exited = true;
-      code = exitCode;
-      signaled = Boolean(signal);
-      resolve({ code, stderr, signaled });
-    });
-    child.on("error", (error) => {
-      stderr += `\n${String(error)}`;
-      exited = true;
-      signaled = true;
-      resolve({ code: null, stderr, signaled });
-    });
-  });
+  const exitPromise = new Promise<{ code: number | null; stderr: string; signaled: boolean }>(
+    (resolve) => {
+      child.on("close", (exitCode, signal) => {
+        exited = true;
+        code = exitCode;
+        signaled = Boolean(signal);
+        resolve({ code, stderr, signaled });
+      });
+      child.on("error", (error) => {
+        stderr += `\n${String(error)}`;
+        exited = true;
+        signaled = true;
+        resolve({ code: null, stderr, signaled });
+      });
+    },
+  );
 
   // A source that never starts must not hang a guild forever: the silence
   // timer kills the pipe, which surfaces as a normal failed-track skip.
-  const startupTimer = setTimeout(() => {
-    if (exited || child.stdout.readableLength > 0) return;
-    log.warn("yt-dlp produced no audio in time — giving up", {
-      target: target.slice(0, 120),
-      stderr: stderrTail(stderr),
-    });
-    child.kill("SIGKILL");
-  }, STARTUP_GRACE_MS + SOCKET_TIMEOUT_S * 1000);
+  const startupTimer = setTimeout(
+    () => {
+      if (exited || child.stdout.readableLength > 0) return;
+      log.warn("yt-dlp produced no audio in time — giving up", {
+        target: target.slice(0, 120),
+        stderr: stderrTail(stderr),
+      });
+      child.kill("SIGKILL");
+    },
+    STARTUP_GRACE_MS + SOCKET_TIMEOUT_S * 1000,
+  );
   startupTimer.unref?.();
 
   // `--quiet` already keeps yt-dlp off stdout, but a fatal error arrives as a

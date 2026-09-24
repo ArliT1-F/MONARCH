@@ -128,7 +128,11 @@ describe("PUT /api/internal/guilds/:id/prefix", () => {
   it("resets to the default with null", async () => {
     await getStore().putCommandPrefix(GUILD, "m!");
     const res = await PUT(request({ prefix: null }), params);
-    expect(await res.json()).toEqual({ ok: true, prefix: DEFAULT_COMMAND_PREFIX, customized: false });
+    expect(await res.json()).toEqual({
+      ok: true,
+      prefix: DEFAULT_COMMAND_PREFIX,
+      customized: false,
+    });
     expect(await getStore().getCommandPrefix(GUILD)).toBeNull();
   });
 

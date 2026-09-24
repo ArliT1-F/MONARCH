@@ -99,7 +99,11 @@ export class SlashCommandContext implements CommandContext {
     );
     if (this.deferred || this.interaction.deferred || this.interaction.replied) {
       this.responded = true;
-      return this.interaction.editReply({ content, files: attachments, allowedMentions: allowedMentionsFor() });
+      return this.interaction.editReply({
+        content,
+        files: attachments,
+        allowedMentions: allowedMentionsFor(),
+      });
     }
     this.responded = true;
     return this.interaction.reply({

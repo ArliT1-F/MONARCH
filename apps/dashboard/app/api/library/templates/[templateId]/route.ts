@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { assertSameOrigin, jsonError, jsonStorageError, requireSession } from "@/lib/api";
-import { deleteTemplate, duplicateTemplate, renameTemplate, templateEnvelope, templateMeta } from "@/lib/library";
+import {
+  deleteTemplate,
+  duplicateTemplate,
+  renameTemplate,
+  templateEnvelope,
+  templateMeta,
+} from "@/lib/library";
 import { getStore } from "@/lib/store";
 
 type Params = { params: Promise<{ templateId: string }> };
@@ -19,7 +25,10 @@ export async function GET(req: NextRequest, { params }: Params) {
   try {
     const record = await getStore().getTemplate(auth.session.userId, templateId);
     if (!record) {
-      return jsonError(404, { code: "template.not-found", message: "That template doesn't exist in your library." });
+      return jsonError(404, {
+        code: "template.not-found",
+        message: "That template doesn't exist in your library.",
+      });
     }
     const envelope = templateEnvelope(record);
     if (!envelope.ok) {
@@ -61,9 +70,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   try {
     const outcome =
       body.data.action === "rename"
-        ? await renameTemplate({ ownerId: auth.session.userId, templateId, name: body.data.name ?? "" })
+        ? await renameTemplate({
+            ownerId: auth.session.userId,
+            templateId,
+            name: body.data.name ?? "",
+          })
         : await duplicateTemplate({ ownerId: auth.session.userId, templateId });
-    if (!outcome.ok) return jsonError(outcome.status, { code: outcome.code, message: outcome.message });
+    if (!outcome.ok)
+      return jsonError(outcome.status, { code: outcome.code, message: outcome.message });
     return NextResponse.json({ template: templateMeta(outcome.template) });
   } catch (error) {
     return jsonStorageError(error, "Monarch couldn't update that template.");
@@ -80,7 +94,8 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
   try {
     const outcome = await deleteTemplate({ ownerId: auth.session.userId, templateId });
-    if (!outcome.ok) return jsonError(outcome.status, { code: outcome.code, message: outcome.message });
+    if (!outcome.ok)
+      return jsonError(outcome.status, { code: outcome.code, message: outcome.message });
     return NextResponse.json({ ok: true, id: outcome.id });
   } catch (error) {
     return jsonStorageError(error, "Monarch couldn't delete that template.");

@@ -27,8 +27,8 @@ export default async function DesignatedChannelsPage({
       <p className="mb-1 text-xs font-semibold tracking-[0.2em] text-ink-400 uppercase">Settings</p>
       <h1 className="mb-2 text-2xl font-semibold tracking-tight">Designated channels</h1>
       <p className="mb-6 text-sm leading-relaxed text-ink-300 sm:mb-8">
-        Every Monarch feature that publishes content resolves its destination through these
-        defaults (or a per-feature override). Monarch never guesses a channel.
+        Every Monarch feature that publishes content resolves its destination through these defaults
+        (or a per-feature override). Monarch never guesses a channel.
       </p>
       <DesignatedChannelsForm
         guildId={guildId}

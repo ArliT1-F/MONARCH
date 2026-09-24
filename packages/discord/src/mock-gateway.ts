@@ -1,6 +1,12 @@
 import type { ServerDesign } from "@monarch/schemas";
 import { ok, err, monarchError, type Result } from "@monarch/shared";
-import type { BotGuildInfo, CreatedChannel, DiscordGateway, MessagePayload, UserGuild } from "./gateway.js";
+import type {
+  BotGuildInfo,
+  CreatedChannel,
+  DiscordGateway,
+  MessagePayload,
+  UserGuild,
+} from "./gateway.js";
 
 /**
  * MockDiscordGateway — in-memory Discord used for demo mode and tests.
@@ -55,10 +61,7 @@ export class MockDiscordGateway implements DiscordGateway {
     return state.guilds[guildId] ?? null;
   }
 
-  private async mutate<T>(
-    guildId: string,
-    fn: (g: MockGuild) => T,
-  ): Promise<Result<T>> {
+  private async mutate<T>(guildId: string, fn: (g: MockGuild) => T): Promise<Result<T>> {
     const state = await this.store.load();
     const g = state.guilds[guildId];
     if (!g || !g.botInstalled) {
@@ -75,7 +78,11 @@ export class MockDiscordGateway implements DiscordGateway {
 
   async listBotGuildIds(): Promise<Set<string>> {
     const state = await this.store.load();
-    return new Set(Object.values(state.guilds).filter((g) => g.botInstalled).map((g) => g.id));
+    return new Set(
+      Object.values(state.guilds)
+        .filter((g) => g.botInstalled)
+        .map((g) => g.id),
+    );
   }
 
   async getBotGuildInfo(guildId: string): Promise<BotGuildInfo | null> {
@@ -100,14 +107,26 @@ export class MockDiscordGateway implements DiscordGateway {
   async createCategory(guildId: string, payload: { name: string; position?: number }) {
     return this.mutate<CreatedChannel>(guildId, (g) => {
       const id = mockSnowflake();
-      g.design.categories.push({ id, name: payload.name, position: payload.position ?? g.design.categories.length });
+      g.design.categories.push({
+        id,
+        name: payload.name,
+        position: payload.position ?? g.design.categories.length,
+      });
       return { id, name: payload.name };
     });
   }
 
   async createChannel(
     guildId: string,
-    payload: { name: string; kind: string; topic?: string; parentId?: string; nsfw?: boolean; slowmode?: number; position?: number },
+    payload: {
+      name: string;
+      kind: string;
+      topic?: string;
+      parentId?: string;
+      nsfw?: boolean;
+      slowmode?: number;
+      position?: number;
+    },
   ) {
     return this.mutate<CreatedChannel>(guildId, (g) => {
       const id = mockSnowflake();
@@ -128,7 +147,14 @@ export class MockDiscordGateway implements DiscordGateway {
   async modifyChannel(
     guildId: string,
     channelId: string,
-    payload: { name?: string; topic?: string | null; nsfw?: boolean; slowmode?: number; parentId?: string | null; position?: number },
+    payload: {
+      name?: string;
+      topic?: string | null;
+      nsfw?: boolean;
+      slowmode?: number;
+      parentId?: string | null;
+      position?: number;
+    },
   ) {
     return this.mutate<void>(guildId, (g) => {
       const cat = g.design.categories.find((c) => c.id === channelId);
@@ -189,7 +215,14 @@ export class MockDiscordGateway implements DiscordGateway {
 
   async createRole(
     guildId: string,
-    payload: { name: string; color?: string; hoist?: boolean; mentionable?: boolean; permissions?: string; position?: number },
+    payload: {
+      name: string;
+      color?: string;
+      hoist?: boolean;
+      mentionable?: boolean;
+      permissions?: string;
+      position?: number;
+    },
   ) {
     return this.mutate<CreatedChannel>(guildId, (g) => {
       const id = mockSnowflake();
@@ -214,7 +247,14 @@ export class MockDiscordGateway implements DiscordGateway {
   async modifyRole(
     guildId: string,
     roleId: string,
-    payload: { name?: string; color?: string | null; hoist?: boolean; mentionable?: boolean; permissions?: string; position?: number },
+    payload: {
+      name?: string;
+      color?: string | null;
+      hoist?: boolean;
+      mentionable?: boolean;
+      permissions?: string;
+      position?: number;
+    },
   ) {
     return this.mutate<void>(guildId, (g) => {
       const role = g.design.roles.find((r) => r.id === roleId);

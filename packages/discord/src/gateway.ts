@@ -102,7 +102,10 @@ export interface DiscordGateway {
   fetchServerDesign(guildId: string): Promise<Result<ServerDesign>>;
 
   // ── mutations (called only by the apply executor) ─────────────
-  createCategory(guildId: string, payload: { name: string; position?: number }): Promise<Result<CreatedChannel>>;
+  createCategory(
+    guildId: string,
+    payload: { name: string; position?: number },
+  ): Promise<Result<CreatedChannel>>;
   createChannel(
     guildId: string,
     payload: {
@@ -118,27 +121,41 @@ export interface DiscordGateway {
   modifyChannel(
     guildId: string,
     channelId: string,
-    payload: { name?: string; topic?: string | null; nsfw?: boolean; slowmode?: number; parentId?: string | null; position?: number },
+    payload: {
+      name?: string;
+      topic?: string | null;
+      nsfw?: boolean;
+      slowmode?: number;
+      parentId?: string | null;
+      position?: number;
+    },
   ): Promise<Result<void>>;
   deleteChannel(guildId: string, channelId: string): Promise<Result<void>>;
 
   // ── role mutations (Phase 5) ────────────────────────────────
-  createRole(guildId: string, payload: {
-    name: string;
-    color?: string;
-    hoist?: boolean;
-    mentionable?: boolean;
-    permissions?: string;
-    position?: number;
-  }): Promise<Result<CreatedChannel>>;
-  modifyRole(guildId: string, roleId: string, payload: {
-    name?: string;
-    color?: string | null;
-    hoist?: boolean;
-    mentionable?: boolean;
-    permissions?: string;
-    position?: number;
-  }): Promise<Result<void>>;
+  createRole(
+    guildId: string,
+    payload: {
+      name: string;
+      color?: string;
+      hoist?: boolean;
+      mentionable?: boolean;
+      permissions?: string;
+      position?: number;
+    },
+  ): Promise<Result<CreatedChannel>>;
+  modifyRole(
+    guildId: string,
+    roleId: string,
+    payload: {
+      name?: string;
+      color?: string | null;
+      hoist?: boolean;
+      mentionable?: boolean;
+      permissions?: string;
+      position?: number;
+    },
+  ): Promise<Result<void>>;
   deleteRole(guildId: string, roleId: string): Promise<Result<void>>;
 
   /** Send a message (Send Test / publish) through the Target Resolver. */

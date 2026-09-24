@@ -13,10 +13,7 @@ const PutBody = z.object({
  * GET/PUT /api/guilds/:guildId/workspace
  * Autosaved content designs for the Embed Builder and Message Designer.
  */
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const { guildId } = await params;
   try {
     const access = await requireGuildAccess(guildId);
@@ -28,10 +25,7 @@ export async function GET(
   }
 }
 
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const csrf = assertSameOrigin(req);
   if (csrf) return csrf;
   const { guildId } = await params;
@@ -41,7 +35,10 @@ export async function PUT(
 
     const body = PutBody.safeParse(await req.json().catch(() => null));
     if (!body.success) {
-      return jsonError(400, { code: "workspace.invalid", message: "The workspace payload is invalid." });
+      return jsonError(400, {
+        code: "workspace.invalid",
+        message: "The workspace payload is invalid.",
+      });
     }
     const saved = await saveWorkspace(guildId, {
       embed: body.data.embed,

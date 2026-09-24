@@ -15,7 +15,16 @@ function baseDesign(): ServerDesign {
   ];
   d.roles = [
     { id: "r1", name: "@everyone", position: 0, permissions: "0", managed: false },
-    { id: "r2", name: "Member", position: 1, color: "#88c0d0", hoist: true, mentionable: false, permissions: "0", managed: false },
+    {
+      id: "r2",
+      name: "Member",
+      position: 1,
+      color: "#88c0d0",
+      hoist: true,
+      mentionable: false,
+      permissions: "0",
+      managed: false,
+    },
     { id: "r3", name: "MEE6", position: 50, permissions: "8", managed: true },
   ];
   return d;
@@ -30,7 +39,13 @@ describe("diffServerDesign", () => {
 
   it("detects creations via local ids", () => {
     const desired = baseDesign();
-    desired.channels.push({ id: "new_abc", name: "media", type: "text", position: 2, parentId: "cat1" });
+    desired.channels.push({
+      id: "new_abc",
+      name: "media",
+      type: "text",
+      position: 2,
+      parentId: "cat1",
+    });
     const diff = diffServerDesign(baseDesign(), desired);
     expect(diff.creates).toHaveLength(1);
     expect(diff.creates[0]?.name).toBe("media");
@@ -71,7 +86,14 @@ describe("diffServerDesign", () => {
 describe("diffServerDesign — roles", () => {
   it("detects role creations via local ids", () => {
     const desired = baseDesign();
-    desired.roles.push({ id: "new_r", name: "Mod", position: 10, color: "#ff8800", permissions: "0", managed: false });
+    desired.roles.push({
+      id: "new_r",
+      name: "Mod",
+      position: 10,
+      color: "#ff8800",
+      permissions: "0",
+      managed: false,
+    });
     const diff = diffServerDesign(baseDesign(), desired);
     const roleCreates = diff.creates.filter((c) => c.resource === "role");
     expect(roleCreates).toHaveLength(1);
@@ -92,7 +114,9 @@ describe("diffServerDesign — roles", () => {
     // The rename bundles the field changes, mirroring how channels
     // surface a rename + topic change as one rename entry.
     const fields = roleRenames[0]!.changes.map((c) => c.field);
-    expect(fields).toEqual(expect.arrayContaining(["color", "hoist", "mentionable", "permissions"]));
+    expect(fields).toEqual(
+      expect.arrayContaining(["color", "hoist", "mentionable", "permissions"]),
+    );
   });
 
   it("emits a separate modify when only non-name fields change", () => {
@@ -149,7 +173,13 @@ describe("planApply", () => {
   it("orders creates before modifies before deletes, categories first", () => {
     const desired = baseDesign();
     desired.categories.push({ id: "new_cat", name: "COMMUNITY", position: 1 });
-    desired.channels.push({ id: "new_ch", name: "off-topic", type: "text", position: 0, parentId: "new_cat" });
+    desired.channels.push({
+      id: "new_ch",
+      name: "off-topic",
+      type: "text",
+      position: 0,
+      parentId: "new_cat",
+    });
     desired.channels[1]!.topic = "changed";
     desired.channels = desired.channels.filter((c) => c.id !== "ch3");
 
@@ -163,7 +193,13 @@ describe("planApply", () => {
 
   it("orders role creates after channel creates but before role deletes", () => {
     const desired = baseDesign();
-    desired.roles.push({ id: "new_r", name: "Mod", position: 10, permissions: "0", managed: false });
+    desired.roles.push({
+      id: "new_r",
+      name: "Mod",
+      position: 10,
+      permissions: "0",
+      managed: false,
+    });
     desired.roles = desired.roles.filter((r) => r.id !== "r2");
     const plan = planApply(diffServerDesign(baseDesign(), desired));
     const ops = plan.steps.map((s) => s.entry.op + ":" + s.entry.resource);
@@ -187,4 +223,3 @@ describe("detachDesign", () => {
     expect(detached.channels[0]?.parentId).toBe(cat.id);
   });
 });
-

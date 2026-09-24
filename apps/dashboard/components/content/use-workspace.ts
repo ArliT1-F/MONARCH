@@ -137,11 +137,19 @@ export function useWorkspace<T extends EmbedDesign | MessageDesign>(
 
   const clearSendResult = useCallback(() => setSendResult(null), []);
 
-  return { design, loading, loadError, update, saveState, send, sendState, sendResult, clearSendResult };
+  return {
+    design,
+    loading,
+    loadError,
+    update,
+    saveState,
+    send,
+    sendState,
+    sendResult,
+    clearSendResult,
+  };
 }
 
 export function emptyDesign(kind: ContentKind): EmbedDesign | MessageDesign {
-  return kind === "embed"
-    ? { fields: [] }
-    : { content: "", embeds: [], buttons: [] };
+  return kind === "embed" ? { fields: [] } : { content: "", embeds: [], buttons: [] };
 }

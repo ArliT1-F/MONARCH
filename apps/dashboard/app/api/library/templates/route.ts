@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { assertSameOrigin, jsonError, jsonStorageError, requireGuildAccess, requireSession } from "@/lib/api";
+import {
+  assertSameOrigin,
+  jsonError,
+  jsonStorageError,
+  requireGuildAccess,
+  requireSession,
+} from "@/lib/api";
 import { saveTemplateFromGuild, saveTemplateFromUpload, templateMeta } from "@/lib/library";
 import { getStore } from "@/lib/store";
 
@@ -51,13 +57,19 @@ export async function POST(req: NextRequest) {
 
   const raw = await req.text();
   if (raw.length > MAX_TEMPLATE_BYTES) {
-    return jsonError(413, { code: "template.too-large", message: "That template is too large (max 2 MB)." });
+    return jsonError(413, {
+      code: "template.too-large",
+      message: "That template is too large (max 2 MB).",
+    });
   }
   let json: unknown = null;
   try {
     json = JSON.parse(raw);
   } catch {
-    return jsonError(400, { code: "request.invalid", message: "The request body isn't valid JSON." });
+    return jsonError(400, {
+      code: "request.invalid",
+      message: "The request body isn't valid JSON.",
+    });
   }
   const body = CreateBody.safeParse(json);
   if (!body.success) {
@@ -76,7 +88,8 @@ export async function POST(req: NextRequest) {
         username: auth.session.username,
         name: body.data.name,
       });
-      if (!outcome.ok) return jsonError(outcome.status, { code: outcome.code, message: outcome.message });
+      if (!outcome.ok)
+        return jsonError(outcome.status, { code: outcome.code, message: outcome.message });
       return NextResponse.json({ template: templateMeta(outcome.template) });
     }
 

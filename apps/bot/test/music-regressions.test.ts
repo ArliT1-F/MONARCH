@@ -6,7 +6,7 @@ import { MusicQueue, type Track } from "@monarch/music";
  * Failure regressions — the bugs that used to be silent.
  *
  * Audio now runs in-process (yt-dlp → ffmpeg → Discord), so "the stream died"
- * became "yt-dlp exited non-zero" / "the downloader isn't installed". What must
+ * became "yt-dlp exited non-zero" / "the downloader isnt installed". What must
  * not regress is the behaviour *around* those failures: a failed track is
  * skipped without wedging the queue, a stop wins the race against a slow
  * resolve, a dead downloader is named as such, and a deferred reply still
@@ -14,7 +14,7 @@ import { MusicQueue, type Track } from "@monarch/music";
  */
 
 vi.mock("../src/music/sources.js", async (original) => ({
-  ...await original<typeof import("../src/music/sources.js")>(),
+  ...(await original<typeof import("../src/music/sources.js")>()),
   ensurePlayable: vi.fn(async (track: Track) => track),
   resolveQuery: vi.fn(),
 }));
@@ -23,7 +23,13 @@ import { SourceError, ensurePlayable, resolveQuery } from "../src/music/sources.
 import { MusicCommands } from "../src/music/commands.js";
 import { MusicManager } from "../src/music/player.js";
 import { SlashCommandContext } from "../src/slash-context.js";
-import { FakeAudioBackend, fakeClient, fakeGuild, fakeVoiceChannel, type FakeGuild } from "./music-fakes.js";
+import {
+  FakeAudioBackend,
+  fakeClient,
+  fakeGuild,
+  fakeVoiceChannel,
+  type FakeGuild,
+} from "./music-fakes.js";
 
 const track = (id: string, extra: Partial<Track> = {}): Track =>
   ({
@@ -51,14 +57,20 @@ function setup() {
 }
 
 /** Join a channel the way the bot does: one call, the backend does the rest. */
-async function joinVoice(manager: MusicManager, guild: FakeGuild, channelId = "voice"): Promise<void> {
+async function joinVoice(
+  manager: MusicManager,
+  guild: FakeGuild,
+  channelId = "voice",
+): Promise<void> {
   await manager.connect("guild", fakeVoiceChannel(channelId, guild));
 }
 
 const titles = (announce: ReturnType<typeof vi.fn>) =>
   announce.mock.calls.map(([, embed]) => (embed as { title?: string }).title);
 const descriptions = (announce: ReturnType<typeof vi.fn>) =>
-  announce.mock.calls.map(([, embed]) => String((embed as { description?: string }).description ?? ""));
+  announce.mock.calls.map(([, embed]) =>
+    String((embed as { description?: string }).description ?? ""),
+  );
 
 beforeEach(() => {
   vi.mocked(ensurePlayable).mockImplementation(async (t: Track) => t);
@@ -70,15 +82,25 @@ describe("music failure regressions", () => {
     const channel = { id: "voice", permissionsFor: () => ({ has: () => true }) };
     const interaction = {
       inCachedGuild: () => true,
-      guildId: "guild", channelId: "text",
+      guildId: "guild",
+      channelId: "text",
       guild: { members: { me: {} }, channels: { cache: new Map() } },
-      member: { voice: { channel } }, user: { id: "user", displayName: "User" },
+      member: { voice: { channel } },
+      user: { id: "user", displayName: "User" },
       options: { getSubcommand: () => "play", getString: () => "spotify link" },
-      deferred: false, replied: false,
-      deferReply: vi.fn(async () => { interaction.deferred = true; }),
-      editReply: vi.fn(), reply: vi.fn(),
+      deferred: false,
+      replied: false,
+      deferReply: vi.fn(async () => {
+        interaction.deferred = true;
+      }),
+      editReply: vi.fn(),
+      reply: vi.fn(),
     };
-    const manager = { connectedChannelId: () => null, setAnnouncementChannel: vi.fn(), connect: vi.fn() };
+    const manager = {
+      connectedChannelId: () => null,
+      setAnnouncementChannel: vi.fn(),
+      connect: vi.fn(),
+    };
     vi.mocked(resolveQuery).mockRejectedValue(new SourceError("Spotify links are not configured"));
     // The same handler serves /music play and !play — the test drives the
     // slash surface through its CommandContext adapter.
@@ -96,21 +118,24 @@ describe("music failure regressions", () => {
     expect(manager.connect).not.toHaveBeenCalled();
   });
 
-  it.each(["off", "track", "queue"] as const)("drains tracks the downloader refuses without getting stuck in %s loop", async (mode) => {
-    const { backend, announce, manager } = setup();
-    manager.queue("guild").setLoop(mode);
-    await manager.enqueue("guild", [track("one"), track("two")]);
-    vi.mocked(ensurePlayable).mockRejectedValue(new SourceError("Unavailable"));
+  it.each(["off", "track", "queue"] as const)(
+    "drains tracks the downloader refuses without getting stuck in %s loop",
+    async (mode) => {
+      const { backend, announce, manager } = setup();
+      manager.queue("guild").setLoop(mode);
+      await manager.enqueue("guild", [track("one"), track("two")]);
+      vi.mocked(ensurePlayable).mockRejectedValue(new SourceError("Unavailable"));
 
-    await manager.startIfIdle("guild");
+      await manager.startIfIdle("guild");
 
-    expect(ensurePlayable).toHaveBeenCalledTimes(2);
-    expect(backend.callsTo("play")).toHaveLength(0); // nothing unplayable reached the pipeline
-    expect(manager.queue("guild").isEmpty).toBe(true);
-    // Every refusal is announced, so a silent skip can't happen again.
-    expect(titles(announce).filter((t) => t === "⚠️ Track failed")).toHaveLength(2);
-    manager.teardown("guild", false);
-  });
+      expect(ensurePlayable).toHaveBeenCalledTimes(2);
+      expect(backend.callsTo("play")).toHaveLength(0); // nothing unplayable reached the pipeline
+      expect(manager.queue("guild").isEmpty).toBe(true);
+      // Every refusal is announced, so a silent skip can't happen again.
+      expect(titles(announce).filter((t) => t === "⚠️ Track failed")).toHaveLength(2);
+      manager.teardown("guild", false);
+    },
+  );
 
   it("does not start a track after stop", async () => {
     const { backend, guild, manager } = setup();
@@ -118,7 +143,11 @@ describe("music failure regressions", () => {
 
     const late = track("late");
     let resolvePlayable!: (value: Track) => void;
-    vi.mocked(ensurePlayable).mockReturnValue(new Promise<Track>((resolve) => { resolvePlayable = resolve; }));
+    vi.mocked(ensurePlayable).mockReturnValue(
+      new Promise<Track>((resolve) => {
+        resolvePlayable = resolve;
+      }),
+    );
 
     await manager.enqueue("guild", [late]);
     const playing = manager.startIfIdle("guild");
@@ -166,7 +195,9 @@ describe("music failure regressions", () => {
 
     await manager.startIfIdle("guild");
 
-    const failure = announce.mock.calls.find(([, embed]) => (embed as { title?: string }).title === "⚠️ Track failed");
+    const failure = announce.mock.calls.find(
+      ([, embed]) => (embed as { title?: string }).title === "⚠️ Track failed",
+    );
     expect(String((failure?.[1] as { description?: string }).description)).toMatch(/yt-dlp/);
     expect(backend.callsTo("play")).toHaveLength(1); // the track was handed over and the pipeline explained itself
     manager.teardown("guild", false);
@@ -181,7 +212,8 @@ describe("music failure regressions", () => {
     backend.endTrack("guild", "failed", {
       trackId: "one",
       elapsedMs: 12_000,
-      error: "That video is unavailable (removed, region-locked, or age-restricted without cookies).",
+      error:
+        "That video is unavailable (removed, region-locked, or age-restricted without cookies).",
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
 

@@ -171,4 +171,12 @@ export function Counter({ value, max }: { value: number; max: number }) {
   );
 }
 
-export const PRESET_COLORS = ["#5865f2", "#e8b64c", "#eb4d4b", "#4cc38a", "#e5a53b", "#9b59b6", "#57c8f2"];
+export const PRESET_COLORS = [
+  "#5865f2",
+  "#e8b64c",
+  "#eb4d4b",
+  "#4cc38a",
+  "#e5a53b",
+  "#9b59b6",
+  "#57c8f2",
+];

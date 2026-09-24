@@ -35,8 +35,8 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   since show as deletes, renames revert — reviewed and applied like any change
 - 📤 **Templates · Import / Export** — download the layout as a portable
   `monarch-template` JSON (no snowflakes, no server-specific settings) and
-  import it into any server, either *added under* the existing structure or
-  *replacing* it, always with the full diff preview first
+  import it into any server, either _added under_ the existing structure or
+  _replacing_ it, always with the full diff preview first
 - 👑 **Role Designer (Phase 5)** — rename, recolor, hoist, mentionable,
   position and a curated permission grid for every non-managed role, through
   the same draft → diff → apply pipeline
@@ -49,11 +49,11 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   human-readable suggestions, "mark as intentional" per check, and a
   Markdown report export. Read-only: it never changes your server
 - 🤫 **Confessions** — an anonymous confession channel: `/monarch confession
-  setup [channel] [logs]` posts a starter confession with a **Confess**
+setup [channel] [logs]` posts a starter confession with a **Confess**
   button; anyone can press it and tell their secret — it goes up as a fully
   anonymous embed (no name, no avatar, no id). With a staff log channel,
   staff also get a full entry (who, when, link) in a private channel. One
-  confession per person every **6 hours**, counted across *every* server —
+  confession per person every **6 hours**, counted across _every_ server —
   while the window runs the button answers with a countdown instead of
   opening the form (Manage Server / Admin skip the wait, and a post that
   fails never costs anybody their window)
@@ -62,7 +62,7 @@ Draft → Preview → Validate → Diff → Confirm → Apply
 - 📚 **Help & Commands page** — every command with options, examples,
   permissions and requirements, searchable, at `/s/<server>/help` (the same
   catalog `/monarch help` renders in Discord — one source of truth)
-- 🎵 **Music player** — YouTube videos *and* playlists, Spotify tracks,
+- 🎵 **Music player** — YouTube videos _and_ playlists, Spotify tracks,
   albums and playlists, plus plain search. Per-server queue with
   pause / resume / stop / volume / loop / shuffle / remove / clear,
   now-playing progress, and a skip system: **DJ, Moderator/Staff and the
@@ -76,45 +76,45 @@ Draft → Preview → Validate → Diff → Confirm → Apply
 - 🤖 Slash commands (the full manual lives at **Help → Commands & Help** in
   the dashboard; `/monarch help` shows the short version):
 
-  | Command | What it does | Who |
-  | --- | --- | --- |
-  | `/monarch help` | List every command | everyone |
-  | `/monarch dashboard` · `/monarch status` | Dashboard link / status | everyone |
-  | `/monarch prefix [prefix]` · `!prefix set ?` | Show or change this server's text-command prefix | Manage Server / Admin |
-  | `/monarch invite` · `!invite` | The link to add Monarch to a server of your own (least-privilege, never Administrator) | everyone |
-  | `/monarch backup [name]` | Snapshot the server structure | Manage Server / Admin |
-  | `/monarch export` | Post the layout as a `.json` template file | Manage Server / Admin |
-  | `/monarch embed` · `/monarch test` | Embed Builder link · test/publish the saved design | Manage Server / Admin |
-  | `/burg @user [duration] [style] [reason]` | Delete everything the user posts and re-post it as cute uwu/owo text under their name and avatar. Run it again with no options to turn it off (or with options to update the timer/style); styles include random, soft, cat and chaotic | Administrator or Kick Members |
-  | `/monarch burged` | List burg'd members | Administrator or Kick Members |
-  | `/monarch debug on\|off` | **Owner only** (`MONARCH_OWNER_USER_ID`): post the raw error (yt-dlp stderr, stack traces) next to every music failure after `on`, back to one clean line after `off` | the bot's owner |
-  | `/monarch confession setup [channel] [logs]` | Set up the anonymous confession channel (and optional staff log channel) and post the starter confession. `/monarch confession disable` switches it off. Anyone can confess from the **Confess** button on any confession — one per person every 6 hours, across every server (Manage Server / Admin skip the wait) | Manage Server / Admin (confessing: everyone) |
-  | `/music play <link or search>` | Play/queue YouTube & Spotify tracks, playlists and albums | everyone in voice |
-  | `/music pause` · `/music resume` · `/music stop` | Pause · resume · stop + clear + leave | everyone in the bot's channel |
-  | `/music skip` | Skip — instantly with a **DJ** or **Moderator/Staff** role (or if it's your song), otherwise by listener vote | everyone |
-  | `/music queue [page]` · `/music nowplaying` | Show the queue · now playing with progress | everyone |
-  | `/music volume [0-150]` · `/music loop [off\|track\|queue]` · `/music shuffle` · `/music remove <#>` · `/music clear` | Playback controls | everyone in the bot's channel |
-  **Every one of those commands has a prefix form.** The slash tree mirrors
-  one-to-one (`!monarch burged`, `!music play <song>`) and the things
-  people type often have short aliases:
+  | Command                                                                                                               | What it does                                                                                                                                                                                                                                                                                                        | Who                                          |
+  | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+  | `/monarch help`                                                                                                       | List every command                                                                                                                                                                                                                                                                                                  | everyone                                     |
+  | `/monarch dashboard` · `/monarch status`                                                                              | Dashboard link / status                                                                                                                                                                                                                                                                                             | everyone                                     |
+  | `/monarch prefix [prefix]` · `!prefix set ?`                                                                          | Show or change this server's text-command prefix                                                                                                                                                                                                                                                                    | Manage Server / Admin                        |
+  | `/monarch invite` · `!invite`                                                                                         | The link to add Monarch to a server of your own (least-privilege, never Administrator)                                                                                                                                                                                                                              | everyone                                     |
+  | `/monarch backup [name]`                                                                                              | Snapshot the server structure                                                                                                                                                                                                                                                                                       | Manage Server / Admin                        |
+  | `/monarch export`                                                                                                     | Post the layout as a `.json` template file                                                                                                                                                                                                                                                                          | Manage Server / Admin                        |
+  | `/monarch embed` · `/monarch test`                                                                                    | Embed Builder link · test/publish the saved design                                                                                                                                                                                                                                                                  | Manage Server / Admin                        |
+  | `/burg @user [duration] [style] [reason]`                                                                             | Delete everything the user posts and re-post it as cute uwu/owo text under their name and avatar. Run it again with no options to turn it off (or with options to update the timer/style); styles include random, soft, cat and chaotic                                                                             | Administrator or Kick Members                |
+  | `/monarch burged`                                                                                                     | List burg'd members                                                                                                                                                                                                                                                                                                 | Administrator or Kick Members                |
+  | `/monarch debug on\|off`                                                                                              | **Owner only** (`MONARCH_OWNER_USER_ID`): post the raw error (yt-dlp stderr, stack traces) next to every music failure after `on`, back to one clean line after `off`                                                                                                                                               | the bot's owner                              |
+  | `/monarch confession setup [channel] [logs]`                                                                          | Set up the anonymous confession channel (and optional staff log channel) and post the starter confession. `/monarch confession disable` switches it off. Anyone can confess from the **Confess** button on any confession — one per person every 6 hours, across every server (Manage Server / Admin skip the wait) | Manage Server / Admin (confessing: everyone) |
+  | `/music play <link or search>`                                                                                        | Play/queue YouTube & Spotify tracks, playlists and albums                                                                                                                                                                                                                                                           | everyone in voice                            |
+  | `/music pause` · `/music resume` · `/music stop`                                                                      | Pause · resume · stop + clear + leave                                                                                                                                                                                                                                                                               | everyone in the bot's channel                |
+  | `/music skip`                                                                                                         | Skip — instantly with a **DJ** or **Moderator/Staff** role (or if it's your song), otherwise by listener vote                                                                                                                                                                                                       | everyone                                     |
+  | `/music queue [page]` · `/music nowplaying`                                                                           | Show the queue · now playing with progress                                                                                                                                                                                                                                                                          | everyone                                     |
+  | `/music volume [0-150]` · `/music loop [off\|track\|queue]` · `/music shuffle` · `/music remove <#>` · `/music clear` | Playback controls                                                                                                                                                                                                                                                                                                   | everyone in the bot's channel                |
+  | **Every one of those commands has a prefix form.** The slash tree mirrors                                             |
+  | one-to-one (`!monarch burged`, `!music play <song>`) and the things                                                   |
+  | people type often have short aliases:                                                                                 |
 
-  | Prefix | Slash |
-  | --- | --- |
-  | `!help` · `!commands` | `/monarch help` |
-  | `!dashboard` · `!status` · `!prefix [set <new>\|reset]` · `!invite` (`!add`) | `/monarch dashboard` · `status` · `prefix` · `invite` |
-  | `!backup [name]` · `!export` · `!embed` · `!test embed [publish] [#channel]` | `/monarch backup` · `export` · `embed` · `test` |
-  | `!burg @user [duration] [style] [reason]` · `!burged` | `/burg` · `/monarch burged` |
-  | `!debug on` · `!debug off` (owner only) | `/monarch debug` |
-  | `!confession setup [#channel] [#logs]` · `!confession disable` | `/monarch confession setup` · `disable` |
-  | `!play <link or search>` (`!p`) · `!skip` · `!queue [page]` (`!q`) · `!np` | `/music play` · `skip` · `queue` · `nowplaying` |
+  | Prefix                                                                                      | Slash                                                  |
+  | ------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+  | `!help` · `!commands`                                                                       | `/monarch help`                                        |
+  | `!dashboard` · `!status` · `!prefix [set <new>\|reset]` · `!invite` (`!add`)                | `/monarch dashboard` · `status` · `prefix` · `invite`  |
+  | `!backup [name]` · `!export` · `!embed` · `!test embed [publish] [#channel]`                | `/monarch backup` · `export` · `embed` · `test`        |
+  | `!burg @user [duration] [style] [reason]` · `!burged`                                       | `/burg` · `/monarch burged`                            |
+  | `!debug on` · `!debug off` (owner only)                                                     | `/monarch debug`                                       |
+  | `!confession setup [#channel] [#logs]` · `!confession disable`                              | `/monarch confession setup` · `disable`                |
+  | `!play <link or search>` (`!p`) · `!skip` · `!queue [page]` (`!q`) · `!np`                  | `/music play` · `skip` · `queue` · `nowplaying`        |
   | `!pause` · `!resume` · `!stop` (`!leave`) · `!volume [0-150]` · `!loop [off\|track\|queue]` | `/music pause` · `resume` · `stop` · `volume` · `loop` |
-  | `!shuffle` · `!remove <#>` · `!clear` | `/music shuffle` · `remove` · `clear` |
+  | `!shuffle` · `!remove <#>` · `!clear`                                                       | `/music shuffle` · `remove` · `clear`                  |
 
   Quoted arguments stay in one piece (`!backup "before summer cleanup"`),
   durations can be written as `10m`, `2h`, `1d` or `1h30m`, and mentioning the
   bot works as a prefix anywhere (`@Monarch help`). Text commands are public —
   there is no ephemeral reply for a message everybody can see — and they are
-  the *same handlers* as the slash commands, so permissions and wording never
+  the _same handlers_ as the slash commands, so permissions and wording never
   differ between the two ways of typing a command.
 
   **Nothing that can't hurt anybody asks for a permission.** `help`,
@@ -138,7 +138,7 @@ Draft → Preview → Validate → Diff → Confirm → Apply
   links, searches and playlists work out of the box through **yt-dlp**, which
   Monarch downloads into `.monarch/bin` on first use (`npm run music:setup`
   does it up front, `npm run music:check` verifies the whole chain). Spotify
-  tightened its API in February 2026 (a playlist's *contents* are only
+  tightened its API in February 2026 (a playlist's _contents_ are only
   readable for playlists the app owns, playlist rows renamed `track` →
   `item`), so Monarch reads both spellings and falls back to a playlist's
   public embed page when the API withholds it. No JVM

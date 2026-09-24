@@ -66,19 +66,20 @@ Dashboard edits → ServerDesign (@monarch/schemas) →
 
 ## 2. Tech stack & scripts
 
-| Tool | Version | Notes |
-|---|---|---|
-| Node | >= 20 | engines.node in root `package.json` |
-| Next.js | ^15.1.6 | App Router, React 19, `transpilePackages` for workspaces |
-| React | ^19.0.0 | |
-| discord.js | (imported as `discord.js`) | `discord-api-types/v10` for payload types |
-| @discordjs/rest | (in packages/discord) | For the bot + dashboard's REST gateway |
-| Prisma | ^7.10.0 | **Engine-free**: query compiler is WASM, `pg` driver adapter |
-| PostgreSQL | 16 (docker) / Neon / Vercel Postgres | |
-| vitest | ^2.1.8 | `npm test` at repo root |
-| TypeScript | ^5.6.3 | `strict`, `noUncheckedIndexedAccess` |
+| Tool            | Version                              | Notes                                                        |
+| --------------- | ------------------------------------ | ------------------------------------------------------------ |
+| Node            | >= 20                                | engines.node in root `package.json`                          |
+| Next.js         | ^15.1.6                              | App Router, React 19, `transpilePackages` for workspaces     |
+| React           | ^19.0.0                              |                                                              |
+| discord.js      | (imported as `discord.js`)           | `discord-api-types/v10` for payload types                    |
+| @discordjs/rest | (in packages/discord)                | For the bot + dashboard's REST gateway                       |
+| Prisma          | ^7.10.0                              | **Engine-free**: query compiler is WASM, `pg` driver adapter |
+| PostgreSQL      | 16 (docker) / Neon / Vercel Postgres |                                                              |
+| vitest          | ^2.1.8                               | `npm test` at repo root                                      |
+| TypeScript      | ^5.6.3                               | `strict`, `noUncheckedIndexedAccess`                         |
 
 **Root scripts (`package.json`):**
+
 - `dev` / `dev:bot` / `build` / `test` / `typecheck` (root + workspaces)
 - `db:generate` (prisma generate) · `db:migrate` (deploy) · `db:dev` (dev)
   · `db:push` (no migrations) · `db:studio`
@@ -112,19 +113,19 @@ they live in `prisma.config.ts` (CLI) and `apps/dashboard/lib/prisma.ts`
 
 ### Models (11 total)
 
-| Model | Migration | Key fields | Relations |
-|---|---|---|---|
-| `User` | init | id, username, avatarUrl, createdAt | sessions[], drafts[], auditEntries[] |
-| `Session` | init | id, userId, accessTokenEnc (AES-GCM), createdAt, expiresAt | → User CASCADE |
-| `Guild` | init | id, name, iconUrl, createdAt | settings, workspace, drafts[], versions[], auditEntries[] |
-| `GuildSettings` | init + `…_add_analyzer_dismissed` + `…_add_command_prefix` + `…_add_confession_channels` | guildId, welcomeChannelId, announcementsChannelId, testingChannelId, templateTestingChannelId, analyzerDismissed (Json? — string[] of dismissed analyzer check ids), commandPrefix (String? — the guild's text-command prefix; NULL = the shared default `!`), confessionChannelId (String? — the anonymous confession channel; NULL = off), confessionLogChannelId (String? — optional staff-only log channel; NULL = no logs) | → Guild CASCADE |
-| `ConfessionCooldown` | `…_add_confession_cooldowns` | userId (Discord user id, **no FK**), nextAllowedAt, updatedAt | — (deliberately standalone: one row per *person*, global across every server — see the confession cooldown follow-up at the end) |
-| `GuildWorkspace` | guild_workspace | guildId, embed (Json?), message (Json?), updatedAt | → Guild CASCADE |
-| `DesignDraft` | init | id (cuid), guildId, userId, design, baseDesign, updatedAt — UNIQUE(guildId, userId) | → Guild, → User CASCADE |
-| `DesignVersion` | init | id (cuid), guildId, name, kind, design, createdAt | → Guild CASCADE; INDEX(guildId, createdAt) |
-| `Template` | init | id (cuid), ownerId (plain column, no FK), name, type, format, data, createdAt, updatedAt | INDEX(ownerId) — **used by the Template Library (§17)** |
-| `AuditEntry` | init | id (cuid), guildId, userId, action, summary, createdAt | → Guild, → User CASCADE; INDEX(guildId, createdAt) |
-| `MockDiscordState` | init | id (default "singleton"), state, updatedAt | — (singleton row for demo mode) |
+| Model                | Migration                                                                                | Key fields                                                                                                                                                                                                                                                                                                                                                                                                                      | Relations                                                                                                                        |
+| -------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `User`               | init                                                                                     | id, username, avatarUrl, createdAt                                                                                                                                                                                                                                                                                                                                                                                              | sessions[], drafts[], auditEntries[]                                                                                             |
+| `Session`            | init                                                                                     | id, userId, accessTokenEnc (AES-GCM), createdAt, expiresAt                                                                                                                                                                                                                                                                                                                                                                      | → User CASCADE                                                                                                                   |
+| `Guild`              | init                                                                                     | id, name, iconUrl, createdAt                                                                                                                                                                                                                                                                                                                                                                                                    | settings, workspace, drafts[], versions[], auditEntries[]                                                                        |
+| `GuildSettings`      | init + `…_add_analyzer_dismissed` + `…_add_command_prefix` + `…_add_confession_channels` | guildId, welcomeChannelId, announcementsChannelId, testingChannelId, templateTestingChannelId, analyzerDismissed (Json? — string[] of dismissed analyzer check ids), commandPrefix (String? — the guild's text-command prefix; NULL = the shared default `!`), confessionChannelId (String? — the anonymous confession channel; NULL = off), confessionLogChannelId (String? — optional staff-only log channel; NULL = no logs) | → Guild CASCADE                                                                                                                  |
+| `ConfessionCooldown` | `…_add_confession_cooldowns`                                                             | userId (Discord user id, **no FK**), nextAllowedAt, updatedAt                                                                                                                                                                                                                                                                                                                                                                   | — (deliberately standalone: one row per _person_, global across every server — see the confession cooldown follow-up at the end) |
+| `GuildWorkspace`     | guild_workspace                                                                          | guildId, embed (Json?), message (Json?), updatedAt                                                                                                                                                                                                                                                                                                                                                                              | → Guild CASCADE                                                                                                                  |
+| `DesignDraft`        | init                                                                                     | id (cuid), guildId, userId, design, baseDesign, updatedAt — UNIQUE(guildId, userId)                                                                                                                                                                                                                                                                                                                                             | → Guild, → User CASCADE                                                                                                          |
+| `DesignVersion`      | init                                                                                     | id (cuid), guildId, name, kind, design, createdAt                                                                                                                                                                                                                                                                                                                                                                               | → Guild CASCADE; INDEX(guildId, createdAt)                                                                                       |
+| `Template`           | init                                                                                     | id (cuid), ownerId (plain column, no FK), name, type, format, data, createdAt, updatedAt                                                                                                                                                                                                                                                                                                                                        | INDEX(ownerId) — **used by the Template Library (§17)**                                                                          |
+| `AuditEntry`         | init                                                                                     | id (cuid), guildId, userId, action, summary, createdAt                                                                                                                                                                                                                                                                                                                                                                          | → Guild, → User CASCADE; INDEX(guildId, createdAt)                                                                               |
+| `MockDiscordState`   | init                                                                                     | id (default "singleton"), state, updatedAt                                                                                                                                                                                                                                                                                                                                                                                      | — (singleton row for demo mode)                                                                                                  |
 
 ### Important non-uses
 
@@ -147,6 +148,7 @@ in Prisma and in its own JSON file in the FileStore, deliberately OUTSIDE
 `GuildSettingsRecord` so the designated-channels form can never clobber it).
 
 `apps/dashboard/lib/store.ts` defines the `MonarchStore` interface. Two impls:
+
 - **`PrismaStore`** (`prisma-store.ts`) — picked when `DATABASE_URL` is set.
   Production target. **OAuth tokens encrypted at rest** in
   `Session.accessTokenEnc` via `lib/secure-token.ts` (AES-256-GCM, key from
@@ -169,6 +171,7 @@ and runs every statement before exercising the full `MonarchStore` contract.
 This is the cheat sheet for "where do I make change X".
 
 ### `packages/shared`
+
 - `ids.ts` — `LOCAL_ID_PREFIX = "new_"`, `isLocalId`, `createLocalId`
 - `result.ts` — `Result<T,E>`, `ok`, `err`, `MonarchError` (code/message/reason/fix/detail), `monarchError()`
 - `logger.ts` — `createLogger(scope)`; **redacts keys matching `/token|secret|authorization|password|cookie/i`**
@@ -189,7 +192,7 @@ This is the cheat sheet for "where do I make change X".
   `isCommandPrefix`. **The one place prefix legality is decided** — the bot's
   `!prefix set` and the dashboard's internal route both call it, so they can't
   disagree. Rule: ≤4 chars, no whitespace, never `@` `/` quotes/brackets, and
-  it must *end* in punctuation (so `m!` and `>>` are fine, `hey` is not).
+  it must _end_ in punctuation (so `m!` and `>>` are fine, `hey` is not).
 
 - `confessions.ts` — `CONFESSION_COOLDOWN_MS = 6h`. **The one place the
   confession window length lives**: the dashboard stamps `nextAllowedAt` with
@@ -200,6 +203,7 @@ This is the cheat sheet for "where do I make change X".
   `/monarch help` and the dashboard's Help page.
 
 ### `packages/schemas` (zod)
+
 - `server-design.ts` — `DESIGN_SCHEMA_VERSION = 1`; `CategoryDesign`, `ChannelDesign`
   (kinds: text/voice/announcement/forum/stage), `RoleDesign`, `Branding`,
   `DesignatedChannels` (welcome/announcements/testing/templateTesting),
@@ -222,6 +226,7 @@ This is the cheat sheet for "where do I make change X".
   userCanDesign, botPermissions), `GuildChannelInfo`, `GuildRoleInfo`.
 
 ### `packages/validation`
+
 - `limits.ts` — **`DiscordLimits`** (SINGLE SOURCE; never inline). Channel
   nameMin/Max=1/100, topicMax=1024 (4096 forum), slowmodeMax=21600; guild
   maxChannels=500, perCategory=50, maxRoles=250; embed titleMax=256,
@@ -230,6 +235,7 @@ This is the cheat sheet for "where do I make change X".
   actionRowsMax=5, buttonsPerRowMax=5.
 
 ### `packages/analyzer` (FEATURE 9)
+
 - `types.ts` — `AnalyzerReport`, `AnalyzerCategoryScore`, `AnalyzerCheckResult`
   (stable `id`, 0..1 `score`, optional `suggestion`, optional `dismissed`),
   `ANALYZER_CATEGORIES` (organization 0.3 · naming 0.3 · roles 0.2 ·
@@ -257,6 +263,7 @@ This is the cheat sheet for "where do I make change X".
   is a warning. Empty message is an error.
 
 ### `packages/design-engine`
+
 - `diff.ts` — `diffServerDesign(current, desired): ServerDiff`. Operations:
   `create` (new_*), `modify` (non-name field changes), `rename`, `move`,
   `delete`, `unsupported` (snowflake no longer on Discord, or incompatible
@@ -268,13 +275,14 @@ This is the cheat sheet for "where do I make change X".
 - `detach.ts` — `detachDesign(design)`: portable template, all snowflakes
   become `new_*` local ids, designatedChannels reset to {}.
 - `compose.ts` — **`rebaseDesign(current, desired): {design, recreated, adopted}`**:
-  keep live ids, *adopt* vanished ids onto same-kind/same-name live entities
+  keep live ids, _adopt_ vanished ids onto same-kind/same-name live entities
   (preserves message history), recreate the rest. **`mergeDesigns(current, incoming)`**:
   append under current structure (used by template "add" mode).
   **`localiseIds(design)`**: force all ids to local — used for hand-edited
   templates.
 
 ### `packages/renderer`
+
 - `discord-renderer.ts` — `channelKindToDiscordType`, `discordTypeToChannelKind`
   (undefined for non-managed types), `renderCreateChannel` (uses
   `supportsTopic`), `renderCreateCategory`, `renderModifyChannel`,
@@ -285,12 +293,13 @@ This is the cheat sheet for "where do I make change X".
   `renderMessagePayload` (chunks buttons into rows of ≤5).
 
 ### `packages/discord`
+
 - `gateway.ts` — `DiscordGateway` interface (the seam). Two impls.
   `BotGuildInfo{id, botPermissions, botHighestRolePosition}` where
-  `botPermissions === null` means *unknown* (Discord hiccup; let Discord
+  `botPermissions === null` means _unknown_ (Discord hiccup; let Discord
   enforce). `computeBotPermissions(member, roles, guildId)` prefers
   Discord-computed `member.permissions`, falls back to OR-ing role bitfields
-  + @everyone. `buildGuildSummaries(userGuilds, botGuildIds, extras, canDesign)`.
+  - @everyone. `buildGuildSummaries(userGuilds, botGuildIds, extras, canDesign)`.
 - `rest-gateway.ts` — `RestDiscordGateway` (real). `getBotGuildInfo`
   resolves bot userId from `GET /users/@me` once per process, then uses
   `GET /guilds/:id/members/:botId` (NOT `/members/@me` — doesn't exist).
@@ -316,6 +325,7 @@ This is the cheat sheet for "where do I make change X".
   `detail` (logs only).
 
 ### `apps/dashboard/lib`
+
 - `env.ts` — **the only place that reads `process.env`.** `isDemoMode()`
   returns true when `MONARCH_DEMO=1` OR Discord creds are missing.
 - `session.ts` — Cookie `monarch_session` = `<id>.<HMAC-SHA256(secret,id)>`.
@@ -392,6 +402,7 @@ This is the cheat sheet for "where do I make change X".
   `networkErrorMessage(error)` for TypeError (offline).
 
 ### `apps/dashboard/components`
+
 - `nav/GuildShell.tsx` — Responsive shell. ≥md: 240px sidebar. <md: sticky
   top bar + slide-out drawer (closes on route change + Escape, locks body
   scroll).
@@ -429,8 +440,9 @@ This is the cheat sheet for "where do I make change X".
   pages.
 
 ### `apps/bot/src`
+
 - `index.ts` — **Lightweight bot.** Guilds + GuildMessages + MessageContent
-  intents, with Guilds-only fallback if MessageContent isn't enabled in the
+  intents, with Guilds-only fallback if MessageContent isnt enabled in the
   developer portal (logs warning, disables `/burg` **and
   every prefix command** — slash commands keep working).
   Owns only what needs the live gateway: the relay webhooks, the lazy
@@ -467,15 +479,15 @@ This is the cheat sheet for "where do I make change X".
   (bare re-run toggles off, re-run with options updates), written once
   against `CommandContext`. Also `parseGagArgs` (mention/id + duration +
   style + reason, order-free except style-before-reason) and `DURATION_ERROR`;
-  a duration-*shaped* word it can't parse (`10 minutes`, `0m`) refuses the
+  a duration-_shaped_ word it can't parse (`10 minutes`, `0m`) refuses the
   command rather than silently burging forever.
 - `prefix/parse.ts` — **pure** prefix tokenizer + router: `parseArgs`
   (quotes, mention→snowflake), `extractPrefixCommand(content, prefixes,
-  botUserId)`, `matchCommand`, and the alias tables
+botUserId)`, `matchCommand`, and the alias tables
   `MONARCH_PREFIX_ALIASES` / `MUSIC_PREFIX_ALIASES` (tested against the
   shared catalog's `prefixAliases`).
 - `prefix/context.ts` — `PrefixCommandContext(message, invocation, prefix,
-  args)`: no ephemeral (text commands are public), `defer()` posts a
+args)`: no ephemeral (text commands are public), `defer()` posts a
   placeholder it edits later, **always sends an explicit `allowedMentions`**,
   `resolveMember(id)` = mentions → cache → `guild.members.fetch`.
   `canReplyIn(message)` gates on View Channel + Send Messages.
@@ -494,7 +506,7 @@ This is the cheat sheet for "where do I make change X".
   (`handleConfessButton`, `handleConfessSubmit`). The flow now takes
   `{ registry, cooldowns, log }` — `cooldowns` is **required**, so a worker
   that forgets it fails to compile instead of silently letting everyone spam.
-- `confession-cooldown.ts` — `ConfessionCooldowns` (cache of *live* windows
+- `confession-cooldown.ts` — `ConfessionCooldowns` (cache of _live_ windows
   keyed by user id, `blockedUntil` / `claim` / `release`) +
   `ConfessionCooldownStore` seam + `internalConfessionCooldownStore`.
   **Fails open**: a dead dashboard lets the confession through (the channels
@@ -503,83 +515,85 @@ This is the cheat sheet for "where do I make change X".
   ~24.8 days, so durations >2B ms are chunked. **A bot restart releases
   everyone by design.** `toBurg` rewrites text as uwu/owo; the `PRESERVE`
   regex keeps code blocks, inline code, mentions, custom emoji, timestamps,
-  URLs intact so a burg'd user can't bypass or break formatting.
+  URLs intact so a burg'd user cant bypass or break formatting.
 - `durations.ts` — `parseDuration` accepts `30s 10m 2h 1d 1h30m`, capped at
   28d (`MAX_DURATION_MS`); `formatDuration` renders confirmations.
 
 ### `apps/dashboard/app/api/*` — full route table
 
-| Method | Path | Auth | Mutates Discord? | Body / Notes |
-|---|---|---|---|---|
-| GET | `/api/auth/login` | none | – | Demo? creates session, redirects to /select. Else signs state, redirects to Discord. |
-| GET | `/api/auth/callback` | OAuth state cookie | – | Exchanges code, fetches user, calls createSession. Catches storage errors → friendly redirect. |
-| POST | `/api/auth/logout` | session + CSRF | – | destroySession. |
-| GET | `/api/invite[?guild_id=…]` | session (demo) | installs in mock (demo only) | Builds Discord authorize URL server-side; client ID/permissions never reach the browser. |
-| GET | `/api/guilds` | session | – | List GuildSummary. |
-| GET | `/api/guilds/:id/state` | session, design | – | `current` + `draft` + `guild`. |
-| PUT | `/api/guilds/:id/draft` | session, design, CSRF | – | Autosave draft + baseDesign. |
-| DELETE | `/api/guilds/:id/draft` | session, design, CSRF | – | Discard draft. |
-| POST | `/api/guilds/:id/plan` | session, design, CSRF | – | Server-side validate + diff against LIVE state. Read-only. |
-| POST | `/api/guilds/:id/apply` | session, design, bot ManageChannels, CSRF | **YES** | The only mutating route. Pre-snapshot → execute → post-snapshot → audit → clear draft. `confirmDestructive` required if any deletes. |
-| GET | `/api/guilds/:id/snapshots` | session, design | – | List newest-first. |
-| POST | `/api/guilds/:id/snapshots` | session, design, CSRF | – | Manual backup (createBackup). |
-| POST | `/api/guilds/:id/snapshots/:snapshotId/restore` | session, design, CSRF | – | `stageRestore` → putDraft + designerUrl. |
-| GET | `/api/guilds/:id/template` | session, design | – | Download Monarch template JSON. |
-| POST | `/api/guilds/:id/template` | session, design, CSRF | – | `stageImport` (modes: add, replace). Max 2 MB. |
-| GET | `/api/guilds/:id/settings` | session, design | – | Designated channels. |
-| PUT | `/api/guilds/:id/settings` | session, design, CSRF | – | Save designated channels. |
-| POST | `/api/guilds/:id/test-message` | session, design, CSRF | **YES** (sends) | Target Resolver + variable resolution + gateway.sendMessage. |
-| GET | `/api/guilds/:id/workspace` | session, design | – | Embed/message designs. |
-| PUT | `/api/guilds/:id/workspace` | session, design, CSRF | – | Save embed/message designs. |
-| POST | `/api/guilds/:id/workspace/send` | session, design, CSRF | **YES** (sends) | The full workspace pipeline (validate → resolve → render → send → audit). |
-| GET | `/api/library/templates` | session | – | The signed-in user's templates (owner-scoped), newest first. |
-| POST | `/api/library/templates` | session (+guild access for `source:"guild"`), CSRF | – | Create: `{source:"guild",guildId,name?}` captures the live structure; `{source:"upload",template,name?}` validates a monarch-template payload. Max 2 MB. |
-| GET | `/api/library/templates/:id` | session (owner) | – | Full `monarch-template` envelope. `?download=1` sets attachment disposition. |
-| PATCH | `/api/library/templates/:id` | session (owner), CSRF | – | `{action:"rename",name}` or `{action:"duplicate"}`. |
-| DELETE | `/api/library/templates/:id` | session (owner), CSRF | – | Remove from the library. |
-| GET | `/api/guilds/:id/analyzer/dismissals` | session, design | – | "Marked as intentional" check ids. |
-| PUT | `/api/guilds/:id/analyzer/dismissals` | session, design, CSRF | – | `{checkId,dismissed}` — toggle one check. checkId is validated against `@monarch/analyzer` CHECKS. |
-| GET | `/api/internal/guilds/:id/workspace` | **INTERNAL_API_TOKEN** | – | Bot counterpart of workspace GET. |
-| POST | `/api/internal/guilds/:id/workspace/send` | **INTERNAL_API_TOKEN** | **YES** (sends) | Bot counterpart for `/monarch test`. |
-| GET | `/api/internal/guilds/:id/backup` | **INTERNAL_API_TOKEN** | – | Top-10 snapshots metadata (bot `/monarch backup` list). |
-| POST | `/api/internal/guilds/:id/backup` | **INTERNAL_API_TOKEN** | – | Take a backup now (bot `/monarch backup`). |
-| GET | `/api/internal/guilds/:id/template` | **INTERNAL_API_TOKEN** | – | Export template (bot `/monarch export` returns JSON; the bot attaches it as a file). |
-| GET | `/api/internal/guilds/:id/prefix` | **INTERNAL_API_TOKEN** | – | The guild's command prefix (`{prefix, customized, default, maxLength}`) — bot cache refill for `!help`/`!status`/matching. |
-| PUT | `/api/internal/guilds/:id/prefix` | **INTERNAL_API_TOKEN** | – | `{prefix: "?"}` to change, `{prefix: null}` to reset. Validated with the shared `parseCommandPrefix`; writes `GuildSettings.commandPrefix`. Called by `!prefix set` / `/monarch prefix`. |
-| GET | `/api/internal/guilds/:id/confession` | **INTERNAL_API_TOKEN** | – | `{channelId, logChannelId}` — the guild's confession channels (both null = off). Bot cache refill for Confess buttons / modal submits. |
-| PUT | `/api/internal/guilds/:id/confession` | **INTERNAL_API_TOKEN** | – | `{channelId: snowflake\|null, logChannelId: snowflake\|null}` — full reconfiguration (both null = disabled). Snowflake-checked; refuses logChannelId === channelId (the log names names). Called by `/monarch confession setup` / `disable`. |
-| GET | `/api/internal/users/:id/confession-cooldown` | **INTERNAL_API_TOKEN** | – | `{nextAllowedAt, ready, cooldownMs}` — when this *person* may confess again (global, not per guild). Read by the Confess button so it can answer with a countdown instead of opening a form that would be refused. |
-| POST | `/api/internal/users/:id/confession-cooldown` | **INTERNAL_API_TOKEN** | – | Claim the window: `{claimed: true\|false, nextAllowedAt, retryAfterMs, cooldownMs}` — **200 either way** ("not yet" is an answer, not an error). Compare-and-set in the store, so racing submissions produce one winner. Called right before the confession is posted. |
-| DELETE | `/api/internal/users/:id/confession-cooldown` | **INTERNAL_API_TOKEN** | – | Release a claimed window (`{ok: true}`). The bot calls it when posting failed, so a deleted channel can't lock somebody out for six hours. Idempotent. |
+| Method | Path                                            | Auth                                               | Mutates Discord?             | Body / Notes                                                                                                                                                                                                                                                           |
+| ------ | ----------------------------------------------- | -------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/auth/login`                               | none                                               | –                            | Demo? creates session, redirects to /select. Else signs state, redirects to Discord.                                                                                                                                                                                   |
+| GET    | `/api/auth/callback`                            | OAuth state cookie                                 | –                            | Exchanges code, fetches user, calls createSession. Catches storage errors → friendly redirect.                                                                                                                                                                         |
+| POST   | `/api/auth/logout`                              | session + CSRF                                     | –                            | destroySession.                                                                                                                                                                                                                                                        |
+| GET    | `/api/invite[?guild_id=…]`                      | session (demo)                                     | installs in mock (demo only) | Builds Discord authorize URL server-side; client ID/permissions never reach the browser.                                                                                                                                                                               |
+| GET    | `/api/guilds`                                   | session                                            | –                            | List GuildSummary.                                                                                                                                                                                                                                                     |
+| GET    | `/api/guilds/:id/state`                         | session, design                                    | –                            | `current` + `draft` + `guild`.                                                                                                                                                                                                                                         |
+| PUT    | `/api/guilds/:id/draft`                         | session, design, CSRF                              | –                            | Autosave draft + baseDesign.                                                                                                                                                                                                                                           |
+| DELETE | `/api/guilds/:id/draft`                         | session, design, CSRF                              | –                            | Discard draft.                                                                                                                                                                                                                                                         |
+| POST   | `/api/guilds/:id/plan`                          | session, design, CSRF                              | –                            | Server-side validate + diff against LIVE state. Read-only.                                                                                                                                                                                                             |
+| POST   | `/api/guilds/:id/apply`                         | session, design, bot ManageChannels, CSRF          | **YES**                      | The only mutating route. Pre-snapshot → execute → post-snapshot → audit → clear draft. `confirmDestructive` required if any deletes.                                                                                                                                   |
+| GET    | `/api/guilds/:id/snapshots`                     | session, design                                    | –                            | List newest-first.                                                                                                                                                                                                                                                     |
+| POST   | `/api/guilds/:id/snapshots`                     | session, design, CSRF                              | –                            | Manual backup (createBackup).                                                                                                                                                                                                                                          |
+| POST   | `/api/guilds/:id/snapshots/:snapshotId/restore` | session, design, CSRF                              | –                            | `stageRestore` → putDraft + designerUrl.                                                                                                                                                                                                                               |
+| GET    | `/api/guilds/:id/template`                      | session, design                                    | –                            | Download Monarch template JSON.                                                                                                                                                                                                                                        |
+| POST   | `/api/guilds/:id/template`                      | session, design, CSRF                              | –                            | `stageImport` (modes: add, replace). Max 2 MB.                                                                                                                                                                                                                         |
+| GET    | `/api/guilds/:id/settings`                      | session, design                                    | –                            | Designated channels.                                                                                                                                                                                                                                                   |
+| PUT    | `/api/guilds/:id/settings`                      | session, design, CSRF                              | –                            | Save designated channels.                                                                                                                                                                                                                                              |
+| POST   | `/api/guilds/:id/test-message`                  | session, design, CSRF                              | **YES** (sends)              | Target Resolver + variable resolution + gateway.sendMessage.                                                                                                                                                                                                           |
+| GET    | `/api/guilds/:id/workspace`                     | session, design                                    | –                            | Embed/message designs.                                                                                                                                                                                                                                                 |
+| PUT    | `/api/guilds/:id/workspace`                     | session, design, CSRF                              | –                            | Save embed/message designs.                                                                                                                                                                                                                                            |
+| POST   | `/api/guilds/:id/workspace/send`                | session, design, CSRF                              | **YES** (sends)              | The full workspace pipeline (validate → resolve → render → send → audit).                                                                                                                                                                                              |
+| GET    | `/api/library/templates`                        | session                                            | –                            | The signed-in user's templates (owner-scoped), newest first.                                                                                                                                                                                                           |
+| POST   | `/api/library/templates`                        | session (+guild access for `source:"guild"`), CSRF | –                            | Create: `{source:"guild",guildId,name?}` captures the live structure; `{source:"upload",template,name?}` validates a monarch-template payload. Max 2 MB.                                                                                                               |
+| GET    | `/api/library/templates/:id`                    | session (owner)                                    | –                            | Full `monarch-template` envelope. `?download=1` sets attachment disposition.                                                                                                                                                                                           |
+| PATCH  | `/api/library/templates/:id`                    | session (owner), CSRF                              | –                            | `{action:"rename",name}` or `{action:"duplicate"}`.                                                                                                                                                                                                                    |
+| DELETE | `/api/library/templates/:id`                    | session (owner), CSRF                              | –                            | Remove from the library.                                                                                                                                                                                                                                               |
+| GET    | `/api/guilds/:id/analyzer/dismissals`           | session, design                                    | –                            | "Marked as intentional" check ids.                                                                                                                                                                                                                                     |
+| PUT    | `/api/guilds/:id/analyzer/dismissals`           | session, design, CSRF                              | –                            | `{checkId,dismissed}` — toggle one check. checkId is validated against `@monarch/analyzer` CHECKS.                                                                                                                                                                     |
+| GET    | `/api/internal/guilds/:id/workspace`            | **INTERNAL_API_TOKEN**                             | –                            | Bot counterpart of workspace GET.                                                                                                                                                                                                                                      |
+| POST   | `/api/internal/guilds/:id/workspace/send`       | **INTERNAL_API_TOKEN**                             | **YES** (sends)              | Bot counterpart for `/monarch test`.                                                                                                                                                                                                                                   |
+| GET    | `/api/internal/guilds/:id/backup`               | **INTERNAL_API_TOKEN**                             | –                            | Top-10 snapshots metadata (bot `/monarch backup` list).                                                                                                                                                                                                                |
+| POST   | `/api/internal/guilds/:id/backup`               | **INTERNAL_API_TOKEN**                             | –                            | Take a backup now (bot `/monarch backup`).                                                                                                                                                                                                                             |
+| GET    | `/api/internal/guilds/:id/template`             | **INTERNAL_API_TOKEN**                             | –                            | Export template (bot `/monarch export` returns JSON; the bot attaches it as a file).                                                                                                                                                                                   |
+| GET    | `/api/internal/guilds/:id/prefix`               | **INTERNAL_API_TOKEN**                             | –                            | The guild's command prefix (`{prefix, customized, default, maxLength}`) — bot cache refill for `!help`/`!status`/matching.                                                                                                                                             |
+| PUT    | `/api/internal/guilds/:id/prefix`               | **INTERNAL_API_TOKEN**                             | –                            | `{prefix: "?"}` to change, `{prefix: null}` to reset. Validated with the shared `parseCommandPrefix`; writes `GuildSettings.commandPrefix`. Called by `!prefix set` / `/monarch prefix`.                                                                               |
+| GET    | `/api/internal/guilds/:id/confession`           | **INTERNAL_API_TOKEN**                             | –                            | `{channelId, logChannelId}` — the guild's confession channels (both null = off). Bot cache refill for Confess buttons / modal submits.                                                                                                                                 |
+| PUT    | `/api/internal/guilds/:id/confession`           | **INTERNAL_API_TOKEN**                             | –                            | `{channelId: snowflake\|null, logChannelId: snowflake\|null}` — full reconfiguration (both null = disabled). Snowflake-checked; refuses logChannelId === channelId (the log names names). Called by `/monarch confession setup` / `disable`.                           |
+| GET    | `/api/internal/users/:id/confession-cooldown`   | **INTERNAL_API_TOKEN**                             | –                            | `{nextAllowedAt, ready, cooldownMs}` — when this _person_ may confess again (global, not per guild). Read by the Confess button so it can answer with a countdown instead of opening a form that would be refused.                                                     |
+| POST   | `/api/internal/users/:id/confession-cooldown`   | **INTERNAL_API_TOKEN**                             | –                            | Claim the window: `{claimed: true\|false, nextAllowedAt, retryAfterMs, cooldownMs}` — **200 either way** ("not yet" is an answer, not an error). Compare-and-set in the store, so racing submissions produce one winner. Called right before the confession is posted. |
+| DELETE | `/api/internal/users/:id/confession-cooldown`   | **INTERNAL_API_TOKEN**                             | –                            | Release a claimed window (`{ok: true}`). The bot calls it when posting failed, so a deleted channel can't lock somebody out for six hours. Idempotent.                                                                                                                 |
 
 **`guild.userCanDesign` requires `userCanDesign` (ManageGuild/Administrator OR owner)**
 at the guild level — `requireGuildAccess` enforces this.
 
 ### `apps/dashboard/app/s/[guildId]/*` — pages
 
-| Path | Component | Status |
-|---|---|---|
-| `/` (overview) | `page.tsx` | Hub: quick actions, recent activity, command cheat-sheet |
-| `/s/:id/designer` | `designer/page.tsx` + `DesignerApp` | **Implemented** |
-| `/s/:id/embeds` | `embeds/page.tsx` + `BuilderApp kind="embed"` | **Implemented** |
-| `/s/:id/messages` | `messages/page.tsx` + `BuilderApp kind="message"` | **Implemented** |
-| `/s/:id/history` | `history/page.tsx` + `BackupsPanel` | **Implemented** (Backups & History) |
-| `/s/:id/import-export` | `import-export/page.tsx` + `ImportExportPanel` | **Implemented** |
-| `/s/:id/library` | `library/page.tsx` + `TemplateLibrary` | **Implemented** (user's template library; install targets this guild) |
-| `/s/:id/templates` | `templates/page.tsx` | **redirect → import-export** |
-| `/s/:id/settings/channels` | `settings/channels/page.tsx` + `DesignatedChannelsForm` | **Implemented** |
-| `/s/:id/analyzer` (nav) | SidebarNav | **no longer `soon`** — live page |
-| `/s/:id/roles` | `roles/page.tsx` | **ComingSoon (Phase 5)** |
-| `/s/:id/welcome` | `welcome/page.tsx` | **ComingSoon (Phase 5+)** |
-| `/s/:id/branding` | `branding/page.tsx` | **ComingSoon** |
-| `/s/:id/analyzer` | `analyzer/page.tsx` + `AnalyzerPanel` | **Implemented** (Design Analyzer; read-only) |
-| `/select` | `select/page.tsx` | **Implemented** (server list) |
-| `/` (landing) | `app/page.tsx` | **Implemented** |
+| Path                       | Component                                               | Status                                                                |
+| -------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------- |
+| `/` (overview)             | `page.tsx`                                              | Hub: quick actions, recent activity, command cheat-sheet              |
+| `/s/:id/designer`          | `designer/page.tsx` + `DesignerApp`                     | **Implemented**                                                       |
+| `/s/:id/embeds`            | `embeds/page.tsx` + `BuilderApp kind="embed"`           | **Implemented**                                                       |
+| `/s/:id/messages`          | `messages/page.tsx` + `BuilderApp kind="message"`       | **Implemented**                                                       |
+| `/s/:id/history`           | `history/page.tsx` + `BackupsPanel`                     | **Implemented** (Backups & History)                                   |
+| `/s/:id/import-export`     | `import-export/page.tsx` + `ImportExportPanel`          | **Implemented**                                                       |
+| `/s/:id/library`           | `library/page.tsx` + `TemplateLibrary`                  | **Implemented** (user's template library; install targets this guild) |
+| `/s/:id/templates`         | `templates/page.tsx`                                    | **redirect → import-export**                                          |
+| `/s/:id/settings/channels` | `settings/channels/page.tsx` + `DesignatedChannelsForm` | **Implemented**                                                       |
+| `/s/:id/analyzer` (nav)    | SidebarNav                                              | **no longer `soon`** — live page                                      |
+| `/s/:id/roles`             | `roles/page.tsx`                                        | **ComingSoon (Phase 5)**                                              |
+| `/s/:id/welcome`           | `welcome/page.tsx`                                      | **ComingSoon (Phase 5+)**                                             |
+| `/s/:id/branding`          | `branding/page.tsx`                                     | **ComingSoon**                                                        |
+| `/s/:id/analyzer`          | `analyzer/page.tsx` + `AnalyzerPanel`                   | **Implemented** (Design Analyzer; read-only)                          |
+| `/select`                  | `select/page.tsx`                                       | **Implemented** (server list)                                         |
+| `/` (landing)              | `app/page.tsx`                                          | **Implemented**                                                       |
 
 ---
+
 ### `packages/music` + `apps/bot/src/music` — music player (pure engine + adapter)
 
 `packages/music` (no deps, fully unit-tested):
+
 - `queue.ts` — `MusicQueue`: `add`/`addMany(cap)`, `next()` (loop off/track/queue; the single way playback advances), `remove` (1-based upcoming positions), `clear`, `shuffle`, `cycleLoop`, `snapshot()`.
 - `skip.ts` — `SkipElector` per-guild vote sets; required = majority of current listeners (recomputed every vote, departed voters pruned); statuses `counted` / `passed-by-this-vote` / `already`.
 - `resolve.ts` — `classifySource`: YouTube watch/youtu.be/shorts/embed/live + `list=` param; Spotify /track /album /playlist, `/intl-xx/` paths, `spotify:` URIs; anything else → search.
@@ -587,41 +601,43 @@ at the guild level — `requireGuildAccess` enforces this.
 - `format.ts` — `formatDuration` (null → "live"), `parseVolume` (0-150), `volumeGain` (0-150 → 0-1.5), `progressBar`.
 
 `apps/bot/src/music/` (adapter):
-- `ytdlp.ts` — the downloader. Probes for the binary (`YTDLP_PATH` → `$MONARCH_BIN_DIR/yt-dlp`, default `.monarch/bin` → `PATH`) and downloads the official static build when none is found (`YTDLP_AUTO_DOWNLOAD=0` opts out; probe cached 60s). `ytdlpJson`/`ytdlpSearch`/`ytdlpPlaylist` for metadata, `openAudioPipe` for `-f <format> -o -` audio bytes, and **`explainYtdlpFailure()`** turns stderr into the sentence the user reads (bot check → cookies, 403/404, region lock, live stream, format missing…). Cookies/proxy/extra args/cache are `YTDLP_*` env knobs. **Throttling:** every download is chunked (`--http-chunk-size 16384` — YouTube throttles a *connection*, so short range requests keep full speed; verified byte-identical on the stdout path) with `--retries/--fragment-retries 5`, and `ytdlpCapabilityArgs()` inspects the installed binary's `--help` once and hands it a **JS runtime** for YouTube's `n`/signature challenge — our own Node by default (`YTDLP_JS_RUNTIME=deno|none` to override), because an unsolved challenge is what YouTube rate-limits.
+
+- `ytdlp.ts` — the downloader. Probes for the binary (`YTDLP_PATH` → `$MONARCH_BIN_DIR/yt-dlp`, default `.monarch/bin` → `PATH`) and downloads the official static build when none is found (`YTDLP_AUTO_DOWNLOAD=0` opts out; probe cached 60s). `ytdlpJson`/`ytdlpSearch`/`ytdlpPlaylist` for metadata, `openAudioPipe` for `-f <format> -o -` audio bytes, and **`explainYtdlpFailure()`** turns stderr into the sentence the user reads (bot check → cookies, 403/404, region lock, live stream, format missing…). Cookies/proxy/extra args/cache are `YTDLP_*` env knobs. **Throttling:** every download is chunked (`--http-chunk-size 16384` — YouTube throttles a _connection_, so short range requests keep full speed; verified byte-identical on the stdout path) with `--retries/--fragment-retries 5`, and `ytdlpCapabilityArgs()` inspects the installed binary's `--help` once and hands it a **JS runtime** for YouTube's `n`/signature challenge — our own Node by default (`YTDLP_JS_RUNTIME=deno|none` to override), because an unsolved challenge is what YouTube rate-limits.
 - `audio.ts` — the voice backend (what a Lavalink node used to be, in-process): per-guild session holding the VoiceConnection + AudioPlayer. `play()` → `startTrack()`; a track that dies inside 6s (and did not fail for a permanent reason — private/removed/region/live) is silently re-started once before `trackEnd` is emitted, so transient extractor failures never reach the queue. `pipeline()` picks **pcm** (yt-dlp → ffmpeg → s16le → Opus encoder; enables volume) or **opus** (yt-dlp WebM/Opus → `demuxProbe` → passthrough; no ffmpeg/encoder needed, volume unavailable), overridable with `MUSIC_AUDIO_PIPELINE`. Emits `trackEnd {reason: finished|stopped|failed, elapsedMs}` and `voiceClosed`; `voiceChannelId()`/`supportsVolume()`/`describe()` drive the `/music status` wording.
 - `sources.ts` — one resolver over yt-dlp: YouTube/any-site links (watch, youtu.be, shorts, embed, live, playlists, `list=` params), plain-text queries (`MUSIC_SEARCH_PREFIX`), unknown http(s) links (flat probe, then search), plus Spotify via the **official Web API** (client-credentials token cached in process, metadata only). Spotify tracks carry `youtubeSearch: "Artist - Title"` and are matched to a YouTube video **lazily at play time** (queuing a 200-track playlist stays instant). Live streams refused (`durationMs: null`). `SourceError` → human-readable replies.
-  - **Spotify's February 2026 API change** is handled explicitly: playlist rows are read from `items.items[].item` *or* the deprecated `tracks.items[].track` (whichever spelling holds rows — the legacy `track` key survives as a **boolean**, so it is only ever accepted as an object, which is what used to make every full playlist look empty); legacy `/tracks` cursors are rewritten to `/items`; search asks for at most 10. An app only gets the contents of playlists it owns itself, so when Spotify answers with a name, a count and no rows, the resolver falls back to the playlist's **public embed page** (`open.spotify.com/embed/playlist/{id}`, first ~100 tracks, no credentials involved) and, if that fails too, says *why* instead of "no playable tracks" (`playlistUnreadableMessage`). Both fallbacks are best-effort: anything unexpected in that HTML yields the API's own error.
+  - **Spotify's February 2026 API change** is handled explicitly: playlist rows are read from `items.items[].item` _or_ the deprecated `tracks.items[].track` (whichever spelling holds rows — the legacy `track` key survives as a **boolean**, so it is only ever accepted as an object, which is what used to make every full playlist look empty); legacy `/tracks` cursors are rewritten to `/items`; search asks for at most 10. An app only gets the contents of playlists it owns itself, so when Spotify answers with a name, a count and no rows, the resolver falls back to the playlist's **public embed page** (`open.spotify.com/embed/playlist/{id}`, first ~100 tracks, no credentials involved) and, if that fails too, says _why_ instead of "no playable tracks" (`playlistUnreadableMessage`). Both fallbacks are best-effort: anything unexpected in that HTML yields the API's own error.
 - `player.ts` — `MusicManager`: per-guild queue state + `GuildPlayback` driven by the pure engine, delegating all audio to the `AudioBackend` seam. Idle/trackEnd advance (loop modes decide); `skipping`/`stopping` flags distinguish manual stop from natural end; 3 consecutive failures -> give up + teardown; empty channel -> leave after 60s; idle -> leave after 5min. Announcements post to the last music command's text channel. Volume 0-150 is applied per track through the backend, and `supportsVolume()` (false on the passthrough path) is what the command layer reports.
 - `commands.ts` — `musicCommandJSON()` (/music: play/pause/resume/skip/queue/nowplaying/volume/loop/shuffle/remove/clear/stop) + `MusicCommands(manager).run(ctx, sub)` — surface-neutral, so `/music play` and `!play` are one code path. Skip: `canForceSkip` -> instant, else vote; controls require being in the bot's voice channel, queue/nowplaying viewable anywhere. Prefix arguments are read positionally (`!queue 2`, `!volume 80`, `!loop track`); `!play` takes the whole rest of the message as the query.
 - **Intents:** `GuildVoiceStates` is in BOTH intent sets (not privileged).
 
 ### Command catalog (single source of truth)
 
-`packages/shared/src/commands.ts` — `CommandDoc` {name, usage, **prefixUsage, prefixAliases**, group (general|design|moderation|music), summary, who, details?, args?, examples?, notes?} + `COMMAND_GROUPS` / `MONARCH_COMMANDS` / `BURG_COMMANDS` / `MUSIC_COMMANDS` / `COMMAND_CATALOG`. **The bot's `/monarch help` + `!help` embed (`renderHelpEmbeds` in apps/bot/src/commands.ts) and the dashboard Help page (`app/s/[guildId]/help` + `components/help/HelpPanel.tsx`) both render from it** — tests keep catalogs, registered manifests *and* the prefix alias tables in sync (`apps/bot/test/prefix-parse.test.ts`). Adding a command: update the SlashCommandBuilder, add the catalog entry **with its prefix form and aliases**, add the alias + handler case, run the tests (see §12 "Adding a new prefix command").
+`packages/shared/src/commands.ts` — `CommandDoc` {name, usage, **prefixUsage, prefixAliases**, group (general|design|moderation|music), summary, who, details?, args?, examples?, notes?} + `COMMAND_GROUPS` / `MONARCH_COMMANDS` / `BURG_COMMANDS` / `MUSIC_COMMANDS` / `COMMAND_CATALOG`. **The bot's `/monarch help` + `!help` embed (`renderHelpEmbeds` in apps/bot/src/commands.ts) and the dashboard Help page (`app/s/[guildId]/help` + `components/help/HelpPanel.tsx`) both render from it** — tests keep catalogs, registered manifests _and_ the prefix alias tables in sync (`apps/bot/test/prefix-parse.test.ts`). Adding a command: update the SlashCommandBuilder, add the catalog entry **with its prefix form and aliases**, add the alias + handler case, run the tests (see §12 "Adding a new prefix command").
 
 ## 5. Environment variables (`.env.example`)
 
-| Var | Required? | Used by | Notes |
-|---|---|---|---|
-| `DISCORD_CLIENT_ID` | for real mode | auth + invite | Omit all three for demo mode |
-| `DISCORD_CLIENT_SECRET` | for real mode | auth (token exchange) | |
-| `DISCORD_BOT_TOKEN` | for real mode | bot + RestDiscordGateway | **Same token on Vercel + bot worker** |
-| `APP_URL` | yes | OAuth redirect, bot invocations | Must match Discord app's redirect URI |
-| `SESSION_SECRET` | yes (in prod) | session cookies + AES-GCM for OAuth tokens | `openssl rand -hex 32`; rotating invalidates cookies AND stored tokens |
-| `DATABASE_URL` | required on Vercel | PrismaStore (pooled URL on serverless) | The file store throws on serverless if this is missing |
-| `DIRECT_DATABASE_URL` | only for migrations | prisma migrate | Set to the same as DATABASE_URL for plain Postgres |
-| `MONARCH_DEMO` | optional | `isDemoMode` | `"1"` forces demo even with creds |
-| `MONARCH_OWNER_USER_ID` | optional but own-protection | bot worker (`apps/bot/src/index.ts` → `MonarchCommands`) | Your Discord user id: targeting it with /burg uno-reverses onto the invoker. Missing = owner burgable like anyone else (worker logs a boot warning). Must be threaded through every deploy path (`render.yaml`, `docker/docker-compose.yml`) — not just `.env.example` |
-| `INTERNAL_API_TOKEN` | optional | bot/dashboard server-to-server | `openssl rand -hex 32`; same value on dashboard + bot. Without it `/monarch backup/export/embed/test`, saving a custom prefix, confession setup **and the confession cooldown**, and `/api/internal/*` reply 503 — everything else (incl. all prefix commands on the default `!`) still works |
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | for Spotify links | bot music | Official Web API, client credentials. Without them `/music` says Spotify isn't configured; YouTube/search work. Since Feb 2026 the API only returns a playlist's *contents* for playlists the app owns — other playlists fall back to their public embed page (first ~100 tracks) |
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | see left | bot music | Spotify **links** only; YouTube links, searches and playlists work without them |
-| `YTDLP_PATH` / `YTDLP_BIN_DIR` (`MONARCH_BIN_DIR`) | optional | bot music | Where the yt-dlp binary is; default `.monarch/bin` (gitignored), auto-downloaded on first use (`YTDLP_AUTO_DOWNLOAD=0` to opt out, `YTDLP_DISABLED=1` to switch music off) |
-| `YTDLP_COOKIES` (`YTDLP_COOKIE_FILE`) | when YouTube asks for a bot check | bot music | Netscape cookies.txt exported from a throwaway account; `YTDLP_PROXY`, `YTDLP_ARGS` (quote-aware; `--throttled-rate 100K` is the aggressive anti-throttling knob), `YTDLP_FORMAT`, `YTDLP_CACHE_DIR` are the other yt-dlp knobs |
-| `YTDLP_JS_RUNTIME` | optional | bot music | JS runtime for YouTube's challenge solver; default `node:<this bot's node>`, or `deno`, or `none` |
-| `MUSIC_FFMPEG_PATH` (`FFMPEG_PATH`) | optional | bot music | ffmpeg is optional: without it playback is Opus passthrough (no volume). `MUSIC_AUDIO_PIPELINE=pcm\|opus` forces a path |
-| `MUSIC_DJ_ROLE_NAMES` | optional | `/music skip` | Comma-separated role names that force-skip; default `dj` |
-| `MUSIC_STAFF_ROLE_NAMES` | optional | `/music skip` | Default moderator/mod/staff/admin/administrator + plurals; real moderation permissions always count too |
-| `MUSIC_MAX_QUEUE` / `MUSIC_MAX_PLAYLIST_TRACKS` | optional | bot music | Defaults 500 / 250 |
+| Var                                                | Required?                         | Used by                                                  | Notes                                                                                                                                                                                                                                                                                         |
+| -------------------------------------------------- | --------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DISCORD_CLIENT_ID`                                | for real mode                     | auth + invite                                            | Omit all three for demo mode                                                                                                                                                                                                                                                                  |
+| `DISCORD_CLIENT_SECRET`                            | for real mode                     | auth (token exchange)                                    |                                                                                                                                                                                                                                                                                               |
+| `DISCORD_BOT_TOKEN`                                | for real mode                     | bot + RestDiscordGateway                                 | **Same token on Vercel + bot worker**                                                                                                                                                                                                                                                         |
+| `APP_URL`                                          | yes                               | OAuth redirect, bot invocations                          | Must match Discord app's redirect URI                                                                                                                                                                                                                                                         |
+| `SESSION_SECRET`                                   | yes (in prod)                     | session cookies + AES-GCM for OAuth tokens               | `openssl rand -hex 32`; rotating invalidates cookies AND stored tokens                                                                                                                                                                                                                        |
+| `DATABASE_URL`                                     | required on Vercel                | PrismaStore (pooled URL on serverless)                   | The file store throws on serverless if this is missing                                                                                                                                                                                                                                        |
+| `DIRECT_DATABASE_URL`                              | only for migrations               | prisma migrate                                           | Set to the same as DATABASE_URL for plain Postgres                                                                                                                                                                                                                                            |
+| `MONARCH_DEMO`                                     | optional                          | `isDemoMode`                                             | `"1"` forces demo even with creds                                                                                                                                                                                                                                                             |
+| `MONARCH_OWNER_USER_ID`                            | optional but own-protection       | bot worker (`apps/bot/src/index.ts` → `MonarchCommands`) | Your Discord user id: targeting it with /burg uno-reverses onto the invoker. Missing = owner burgable like anyone else (worker logs a boot warning). Must be threaded through every deploy path (`render.yaml`, `docker/docker-compose.yml`) — not just `.env.example`                        |
+| `INTERNAL_API_TOKEN`                               | optional                          | bot/dashboard server-to-server                           | `openssl rand -hex 32`; same value on dashboard + bot. Without it `/monarch backup/export/embed/test`, saving a custom prefix, confession setup **and the confession cooldown**, and `/api/internal/*` reply 503 — everything else (incl. all prefix commands on the default `!`) still works |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`      | for Spotify links                 | bot music                                                | Official Web API, client credentials. Without them `/music` says Spotify isn't configured; YouTube/search work. Since Feb 2026 the API only returns a playlist's _contents_ for playlists the app owns — other playlists fall back to their public embed page (first ~100 tracks)             |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`      | see left                          | bot music                                                | Spotify **links** only; YouTube links, searches and playlists work without them                                                                                                                                                                                                               |
+| `YTDLP_PATH` / `YTDLP_BIN_DIR` (`MONARCH_BIN_DIR`) | optional                          | bot music                                                | Where the yt-dlp binary is; default `.monarch/bin` (gitignored), auto-downloaded on first use (`YTDLP_AUTO_DOWNLOAD=0` to opt out, `YTDLP_DISABLED=1` to switch music off)                                                                                                                    |
+| `YTDLP_COOKIES` (`YTDLP_COOKIE_FILE`)              | when YouTube asks for a bot check | bot music                                                | Netscape cookies.txt exported from a throwaway account; `YTDLP_PROXY`, `YTDLP_ARGS` (quote-aware; `--throttled-rate 100K` is the aggressive anti-throttling knob), `YTDLP_FORMAT`, `YTDLP_CACHE_DIR` are the other yt-dlp knobs                                                               |
+| `YTDLP_JS_RUNTIME`                                 | optional                          | bot music                                                | JS runtime for YouTube's challenge solver; default `node:<this bot's node>`, or `deno`, or `none`                                                                                                                                                                                             |
+| `MUSIC_FFMPEG_PATH` (`FFMPEG_PATH`)                | optional                          | bot music                                                | ffmpeg is optional: without it playback is Opus passthrough (no volume). `MUSIC_AUDIO_PIPELINE=pcm\|opus` forces a path                                                                                                                                                                       |
+| `MUSIC_DJ_ROLE_NAMES`                              | optional                          | `/music skip`                                            | Comma-separated role names that force-skip; default `dj`                                                                                                                                                                                                                                      |
+| `MUSIC_STAFF_ROLE_NAMES`                           | optional                          | `/music skip`                                            | Default moderator/mod/staff/admin/administrator + plurals; real moderation permissions always count too                                                                                                                                                                                       |
+| `MUSIC_MAX_QUEUE` / `MUSIC_MAX_PLAYLIST_TRACKS`    | optional                          | bot music                                                | Defaults 500 / 250                                                                                                                                                                                                                                                                            |
+
 ---
 
 ## 6. Security model (recap)
@@ -673,15 +689,15 @@ at the guild level — `requireGuildAccess` enforces this.
     rejection, save-from-guild/upload, rename/duplicate/delete, envelope
     rebuild, install → stageImport handoff),
     `prisma-store.test.ts` (mappers incl. template rows, AES-GCM round-trip
-    + tamper cases, **and the confession cooldown's compare-and-set against a
-    fake `confessionCooldown` delegate** — fresh claim, live-window refusal,
-    expired-row flip, lost P2002 create race, non-P2002 rethrow, release),
-    `confession.test.ts` (channel store round-trip + the GET/PUT route, and
-    the cooldown store + GET/POST/DELETE route on FileStore: six-hour window,
-    one window per person rather than per guild, release, expiry),
-    `prisma-store.integration.test.ts` (PGlite + applied migrations;
-    needs Prisma client — fails in this sandbox),
-    `fetch-json.test.ts`, `invite.test.ts`, `workspace-parse.test.ts`.
+    - tamper cases, **and the confession cooldown's compare-and-set against a
+      fake `confessionCooldown` delegate** — fresh claim, live-window refusal,
+      expired-row flip, lost P2002 create race, non-P2002 rethrow, release),
+      `confession.test.ts` (channel store round-trip + the GET/PUT route, and
+      the cooldown store + GET/POST/DELETE route on FileStore: six-hour window,
+      one window per person rather than per guild, release, expiry),
+      `prisma-store.integration.test.ts` (PGlite + applied migrations;
+      needs Prisma client — fails in this sandbox),
+      `fetch-json.test.ts`, `invite.test.ts`, `workspace-parse.test.ts`.
   - `apps/bot` — `commands.test.ts` (help stays in sync + under 2000 chars,
     prefix line + aliases), `prefix-parse.test.ts` (tokenizer, mention
     prefix, routing, silence rule, **alias tables ⇄ shared catalog**),
@@ -702,9 +718,9 @@ at the guild level — `requireGuildAccess` enforces this.
 
 - **Test count (most recent reported):** 497 passed, 11 failing in this
   sandbox — all 11 in `prisma-store.integration.test.ts` (PGlite + the
-  generated Prisma client, which this sandbox can't download; 8 pre-existing
-  + the 3 confession-cooldown ones). In a normal environment all 11 pass and
-  the count is ~508.
+  generated Prisma client, which this sandbox cant download; 8 pre-existing
+  - the 3 confession-cooldown ones). In a normal environment all 11 pass and
+    the count is ~508.
 - **Bot typecheck caveat:** `npx tsc --noEmit -p apps/bot/tsconfig.json`
   still reports 7 pre-existing errors in test files (APIEmbed/API component
   union assertions in `confession.test.ts`, `required` in `commands.test.ts`).
@@ -753,7 +769,7 @@ at the guild level — `requireGuildAccess` enforces this.
 - **The file store is dev/demo only.** Never let it run on Vercel —
   `getStore()` throws on serverless without `DATABASE_URL`.
 - **Vercel build:** `npx prisma generate --schema ../../prisma/schema.prisma
-  && next build` (from `apps/dashboard/vercel.json`).
+&& next build` (from `apps/dashboard/vercel.json`).
 
 ---
 
@@ -763,7 +779,7 @@ at the guild level — `requireGuildAccess` enforces this.
    appropriate `*.ts` and are re-exported from `index.ts`.
 2. **Limits/rules in `@monarch/validation`.** Add to `DiscordLimits` if
    Discord has a new constraint, then a `Rule<T>` in `*-rules.ts`.
-3. **Discord payloads in `@monarch/renderer`.** If it's a new Discord
+3. **Discord payloads in `@monarch/renderer`.** If its a new Discord
    feature, add a renderer helper. New gateway capabilities go in
    `DiscordGateway` — implement in **both** `RestDiscordGateway` and
    `MockDiscordGateway`.
@@ -786,6 +802,7 @@ not a moderation product; the README is explicit on this.
 ## 10. Key gotcha: diff semantics
 
 The diff engine (`packages/design-engine/src/diff.ts`) matches by **id**:
+
 - `new_*` ids → `create` (with `localId` and `detail`).
 - Snowflakes not in `current` → `unsupported` (replaced or deleted server-side).
 - Snowflakes in both → compare fields, emit `rename` (name changed),
@@ -815,8 +832,8 @@ All 9 PRs were opened by the **`arena-ai-coding-agent[bot]`** and merged by
 `@ArliT1-F` on the same day they were opened. Local history shows just the
 final merge commit on `main`:
 
-| Merge | When | Commit (local) |
-|---|---|---|
+| Merge                 | When                    | Commit (local)                             |
+| --------------------- | ----------------------- | ------------------------------------------ |
 | Merge PR #9 into main | 2026-09-07 11:52 +02:00 | `037ea3d0a9322d964bba5d5da92769b317fa44cf` |
 
 This is the only commit on `arena/01a08380-monarch` (the Arena session
@@ -833,31 +850,31 @@ work — the merge commit already contains the full tree).
 
 ### PR-by-PR log (titles, intent, what changed)
 
-| # | Title | Date merged | Theme | Key code paths added/changed |
-|---|---|---|---|---|
-| 1 | Monarch Phase 1+2: foundation, Discord abstraction, and Server Designer MVP | 2026-09-02 | Bootstrap the whole repo | Monorepo, all 6 shared packages, dashboard shell, Server Designer (drag-and-drop, drafts, undo/redo, Review modal), OAuth2 + demo mode, Prisma schema (no migration yet — the file store was the only backend), Docker compose, architecture docs. `65c1a76` was the squash. |
-| 2 | feat: Vercel + Prisma integration (PrismaStore, phase-1.5) | 2026-09-04 | Production persistence + Vercel deploy | `apps/dashboard/lib/prisma-store.ts`, `prisma.ts`, `secure-token.ts`, `prisma/schema.prisma` (9 models + `MockDiscordState`), `prisma/migrations/20260902000000_init`, `prisma.config.ts`, `vercel.json`, `docs/deploying-vercel.md`, Docker `migrate` one-shot service. Tests: 41/41 (17 new + PGlite integration). |
-| 3 | Fix Vercel OAuth sign-in: require DATABASE_URL on serverless + Neon deploy docs | 2026-09-04 | Fix `ENOENT .monarch-data` on Vercel | `getStore()` now **throws** a config error on serverless when `DATABASE_URL` is missing. OAuth callback catches storage errors → friendly redirect, clears stale `monarch_oauth_state`. Added Neon URL mapping (pooled `POSTGRES_URL` vs unpooled `POSTGRES_URL_NON_POOLING`) to deploy docs. 3 commits: `5ffe4cf`, `9ca770c`, `d83cb72`. |
-| 4 | Invite the Discord bot from the dashboard | 2026-09-04 | First-class bot install UI | `lib/invite.ts` (least-privilege bitfield, never Administrator), `GET /api/invite[?guild_id=]` (server-side redirect so client id stays server-owned), `InviteBotButton` (new tab + `router.refresh()` on focus; demo mode installs against mock), `DiscordIcon` extracted to shared UI, snowflake validation. 7 new invite tests; 40 passing. Commit `3f2c72a`. |
-| 5 | Run Discord bot as persistent companion worker | 2026-09-04 | Companion-worker deploy topology | `render.yaml` (Render blueprint), `docker/bot.Dockerfile`, auto-register slash commands on bot startup, doc the Vercel + worker split. 2 commits: `7a253c0`, `565ced5` (config conflict resolution). Commit `9044777`. |
-| 6 | Bot: shut down gracefully so redeploys stop looking like crashes | 2026-09-04 | Fix scary `npm error code 143` in worker logs | `apps/bot/src/index.ts` handles `SIGTERM`/`SIGINT` → `client.destroy()` → `exit(0)`. `Events.Error` and `unhandledRejection` logged, not fatal. Slash-command registration is non-fatal. **`CMD ["node", "--import", "tsx", "apps/bot/src/index.ts"]`** so bot is PID 1. Added `apps/bot/typecheck`. New `shutdown.test.ts` (mutation-checked). Commit `fe4435f`. |
-| 7 | Embed Builder + Message Designer, /monarch embed & test commands, and bot permission fix | 2026-09-07 | Phase 3+4 (content design) + permission bug | **Bot permission bug fix:** `getBotGuildInfo` previously used `GET /users/@me/guilds/:id/member` (OAuth-only, fails on bot tokens → bogus "missing Manage Channels"). Now uses `GET /guilds/:id/members/:botId` (with `me.permissions` preferred, role-OR fallback). **Embed Builder** (`/s/:id/embeds`) and **Message Designer** (`/s/:id/messages`) with shared pipeline. New: `packages/schemas/src/content.ts`, `packages/validation/src/content-rules.ts`, `packages/renderer/src/content-renderer.ts`, `apps/dashboard/lib/workspace.ts`, `apps/dashboard/components/content/*`, migration `20260907000000_add_guild_workspace` (adds `GuildWorkspace` table). Routes: `GET/PUT /api/guilds/:id/workspace`, `POST …/workspace/send`, plus bot-facing internal counterparts. Bot commands `/monarch embed` and `/monarch test` (Bearer `INTERNAL_API_TOKEN`, constant-time compare). 26 new tests (66 total). Commit `0c89c30` (PR #8 follow-up, see below, was originally the JSON-parse crash fix on these new pages). |
-| 8 | Fix JSON.parse crash on Embed Builder / Message Designer | 2026-09-07 | Empty-body / non-JSON 500s crashed `res.json()` in client | New `apps/dashboard/lib/fetch-json.ts` (`readJsonSafe`, `apiErrorMessage`, `networkErrorMessage`). Workspace routes wrapped so they always return JSON 500s; missing-table errors → `code: "db.migration-pending"` with "run npm run db:migrate" fix. `loadWorkspace` validates with `safeParse`; corrupt rows degrade to empty. Same hardening applied to designer, Review modal, designated-channels Send Test, server switcher. 13 new tests (86 total). Commit `0c89c30`. |
-| 9 | Backups & Restore, Templates Import/Export, /monarch jail + help, mobile dashboard (+ Publish/Send Test fix) | 2026-09-07 | The big one — Phase 5-ish + UX + bug fix | (1) **Bug fix:** Publish / Send Test wrongly reported "Monarch isn't installed" — `getBotGuildInfo` used a member endpoint that doesn't exist with bot tokens. Now uses `GET /users/@me` for bot userId + `GET /guilds/:id/members/:botId`; definitive 403/404 vs transient errors. Commit `deb29f9`. (2) **Server Designer:** removed the `channel.name.normalized` cosmetic warning (normalizer now mirrors Discord: drops ASCII punctuation only). (3) **Backups & Restore:** `MonarchStore.getSnapshot(guildId, id)` (guild-scoped), `POST /api/guilds/:id/snapshots`, `POST …/snapshots/:id/restore` (stages a draft via `rebaseDesign`, never writes to Discord). (4) **Templates Import/Export:** `GET/POST /api/guilds/:id/template` (downloads detached `monarch-template` JSON; imports in `add`/`replace` mode with `localiseIds`). (5) **Bot:** `/monarch help` (rendered from a single `COMMAND_HELP` manifest; tested to stay in sync + under 2000 chars), `/monarch backup [name]`, `/monarch export` (attaches the .json), `/monarch jail @user [duration] [reason]`, `/monarch unjail`, `/monarch jailed`. (6) **Jail** needs `MessageContent` intent (with Guilds-only fallback), `ManageMessages` permission; Standard Galactic Alphabet relay via per-channel webhook named "Monarch Jail"; `JailRegistry` in-memory (restart releases); durations cap at 28d. (7) **Mobile dashboard:** `GuildShell` becomes top-bar + slide-out drawer below md; touch drag with always-visible handles; 16px inputs on coarse pointers; mobile pane-switching on Designer/Builder. (8) **Docs updated.** 136 tests passing, 8 skipped (Prisma integration). Final commit: `037ea3d`. |
+| #   | Title                                                                                                        | Date merged | Theme                                                     | Key code paths added/changed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --- | ------------------------------------------------------------------------------------------------------------ | ----------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Monarch Phase 1+2: foundation, Discord abstraction, and Server Designer MVP                                  | 2026-09-02  | Bootstrap the whole repo                                  | Monorepo, all 6 shared packages, dashboard shell, Server Designer (drag-and-drop, drafts, undo/redo, Review modal), OAuth2 + demo mode, Prisma schema (no migration yet — the file store was the only backend), Docker compose, architecture docs. `65c1a76` was the squash.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 2   | feat: Vercel + Prisma integration (PrismaStore, phase-1.5)                                                   | 2026-09-04  | Production persistence + Vercel deploy                    | `apps/dashboard/lib/prisma-store.ts`, `prisma.ts`, `secure-token.ts`, `prisma/schema.prisma` (9 models + `MockDiscordState`), `prisma/migrations/20260902000000_init`, `prisma.config.ts`, `vercel.json`, `docs/deploying-vercel.md`, Docker `migrate` one-shot service. Tests: 41/41 (17 new + PGlite integration).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 3   | Fix Vercel OAuth sign-in: require DATABASE_URL on serverless + Neon deploy docs                              | 2026-09-04  | Fix `ENOENT .monarch-data` on Vercel                      | `getStore()` now **throws** a config error on serverless when `DATABASE_URL` is missing. OAuth callback catches storage errors → friendly redirect, clears stale `monarch_oauth_state`. Added Neon URL mapping (pooled `POSTGRES_URL` vs unpooled `POSTGRES_URL_NON_POOLING`) to deploy docs. 3 commits: `5ffe4cf`, `9ca770c`, `d83cb72`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 4   | Invite the Discord bot from the dashboard                                                                    | 2026-09-04  | First-class bot install UI                                | `lib/invite.ts` (least-privilege bitfield, never Administrator), `GET /api/invite[?guild_id=]` (server-side redirect so client id stays server-owned), `InviteBotButton` (new tab + `router.refresh()` on focus; demo mode installs against mock), `DiscordIcon` extracted to shared UI, snowflake validation. 7 new invite tests; 40 passing. Commit `3f2c72a`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 5   | Run Discord bot as persistent companion worker                                                               | 2026-09-04  | Companion-worker deploy topology                          | `render.yaml` (Render blueprint), `docker/bot.Dockerfile`, auto-register slash commands on bot startup, doc the Vercel + worker split. 2 commits: `7a253c0`, `565ced5` (config conflict resolution). Commit `9044777`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 6   | Bot: shut down gracefully so redeploys stop looking like crashes                                             | 2026-09-04  | Fix scary `npm error code 143` in worker logs             | `apps/bot/src/index.ts` handles `SIGTERM`/`SIGINT` → `client.destroy()` → `exit(0)`. `Events.Error` and `unhandledRejection` logged, not fatal. Slash-command registration is non-fatal. **`CMD ["node", "--import", "tsx", "apps/bot/src/index.ts"]`** so bot is PID 1. Added `apps/bot/typecheck`. New `shutdown.test.ts` (mutation-checked). Commit `fe4435f`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 7   | Embed Builder + Message Designer, /monarch embed & test commands, and bot permission fix                     | 2026-09-07  | Phase 3+4 (content design) + permission bug               | **Bot permission bug fix:** `getBotGuildInfo` previously used `GET /users/@me/guilds/:id/member` (OAuth-only, fails on bot tokens → bogus "missing Manage Channels"). Now uses `GET /guilds/:id/members/:botId` (with `me.permissions` preferred, role-OR fallback). **Embed Builder** (`/s/:id/embeds`) and **Message Designer** (`/s/:id/messages`) with shared pipeline. New: `packages/schemas/src/content.ts`, `packages/validation/src/content-rules.ts`, `packages/renderer/src/content-renderer.ts`, `apps/dashboard/lib/workspace.ts`, `apps/dashboard/components/content/*`, migration `20260907000000_add_guild_workspace` (adds `GuildWorkspace` table). Routes: `GET/PUT /api/guilds/:id/workspace`, `POST …/workspace/send`, plus bot-facing internal counterparts. Bot commands `/monarch embed` and `/monarch test` (Bearer `INTERNAL_API_TOKEN`, constant-time compare). 26 new tests (66 total). Commit `0c89c30` (PR #8 follow-up, see below, was originally the JSON-parse crash fix on these new pages).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| 8   | Fix JSON.parse crash on Embed Builder / Message Designer                                                     | 2026-09-07  | Empty-body / non-JSON 500s crashed `res.json()` in client | New `apps/dashboard/lib/fetch-json.ts` (`readJsonSafe`, `apiErrorMessage`, `networkErrorMessage`). Workspace routes wrapped so they always return JSON 500s; missing-table errors → `code: "db.migration-pending"` with "run npm run db:migrate" fix. `loadWorkspace` validates with `safeParse`; corrupt rows degrade to empty. Same hardening applied to designer, Review modal, designated-channels Send Test, server switcher. 13 new tests (86 total). Commit `0c89c30`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| 9   | Backups & Restore, Templates Import/Export, /monarch jail + help, mobile dashboard (+ Publish/Send Test fix) | 2026-09-07  | The big one — Phase 5-ish + UX + bug fix                  | (1) **Bug fix:** Publish / Send Test wrongly reported "Monarch isn't installed" — `getBotGuildInfo` used a member endpoint that doesn't exist with bot tokens. Now uses `GET /users/@me` for bot userId + `GET /guilds/:id/members/:botId`; definitive 403/404 vs transient errors. Commit `deb29f9`. (2) **Server Designer:** removed the `channel.name.normalized` cosmetic warning (normalizer now mirrors Discord: drops ASCII punctuation only). (3) **Backups & Restore:** `MonarchStore.getSnapshot(guildId, id)` (guild-scoped), `POST /api/guilds/:id/snapshots`, `POST …/snapshots/:id/restore` (stages a draft via `rebaseDesign`, never writes to Discord). (4) **Templates Import/Export:** `GET/POST /api/guilds/:id/template` (downloads detached `monarch-template` JSON; imports in `add`/`replace` mode with `localiseIds`). (5) **Bot:** `/monarch help` (rendered from a single `COMMAND_HELP` manifest; tested to stay in sync + under 2000 chars), `/monarch backup [name]`, `/monarch export` (attaches the .json), `/monarch jail @user [duration] [reason]`, `/monarch unjail`, `/monarch jailed`. (6) **Jail** needs `MessageContent` intent (with Guilds-only fallback), `ManageMessages` permission; Standard Galactic Alphabet relay via per-channel webhook named "Monarch Jail"; `JailRegistry` in-memory (restart releases); durations cap at 28d. (7) **Mobile dashboard:** `GuildShell` becomes top-bar + slide-out drawer below md; touch drag with always-visible handles; 16px inputs on coarse pointers; mobile pane-switching on Designer/Builder. (8) **Docs updated.** 136 tests passing, 8 skipped (Prisma integration). Final commit: `037ea3d`. |
 
 ### Migration history (in `prisma/migrations/`)
 
-| Directory | Date (from name) | Adds | Committed in |
-|---|---|---|---|
-| `20260902000000_init/` | 2026-09-02 (filename) | All 9 base tables (User, Session, Guild, GuildSettings, DesignDraft, DesignVersion, Template, AuditEntry, MockDiscordState) + FKs + indexes | PR #2 |
-| `20260907000000_add_guild_workspace/` | 2026-09-07 (filename) | `GuildWorkspace` table + FK to Guild | PR #7 |
-| `20260909230000_add_analyzer_dismissed/` | 2026-09-09 (filename) | `GuildSettings.analyzerDismissed JSONB` (Design Analyzer "mark as intentional") | Template Library + Analyzer session |
-| `20260912000000_add_command_prefix/` | 2026-09-12 (filename) | `GuildSettings.commandPrefix TEXT` (per-server prefix for text commands) | Prefix commands session |
-| `20260912120000_add_confession_channels/` | 2026-09-12 (filename) | `GuildSettings.confessionChannelId TEXT` + `GuildSettings.confessionLogChannelId TEXT` (anonymous confession channel + optional staff log channel) | Confessions session |
-| `20260913000000_add_confession_cooldowns/` | 2026-09-13 (filename) | `ConfessionCooldown` table (userId PK, nextAllowedAt, updatedAt — **no FK**, one row per person, global across servers) | Confession cooldown follow-up |
+| Directory                                  | Date (from name)      | Adds                                                                                                                                               | Committed in                        |
+| ------------------------------------------ | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `20260902000000_init/`                     | 2026-09-02 (filename) | All 9 base tables (User, Session, Guild, GuildSettings, DesignDraft, DesignVersion, Template, AuditEntry, MockDiscordState) + FKs + indexes        | PR #2                               |
+| `20260907000000_add_guild_workspace/`      | 2026-09-07 (filename) | `GuildWorkspace` table + FK to Guild                                                                                                               | PR #7                               |
+| `20260909230000_add_analyzer_dismissed/`   | 2026-09-09 (filename) | `GuildSettings.analyzerDismissed JSONB` (Design Analyzer "mark as intentional")                                                                    | Template Library + Analyzer session |
+| `20260912000000_add_command_prefix/`       | 2026-09-12 (filename) | `GuildSettings.commandPrefix TEXT` (per-server prefix for text commands)                                                                           | Prefix commands session             |
+| `20260912120000_add_confession_channels/`  | 2026-09-12 (filename) | `GuildSettings.confessionChannelId TEXT` + `GuildSettings.confessionLogChannelId TEXT` (anonymous confession channel + optional staff log channel) | Confessions session                 |
+| `20260913000000_add_confession_cooldowns/` | 2026-09-13 (filename) | `ConfessionCooldown` table (userId PK, nextAllowedAt, updatedAt — **no FK**, one row per person, global across servers)                            | Confession cooldown follow-up       |
 
 **Gotcha for migration comments:** `prisma-store.integration.test.ts` applies
-every `migration.sql` by splitting on `;` *first* and stripping `--` comments
+every `migration.sql` by splitting on `;` _first_ and stripping `--` comments
 after. A semicolon **inside a comment line** therefore splits the comment in
 two and PGlite tries to execute the tail (`syntax error at or near "a"`).
 Keep `;` out of SQL comments.
@@ -909,7 +926,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ gui
   const access = await requireGuildAccess(guildId);
   if (!access.ok) return access.response;
 
-  const body = z.object({ /* ... */ }).safeParse(await req.json().catch(() => null));
+  const body = z.object({/* ... */}).safeParse(await req.json().catch(() => null));
   if (!body.success) return jsonError(400, { code: "x.invalid", message: "..." });
 
   try {
@@ -999,37 +1016,37 @@ needed.
 
 ## 13. File-by-file "where do I change X" quick lookup
 
-| I want to… | Look here |
-|---|---|
-| Change the OAuth scopes or callback behaviour | `apps/dashboard/lib/auth.ts`, `app/api/auth/*` |
-| Change the session cookie TTL | `apps/dashboard/lib/session.ts` (also update `SESSION_TTL_MS` in `prisma-store.ts`) |
-| Change invite permissions or scope | `apps/dashboard/lib/invite.ts` |
-| Add a new bot slash command | `apps/bot/src/commands.ts` (builder) + `monarch-commands.ts` (handler) |
-| Add a new prefix command / alias | `apps/bot/src/prefix/parse.ts` (alias tables) + the shared catalog's `prefixAliases` |
-| Change the default prefix or what a legal prefix is | `packages/shared/src/prefix.ts` only |
-| Change how a server's prefix is stored / cached | `apps/bot/src/prefix/registry.ts`, `app/api/internal/guilds/[guildId]/prefix/route.ts`, `GuildSettings.commandPrefix` |
-| Change confession channels, embeds, the button/modal flow | `apps/bot/src/confession.ts` (registry + embeds + flow), `app/api/internal/guilds/[guildId]/confession/route.ts`, `GuildSettings.confession*ChannelId` |
-| Change the confession cooldown length | `packages/shared/src/confessions.ts` only (`CONFESSION_COOLDOWN_MS`) — both sides read it |
-| Change how the confession cooldown is stored / enforced | `apps/bot/src/confession-cooldown.ts`, `app/api/internal/users/[userId]/confession-cooldown/route.ts`, `lib/store.ts` + `lib/prisma-store.ts` (`*ConfessionCooldown*`), the `ConfessionCooldown` model |
-| Change the uwu transformer (or anything burg-related) | `apps/bot/src/burg.ts`, `apps/bot/src/durations.ts` |
-| Change the diff/apply ordering | `packages/design-engine/src/{diff,apply-plan}.ts` |
-| Add a new variable | `packages/shared/src/variables.ts` (CORE_VARIABLES) |
-| Change a Discord limit | `packages/validation/src/limits.ts` only |
-| Add a new server rule | `packages/validation/src/server-rules.ts` |
-| Add a new content rule | `packages/validation/src/content-rules.ts` |
-| Change OAuth token encryption | `apps/dashboard/lib/secure-token.ts` (remember rotating `SESSION_SECRET` invalidates everything) |
-| Change the bot's graceful-shutdown behaviour | `apps/bot/src/index.ts` `shutdown()` |
-| Change the mobile/desktop layout | `apps/dashboard/components/nav/GuildShell.tsx` and individual page components |
-| Add a guild setting | `prisma/schema.prisma` + migration, `lib/prisma-store.ts` mappers, `lib/store.ts` interface, `lib/file-backed-store.ts` (or whatever the file store is) |
-| Add a bot-to-dashboard route | `app/api/internal/guilds/[guildId]/<name>/route.ts` + `assertInternalAuth` first |
-| Add a new sidebar item | `apps/dashboard/components/nav/SidebarNav.tsx` |
-| Add a deploy target | `render.yaml` (Render), `docker/*.Dockerfile` (Docker), or `vercel.json` (Vercel dashboard) |
-| Bump a dependency | root `package.json` (workspaces) — run `npm install`, then `npm run typecheck` and `npm test` |
-| Diagnose a 500 | Check `apps/dashboard/lib/api.ts` `jsonStorageError` → `code: "db.migration-pending"` ⇒ run `npm run db:migrate` |
-| Diagnose a "Monarch isn't installed" wrong-error | `packages/discord/src/rest-gateway.ts` `getBotGuildInfo` (definitive vs transient) |
-| Diagnose an apply that won't go through | `apps/dashboard/app/api/guilds/[guildId]/apply/route.ts` — bot `ManageChannels` check + `confirmDestructive` |
-| Diagnose a bot deploy that ends in 143 | `apps/bot/Dockerfile` `CMD` must be `node --import tsx ...`, not `npm run start` |
-| Diagnose "OAuth state expired" | `APP_URL` must match the Discord redirect URI; `monarch_oauth_state` cookie must be sent (same domain) |
+| I want to…                                                | Look here                                                                                                                                                                                              |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Change the OAuth scopes or callback behaviour             | `apps/dashboard/lib/auth.ts`, `app/api/auth/*`                                                                                                                                                         |
+| Change the session cookie TTL                             | `apps/dashboard/lib/session.ts` (also update `SESSION_TTL_MS` in `prisma-store.ts`)                                                                                                                    |
+| Change invite permissions or scope                        | `apps/dashboard/lib/invite.ts`                                                                                                                                                                         |
+| Add a new bot slash command                               | `apps/bot/src/commands.ts` (builder) + `monarch-commands.ts` (handler)                                                                                                                                 |
+| Add a new prefix command / alias                          | `apps/bot/src/prefix/parse.ts` (alias tables) + the shared catalog's `prefixAliases`                                                                                                                   |
+| Change the default prefix or what a legal prefix is       | `packages/shared/src/prefix.ts` only                                                                                                                                                                   |
+| Change how a server's prefix is stored / cached           | `apps/bot/src/prefix/registry.ts`, `app/api/internal/guilds/[guildId]/prefix/route.ts`, `GuildSettings.commandPrefix`                                                                                  |
+| Change confession channels, embeds, the button/modal flow | `apps/bot/src/confession.ts` (registry + embeds + flow), `app/api/internal/guilds/[guildId]/confession/route.ts`, `GuildSettings.confession*ChannelId`                                                 |
+| Change the confession cooldown length                     | `packages/shared/src/confessions.ts` only (`CONFESSION_COOLDOWN_MS`) — both sides read it                                                                                                              |
+| Change how the confession cooldown is stored / enforced   | `apps/bot/src/confession-cooldown.ts`, `app/api/internal/users/[userId]/confession-cooldown/route.ts`, `lib/store.ts` + `lib/prisma-store.ts` (`*ConfessionCooldown*`), the `ConfessionCooldown` model |
+| Change the uwu transformer (or anything burg-related)     | `apps/bot/src/burg.ts`, `apps/bot/src/durations.ts`                                                                                                                                                    |
+| Change the diff/apply ordering                            | `packages/design-engine/src/{diff,apply-plan}.ts`                                                                                                                                                      |
+| Add a new variable                                        | `packages/shared/src/variables.ts` (CORE_VARIABLES)                                                                                                                                                    |
+| Change a Discord limit                                    | `packages/validation/src/limits.ts` only                                                                                                                                                               |
+| Add a new server rule                                     | `packages/validation/src/server-rules.ts`                                                                                                                                                              |
+| Add a new content rule                                    | `packages/validation/src/content-rules.ts`                                                                                                                                                             |
+| Change OAuth token encryption                             | `apps/dashboard/lib/secure-token.ts` (remember rotating `SESSION_SECRET` invalidates everything)                                                                                                       |
+| Change the bot's graceful-shutdown behaviour              | `apps/bot/src/index.ts` `shutdown()`                                                                                                                                                                   |
+| Change the mobile/desktop layout                          | `apps/dashboard/components/nav/GuildShell.tsx` and individual page components                                                                                                                          |
+| Add a guild setting                                       | `prisma/schema.prisma` + migration, `lib/prisma-store.ts` mappers, `lib/store.ts` interface, `lib/file-backed-store.ts` (or whatever the file store is)                                                |
+| Add a bot-to-dashboard route                              | `app/api/internal/guilds/[guildId]/<name>/route.ts` + `assertInternalAuth` first                                                                                                                       |
+| Add a new sidebar item                                    | `apps/dashboard/components/nav/SidebarNav.tsx`                                                                                                                                                         |
+| Add a deploy target                                       | `render.yaml` (Render), `docker/*.Dockerfile` (Docker), or `vercel.json` (Vercel dashboard)                                                                                                            |
+| Bump a dependency                                         | root `package.json` (workspaces) — run `npm install`, then `npm run typecheck` and `npm test`                                                                                                          |
+| Diagnose a 500                                            | Check `apps/dashboard/lib/api.ts` `jsonStorageError` → `code: "db.migration-pending"` ⇒ run `npm run db:migrate`                                                                                       |
+| Diagnose a "Monarch isn't installed" wrong-error          | `packages/discord/src/rest-gateway.ts` `getBotGuildInfo` (definitive vs transient)                                                                                                                     |
+| Diagnose an apply that won't go through                   | `apps/dashboard/app/api/guilds/[guildId]/apply/route.ts` — bot `ManageChannels` check + `confirmDestructive`                                                                                           |
+| Diagnose a bot deploy that ends in 143                    | `apps/bot/Dockerfile` `CMD` must be `node --import tsx ...`, not `npm run start`                                                                                                                       |
+| Diagnose "OAuth state expired"                            | `APP_URL` must match the Discord redirect URI; `monarch_oauth_state` cookie must be sent (same domain)                                                                                                 |
 
 ---
 
@@ -1037,14 +1054,14 @@ needed.
 
 - Don't add **moderation features**. The spec explicitly says no. `/burg`
   is a gag and stays a gag.
-- Don't introduce a **second bot worker** — two Gateway sessions with the
+- dont introduce a **second bot worker** — two Gateway sessions with the
   same token can disconnect each other.
 - Don't put `DISCORD_BOT_TOKEN` in a `NEXT_PUBLIC_*` variable — it would
   leak to the browser bundle.
 - Don't call `@discordjs/rest` from anywhere outside `packages/discord/`.
   The `DiscordGateway` interface is the seam; the bot's `REST` instance in
   `apps/bot/src/index.ts` is an exception (for slash-command registration
-  and gateway events), but for any *new* REST call, add a gateway method.
+  and gateway events), but for any _new_ REST call, add a gateway method.
 - Don't hardcode Discord limits. Update `DiscordLimits`.
 - Don't use raw Discord JSON in routes or components. Convert through
   `@monarch/renderer` and `@monarch/discord`.
@@ -1115,10 +1132,10 @@ existing semantic.
   permission bitfield of `"0"`.
 - `apps/dashboard/components/designer/RoleInspector.tsx` — right-panel
   inspector. Name (with char count), color (hex `<input type="color">`
-  + raw text field that accepts paste-from-clipboard hex), position
-  (number), hoist, mentionable, and the curated permission grid.
-  Managed roles get a read-only "this role is managed by X" panel
-  instead of the editor.
+  - raw text field that accepts paste-from-clipboard hex), position
+    (number), hoist, mentionable, and the curated permission grid.
+    Managed roles get a read-only "this role is managed by X" panel
+    instead of the editor.
 - `apps/dashboard/components/designer/RoleDesigner.tsx` — the shell
   (toolbar, mobile pane switch, validation strip, list+inspector
   layout, Review modal). Reuses the `ReviewModal` unchanged.
@@ -1209,7 +1226,6 @@ which surface was changed.
 the existing `prisma/migrations/20260902000000_init/` shape
 (roles live inside `DesignDraft.design` and `DesignVersion.design`
 as JSON, which the schema accepts).
-
 
 ---
 
@@ -1314,6 +1330,7 @@ passing-but-advisory checks (e.g. palette alignment without a defined
 palette) render an "advisory" pill with the nudge.
 
 **Not in this iteration** (recorded for the next session):
+
 - `/monarch health` (Appendix E) — the package can back it via an internal
   route; not wired.
 - "Not much to analyze yet" empty-state messaging beyond the
@@ -1329,30 +1346,30 @@ all four): **per-server prefix set from the bot only** (`per_guild_bot_only`),
 surface **mirrors the slash tree plus short aliases** (`mirror_plus_short`),
 **every** command group covered (`all`), **full docs pass** (`full`).
 
-**Rule of the feature: one handler, two surfaces.** Prefix commands are *not*
+**Rule of the feature: one handler, two surfaces.** Prefix commands are _not_
 a parallel implementation — `PrefixCommandContext` implements the same
 `CommandContext` that `SlashCommandContext` does, and `MonarchCommands.run` /
 `MusicCommands.run` / `burg` never learn which one they got. Anything that
 makes them diverge is a bug: `apps/bot/test/slash-context.test.ts` exists to
 catch exactly that (same burg registry instance, same moderation checks,
 ephemeral ⇒ flag 64 on slash and absent on text, `/monarch backup` defers and
-edits *once*).
+edits _once_).
 
 ### Files
 
-| Path | What it is |
-|---|---|
-| `packages/shared/src/prefix.ts` | Prefix legality + defaults (see §4). Only place that decides "is this a valid prefix". |
-| `apps/bot/src/prefix/parse.ts` | Pure tokenizer/router: `parseArgs`, `extractPrefixCommand`, `matchCommand`, `commandWordCount`, alias tables. No I/O, no discord.js beyond types. |
-| `apps/bot/src/prefix/context.ts` | `PrefixCommandContext` + `PrefixInvocation` + `canReplyIn`. |
-| `apps/bot/src/prefix/registry.ts` | `PrefixRegistry` (60 s TTL, negative caching, `peek`/`get`/`candidates`/`set`), `PrefixStore` seam, `internalPrefixStore`. |
-| `apps/bot/src/prefix/dispatch.ts` | `handlePrefixMessage(message, deps)` — the gateway side; returns whether Monarch answered. |
-| `apps/bot/src/context.ts` | `CommandContext` interface (was slash-only; now the contract both surfaces implement). |
-| `apps/bot/src/monarch-commands.ts` | Handlers + the new `prefix` subcommand (`show`/`set`). |
-| `apps/dashboard/app/api/internal/guilds/[guildId]/prefix/route.ts` | `GET`/`PUT` — Bearer `INTERNAL_API_TOKEN`, snowflake-checked, `parseCommandPrefix`-validated, `GuildSettings.commandPrefix` NULL = default. |
-| `prisma/migrations/20260912000000_add_command_prefix/` | Adds that column (Postgres; Prisma auto-maps it on SQLite for the file store). |
-| `apps/dashboard/components/help/HelpPanel.tsx` | Renders `prefixUsage` + aliases per group + a "Prefix commands" block (the dashboard has **no** prefix UI, per the chosen scope — this is read-only documentation). |
-| `packages/shared/src/invite.ts` | The invite link both surfaces hand out (`!invite` ⇄ the dashboard's invite button). |
+| Path                                                               | What it is                                                                                                                                                          |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared/src/prefix.ts`                                    | Prefix legality + defaults (see §4). Only place that decides "is this a valid prefix".                                                                              |
+| `apps/bot/src/prefix/parse.ts`                                     | Pure tokenizer/router: `parseArgs`, `extractPrefixCommand`, `matchCommand`, `commandWordCount`, alias tables. No I/O, no discord.js beyond types.                   |
+| `apps/bot/src/prefix/context.ts`                                   | `PrefixCommandContext` + `PrefixInvocation` + `canReplyIn`.                                                                                                         |
+| `apps/bot/src/prefix/registry.ts`                                  | `PrefixRegistry` (60 s TTL, negative caching, `peek`/`get`/`candidates`/`set`), `PrefixStore` seam, `internalPrefixStore`.                                          |
+| `apps/bot/src/prefix/dispatch.ts`                                  | `handlePrefixMessage(message, deps)` — the gateway side; returns whether Monarch answered.                                                                          |
+| `apps/bot/src/context.ts`                                          | `CommandContext` interface (was slash-only; now the contract both surfaces implement).                                                                              |
+| `apps/bot/src/monarch-commands.ts`                                 | Handlers + the new `prefix` subcommand (`show`/`set`).                                                                                                              |
+| `apps/dashboard/app/api/internal/guilds/[guildId]/prefix/route.ts` | `GET`/`PUT` — Bearer `INTERNAL_API_TOKEN`, snowflake-checked, `parseCommandPrefix`-validated, `GuildSettings.commandPrefix` NULL = default.                         |
+| `prisma/migrations/20260912000000_add_command_prefix/`             | Adds that column (Postgres; Prisma auto-maps it on SQLite for the file store).                                                                                      |
+| `apps/dashboard/components/help/HelpPanel.tsx`                     | Renders `prefixUsage` + aliases per group + a "Prefix commands" block (the dashboard has **no** prefix UI, per the chosen scope — this is read-only documentation). |
+| `packages/shared/src/invite.ts`                                    | The invite link both surfaces hand out (`!invite` ⇄ the dashboard's invite button).                                                                                 |
 
 ### Matching order (and why)
 
@@ -1361,19 +1378,19 @@ edits *once*).
 2. **Text prefixes, longest first** — `candidates` = `[default, guild prefix]`;
    longest-first so `m!!` wins over `m!`, and case-insensitive (`!HELP`).
 3. Whatever follows is tokenized by `parseArgs` — **no punctuation guard**:
-   `hey` is rejected by the *prefix* rules, not by the matcher.
+   `hey` is rejected by the _prefix_ rules, not by the matcher.
 
 Then `matchCommand` decides the response policy:
 
-| Message | Result | Why |
-|---|---|---|
-| `!play despacito` | runs `music play` | |
-| `!monarch burged` / `!music play x` | runs the full path | mirrors the slash tree |
-| `!monarch` (bare group root) | help reply | ambiguous *our* prefix ⇒ teach |
-| `!frobnicate` | **silence** | another bot's prefix is not our business |
-| `!` (bare) | silence | |
-| `@Monarch` (bare) | greeting | an explicit mention deserves an answer |
-| `@Monarch frobnicate` | "I don't have that command" | a mention is unambiguous |
+| Message                             | Result                      | Why                                      |
+| ----------------------------------- | --------------------------- | ---------------------------------------- |
+| `!play despacito`                   | runs `music play`           |                                          |
+| `!monarch burged` / `!music play x` | runs the full path          | mirrors the slash tree                   |
+| `!monarch` (bare group root)        | help reply                  | ambiguous _our_ prefix ⇒ teach           |
+| `!frobnicate`                       | **silence**                 | another bot's prefix is not our business |
+| `!` (bare)                          | silence                     |                                          |
+| `@Monarch` (bare)                   | greeting                    | an explicit mention deserves an answer   |
+| `@Monarch frobnicate`               | "I don't have that command" | a mention is unambiguous                 |
 
 Silence on unknown `!words` is the deliberate design decision — a server with
 three bots would otherwise get three "unknown command" replies per typo.
@@ -1381,7 +1398,7 @@ three bots would otherwise get three "unknown command" replies per typo.
 ### Caching / degradation
 
 `PrefixRegistry.peek(guildId)` is the **sync** cache read used to decide "could
-this message possibly be mine" *before* any `await`. Careful: a cached `null`
+this message possibly be mine" _before_ any `await`. Careful: a cached `null`
 means "this server has no custom prefix" — an answer, not a miss (that bug
 cost a full-suite pass once; `prefix-registry.test.ts` now pins it).
 `resolve()` validates whatever comes back from the store with
@@ -1419,7 +1436,7 @@ relayed — that's intentional (commands win over the gag), and it's asserted in
   (default `{parse: []}`), so a `!burg <@someone>` reply — or an `@everyone`
   inside a burg reason — can't ping the room.
 - **Durations.** `parseDuration` needs digits+unit (`10m`, `1h30m`).
-  `parseGagArgs` classifies a *duration-shaped* word it can't parse
+  `parseGagArgs` classifies a _duration-shaped_ word it can't parse
   (`ten minutes`, `0m`) as an error ⇒ `DURATION_ERROR`; a non-time word
   (`forever`, `because reasons`) is a reason. Only the text surface can
   produce that error — slash has a validated duration option.
@@ -1430,7 +1447,7 @@ relayed — that's intentional (commands win over the gag), and it's asserted in
   arguments through `CHANNEL_OPTION_ORDER` (keyed by `canonicalSubcommand()`
   from `parse.ts`), so `!monarch confession setup #confessions #confess-logs`
   gives `channel`=#confessions and `logs`=#confess-logs. When it answered both
-  names with `message.mentions.channels.first()` instead, two *different*
+  names with `message.mentions.channels.first()` instead, two _different_
   channels collapsed into one and setup refused with "the log channel must be
   different from the confession channel" — the exact thing the user had just
   avoided by typing two channels. Any new command with 2+ channel options needs
@@ -1438,7 +1455,7 @@ relayed — that's intentional (commands win over the gag), and it's asserted in
   with **cached** channels, so the adapter parses the text instead: an uncached
   mention would otherwise shift every option after it.
 - `defer()` on the text surface posts "⏳ Working on it…" then edits; the
-  slash surface defers for real. `/monarch backup` therefore *must* be
+  slash surface defers for real. `/monarch backup` therefore _must_ be
   assert-on-the-API-snapshot in tests, not on a fixed filename.
 - The file store round-trips through SQLite, so `commandPrefix` there is a
   plain string column; `lib/store.ts` + `lib/prisma-store.ts` both map it and
@@ -1449,12 +1466,12 @@ relayed — that's intentional (commands win over the gag), and it's asserted in
 
 Text commands put a bot in every member's reach, so the split is explicit:
 
-| Open to every member | Needs Manage Server / Administrator | Needs Administrator / Kick Members |
-|---|---|---|
-| `help` · `dashboard` · `status` · `invite` (`add`) · `prefix` **show** · all read-only music (`queue`, `nowplaying`, `play`, `skip` by vote) | `prefix set`/`reset` · `backup` · `export` · `embed` preview · `test` | `burg` · `burged` |
+| Open to every member                                                                                                                         | Needs Manage Server / Administrator                                   | Needs Administrator / Kick Members |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------- |
+| `help` · `dashboard` · `status` · `invite` (`add`) · `prefix` **show** · all read-only music (`queue`, `nowplaying`, `play`, `skip` by vote) | `prefix set`/`reset` · `backup` · `export` · `embed` preview · `test` | `burg` · `burged`                  |
 
 None of the open ones read or change server data — they are links and status.
-`!invite` deliberately hands the install link to *anybody*: Discord's install
+`!invite` deliberately hands the install link to _anybody_: Discord's install
 dialog only offers servers the clicker can manage, and the link carries exactly
 `INVITE_PERMISSIONS` (never Administrator), so it grants nothing. It needs an
 application id: `DISCORD_CLIENT_ID` on the worker, else the bot's own user id
@@ -1468,7 +1485,6 @@ missing and points at the dashboard's invite button.
 - No second bot worker, no new permissions, no raw REST outside
   `packages/discord` (the internal-API fetch is the documented exception).
 - BurgRegistry stays in-memory (a restart still releases burgs).
-
 
 ---
 
@@ -1527,7 +1543,7 @@ channel (the route and the registry both refuse it).
 
 ### Notes
 
-- **Who may run what:** confessions *setup/disable* need Manage Server /
+- **Who may run what:** confessions _setup/disable_ need Manage Server /
   Administrator; **confessing is open to everyone** (button + modal need no
   permission) — same bucket as playing music.
 - The prefix surface reads channel mentions positionally (first = channel,
@@ -1551,6 +1567,7 @@ channel (the route and the registry both refuse it).
 confession and they can't send any more for the next 5 hours and 59 minutes."
 
 **Decisions (asked, not assumed):**
+
 - **Persisted**, not in-memory: the window lives in the dashboard's store, so a
   redeploy doesn't hand everybody a fresh confession. (The burg registry is
   in-memory on purpose — a gag. This is a rate limit.)
@@ -1561,22 +1578,24 @@ confession and they can't send any more for the next 5 hours and 59 minutes."
   same list the setup command uses) — staff set the channel up and test it.
 
 **How it flows** (`apps/bot/src/confession.ts`):
+
 1. **Confess button** → `cooldowns.blockedUntil(user.id)`. A live window
    answers `⏳ … You can confess again <t:…:R>` and the modal never opens —
    a form that would only be refused wastes their secret. Advisory check.
-2. **Modal submit** → text length → channel config → *usable channel* →
+2. **Modal submit** → text length → channel config → _usable channel_ →
    `cooldowns.claim(user.id)` → post. The claim is the authoritative one, and
    it sits **after** the channel is known to work (a broken setup costs nobody
    their window) and **before** the send (a double-click can't double-post).
 3. **Send failed** → `cooldowns.release(user.id)`: nothing was posted, so the
-   six hours are given back. A failed *log* entry does not release — the
+   six hours are given back. A failed _log_ entry does not release — the
    confession is live.
 4. The success reply names the next window (`You can confess again <t:…:R>.`).
 
 **Where it lives**
+
 - **Shared:** `packages/shared/src/confessions.ts` → `CONFESSION_COOLDOWN_MS`
   (6h). The route stamps `nextAllowedAt` with it, the bot words replies from
-  it, and the bot never *sends* a length — so the two sides can't disagree.
+  it, and the bot never _sends_ a length — so the two sides can't disagree.
 - **Bot:** `apps/bot/src/confession-cooldown.ts` — `ConfessionCooldowns`
   (cache of live windows keyed by user id: absolute timestamps need no TTL, an
   expired entry means "free" forever), the `ConfessionCooldownStore` seam and
@@ -1598,25 +1617,26 @@ confession and they can't send any more for the next 5 hours and 59 minutes."
   confession every 6h…") and the setup command's success reply.
 
 **Notes / gotchas**
+
 - **Fail open.** An unreachable dashboard lets the confession through and logs
   a warning. The cooldown is a guard rail, not a permission — and when the
   dashboard is down the channels themselves already read as "off" from the same
   API, so failing closed would only add a second, more confusing reason.
 - **Privacy:** the cooldown row is the only place outside the log channel where
-  a confessor's id appears, and it holds *just* that id and a timestamp — never
+  a confessor's id appears, and it holds _just_ that id and a timestamp — never
   the text, never a channel id. Someone reading Monarch's database can tell
   that a person confessed somewhere in the last six hours, not what they said
   or where it was posted. `confession.ts` and the schema comment both say so,
   and the bot's own log lines stay free of the confessor's id.
 - **No semicolons in migration comments** — the integration test splits on `;`
-  *before* stripping `--`, so a commented semicolon becomes executable SQL
+  _before_ stripping `--`, so a commented semicolon becomes executable SQL
   (see §11 Migration history).
 - **Sandbox:** `prisma generate` still can't run here, so the type-only stub at
   `apps/dashboard/lib/generated/prisma/client.ts` now proxies delegate access
   and throws a message that says why. The 3 new integration tests (claim,
   race, expiry/release) fail here for that reason alone and pass in a normal
   environment; the compare-and-set's control flow is also unit-tested against a
-  fake delegate in `prisma-store.test.ts`, which *does* run here.
+  fake delegate in `prisma-store.test.ts`, which _does_ run here.
 - **Deliberately not done:** no per-guild or per-channel windows, no
   configurable length (one shared constant), no dashboard UI, and no
   `/monarch confession cooldown` command to inspect or lift a window — the

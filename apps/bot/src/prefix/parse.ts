@@ -108,8 +108,9 @@ const MENTION_TO_ID = /<@!?(\d{15,25})>|<#(\d{15,25})>|<@&(\d{15,25})>/g;
  * quotes just run to the end of the line (people type on phones).
  */
 export function parseArgs(input: string): string[] {
-  const text = input.replace(MENTION_TO_ID, (_m, user?: string, channel?: string, role?: string) =>
-    user ?? channel ?? role ?? "",
+  const text = input.replace(
+    MENTION_TO_ID,
+    (_m, user?: string, channel?: string, role?: string) => user ?? channel ?? role ?? "",
   );
   const tokens: string[] = [];
   let current = "";
@@ -229,12 +230,20 @@ export function matchCommand(invocation: PrefixInvocation): PrefixMatch {
   if (tokens.length === 0) {
     const word = /^([^\s"]+)/u.exec(invocation.content.trim())?.[1];
     if (!word) return { kind: "bare", viaMention };
-    return viaMention ? { kind: "unknown", token: word.toLowerCase(), viaMention } : { kind: "ignore" };
+    return viaMention
+      ? { kind: "unknown", token: word.toLowerCase(), viaMention }
+      : { kind: "ignore" };
   }
 
   const [head, second] = tokens as [string, string | undefined];
 
-  if (head === "burg") return { kind: "command", surface: "burg", args: second ? [second, ...args] : args, viaMention };
+  if (head === "burg")
+    return {
+      kind: "command",
+      surface: "burg",
+      args: second ? [second, ...args] : args,
+      viaMention,
+    };
 
   if (GROUP_ROOTS.has(head!)) {
     if (!second) return { kind: "unknown", token: head!, viaMention };
@@ -248,12 +257,24 @@ export function matchCommand(invocation: PrefixInvocation): PrefixMatch {
   // maps onto a monarch or music subcommand.
   for (const [sub, aliases] of Object.entries(MONARCH_PREFIX_ALIASES)) {
     if (aliases.includes(head!)) {
-      return { kind: "command", surface: "monarch", sub, args: second ? [second, ...args] : args, viaMention };
+      return {
+        kind: "command",
+        surface: "monarch",
+        sub,
+        args: second ? [second, ...args] : args,
+        viaMention,
+      };
     }
   }
   for (const [sub, aliases] of Object.entries(MUSIC_PREFIX_ALIASES)) {
     if (aliases.includes(head!)) {
-      return { kind: "command", surface: "music", sub, args: second ? [second, ...args] : args, viaMention };
+      return {
+        kind: "command",
+        surface: "music",
+        sub,
+        args: second ? [second, ...args] : args,
+        viaMention,
+      };
     }
   }
 

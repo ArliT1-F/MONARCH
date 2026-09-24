@@ -29,8 +29,8 @@ import { BURG_STYLES } from "./burg.js";
  * `/monarch help` and the dashboard's Help page both render from the shared
  * command catalog (@monarch/shared/commands) so the two can't drift.
  */
- 
- export interface CommandHelp {
+
+export interface CommandHelp {
   usage: string;
   description: string;
   /** Who can run it (Discord-side checks happen in the handler). */
@@ -44,116 +44,122 @@ export const COMMAND_HELP: CommandHelp[] = MONARCH_COMMANDS.map((c) => ({
 }));
 
 export function monarchCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
-  return new SlashCommandBuilder()
-    .setName("monarch")
-    .setDescription("Monarch — design your Discord server")
-    // Guild-only: every subcommand needs a server context.
-    .setContexts(0)
-    .addSubcommand((s) => s.setName("help").setDescription("List every Monarch command"))
-    .addSubcommand((s) =>
-      s.setName("dashboard").setDescription("Open this server in the Monarch design studio"),
-    )
-    .addSubcommand((s) =>
-      s.setName("status").setDescription("Show Monarch's status for this server"),
-    )
-    .addSubcommand((s) =>
-      s.setName("invite").setDescription("Get the link to add Monarch to another server"),
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("prefix")
-        .setDescription("Show or change this server's prefix for text commands (default !)")
-        .addStringOption((o) =>
-          o
-            .setName("prefix")
-            .setDescription(
-              `1-${MAX_COMMAND_PREFIX_LENGTH} punctuation characters, e.g. ? or m! — omit to show the current prefix`,
-            )
-            .setMaxLength(MAX_COMMAND_PREFIX_LENGTH),
-        ),
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("backup")
-        .setDescription("Save a snapshot of this server's categories and channels")
-        .addStringOption((o) =>
-          o.setName("name").setDescription("Optional name for the backup").setMaxLength(100),
-        ),
-    )
-    .addSubcommand((s) =>
-      s.setName("export").setDescription("Export this server's layout as a portable Monarch template"),
-    )
-    .addSubcommand((s) =>
-      s.setName("embed").setDescription("Open the Embed Builder for this server"),
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("test")
-        .setDescription("Test-send or publish the saved embed/message design")
-        .addStringOption((o) =>
-          o
-            .setName("kind")
-            .setDescription("Which design to send")
-            .setRequired(true)
-            .addChoices(
-              { name: "Embed", value: "embed" },
-              { name: "Message", value: "message" },
-            ),
-        )
-        .addStringOption((o) =>
-          o
-            .setName("mode")
-            .setDescription("Test → designated testing channel; publish → designated announcements channel")
-            .addChoices(
-              { name: "Test", value: "test" },
-              { name: "Publish", value: "publish" },
-            ),
-        )
-        .addChannelOption((o) =>
-          o.setName("channel").setDescription("Send here instead of the designated channel"),
-        ),
-    )
-    .addSubcommand((s) => s.setName("burged").setDescription("List who is currently burg'd here"))
-    .addSubcommand((s) =>
-      s
-        .setName("debug")
-        .setDescription("Owner-only: toggle raw error reporting for music failures")
-        .addStringOption((o) =>
-          o
-            .setName("state")
-            .setDescription("on turns raw errors on, off turns them off — omit to see the current state")
-            .addChoices(
-              { name: "On — post raw errors", value: "on" },
-              { name: "Off — one clean line", value: "off" },
-            ),
-        ),
-    )
-    .addSubcommandGroup((g) =>
-      g
-        .setName("confession")
-        .setDescription("Anonymous confessions — set up the channel or switch it off")
-        .addSubcommand((s) =>
-          s
-            .setName("setup")
-            .setDescription(
-              "Set up the confession channel (and optional staff log channel), then post the starter confession",
-            )
-            .addChannelOption((o) =>
-              o
-                .setName("channel")
-                .setDescription("Where confessions are posted — omit to use this channel")
-                .addChannelTypes(ChannelType.GuildText),
-            )
-            .addChannelOption((o) =>
-              o
-                .setName("logs")
-                .setDescription("Staff-only channel that receives full log entries — omit for no logs")
-                .addChannelTypes(ChannelType.GuildText),
-            ),
-        )
-        .addSubcommand((s) => s.setName("disable").setDescription("Switch confessions off again")),
-    )
-    .toJSON();
+  return (
+    new SlashCommandBuilder()
+      .setName("monarch")
+      .setDescription("Monarch — design your Discord server")
+      // Guild-only: every subcommand needs a server context.
+      .setContexts(0)
+      .addSubcommand((s) => s.setName("help").setDescription("List every Monarch command"))
+      .addSubcommand((s) =>
+        s.setName("dashboard").setDescription("Open this server in the Monarch design studio"),
+      )
+      .addSubcommand((s) =>
+        s.setName("status").setDescription("Show Monarch's status for this server"),
+      )
+      .addSubcommand((s) =>
+        s.setName("invite").setDescription("Get the link to add Monarch to another server"),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("prefix")
+          .setDescription("Show or change this server's prefix for text commands (default !)")
+          .addStringOption((o) =>
+            o
+              .setName("prefix")
+              .setDescription(
+                `1-${MAX_COMMAND_PREFIX_LENGTH} punctuation characters, e.g. ? or m! — omit to show the current prefix`,
+              )
+              .setMaxLength(MAX_COMMAND_PREFIX_LENGTH),
+          ),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("backup")
+          .setDescription("Save a snapshot of this server's categories and channels")
+          .addStringOption((o) =>
+            o.setName("name").setDescription("Optional name for the backup").setMaxLength(100),
+          ),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("export")
+          .setDescription("Export this server's layout as a portable Monarch template"),
+      )
+      .addSubcommand((s) =>
+        s.setName("embed").setDescription("Open the Embed Builder for this server"),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("test")
+          .setDescription("Test-send or publish the saved embed/message design")
+          .addStringOption((o) =>
+            o
+              .setName("kind")
+              .setDescription("Which design to send")
+              .setRequired(true)
+              .addChoices({ name: "Embed", value: "embed" }, { name: "Message", value: "message" }),
+          )
+          .addStringOption((o) =>
+            o
+              .setName("mode")
+              .setDescription(
+                "Test → designated testing channel; publish → designated announcements channel",
+              )
+              .addChoices({ name: "Test", value: "test" }, { name: "Publish", value: "publish" }),
+          )
+          .addChannelOption((o) =>
+            o.setName("channel").setDescription("Send here instead of the designated channel"),
+          ),
+      )
+      .addSubcommand((s) => s.setName("burged").setDescription("List who is currently burg'd here"))
+      .addSubcommand((s) =>
+        s
+          .setName("debug")
+          .setDescription("Owner-only: toggle raw error reporting for music failures")
+          .addStringOption((o) =>
+            o
+              .setName("state")
+              .setDescription(
+                "on turns raw errors on, off turns them off — omit to see the current state",
+              )
+              .addChoices(
+                { name: "On — post raw errors", value: "on" },
+                { name: "Off — one clean line", value: "off" },
+              ),
+          ),
+      )
+      .addSubcommandGroup((g) =>
+        g
+          .setName("confession")
+          .setDescription("Anonymous confessions — set up the channel or switch it off")
+          .addSubcommand((s) =>
+            s
+              .setName("setup")
+              .setDescription(
+                "Set up the confession channel (and optional staff log channel), then post the starter confession",
+              )
+              .addChannelOption((o) =>
+                o
+                  .setName("channel")
+                  .setDescription("Where confessions are posted — omit to use this channel")
+                  .addChannelTypes(ChannelType.GuildText),
+              )
+              .addChannelOption((o) =>
+                o
+                  .setName("logs")
+                  .setDescription(
+                    "Staff-only channel that receives full log entries — omit for no logs",
+                  )
+                  .addChannelTypes(ChannelType.GuildText),
+              ),
+          )
+          .addSubcommand((s) =>
+            s.setName("disable").setDescription("Switch confessions off again"),
+          ),
+      )
+      .toJSON()
+  );
 }
 
 /**
@@ -188,8 +194,10 @@ export function burgCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
 export const BURG_PERMISSIONS = [PermissionFlagsBits.KickMembers] as const;
 
 /** Bits that let a member run backup / export / test (mirrors the dashboard's "can design" rule). */
-export const DESIGN_PERMISSIONS = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageGuild] as const;
-
+export const DESIGN_PERMISSIONS = [
+  PermissionFlagsBits.Administrator,
+  PermissionFlagsBits.ManageGuild,
+] as const;
 
 // ── /monarch help ────────────────────────────────────────────────────
 const GOLD = 0xf5c542;
@@ -199,7 +207,9 @@ const FIELD_VALUE_LIMIT = 1024;
 /** `also !play, !p` — the short prefix forms of a command, if it has any. */
 function aliasSuffix(doc: CommandDoc): string {
   const aliases = doc.prefixAliases ?? [];
-  return aliases.length === 0 ? "" : ` · also ${aliases.map((a) => `\`${DEFAULT_COMMAND_PREFIX}${a}\``).join(", ")}`;
+  return aliases.length === 0
+    ? ""
+    : ` · also ${aliases.map((a) => `\`${DEFAULT_COMMAND_PREFIX}${a}\``).join(", ")}`;
 }
 
 function groupLines(docs: CommandDoc[]): string[] {
@@ -215,7 +225,10 @@ function groupLines(docs: CommandDoc[]): string[] {
  * configured prefix when the caller knows it — the default is used otherwise.
  */
 export function prefixHelpLine(prefix: string = DEFAULT_COMMAND_PREFIX): string {
-  const extra = prefix === DEFAULT_COMMAND_PREFIX ? "" : ` (the default \`${DEFAULT_COMMAND_PREFIX}\` still works)`;
+  const extra =
+    prefix === DEFAULT_COMMAND_PREFIX
+      ? ""
+      : ` (the default \`${DEFAULT_COMMAND_PREFIX}\` still works)`;
   return (
     `-# Prefix commands: every command also works as \`${prefix}help\`, \`${prefix}play <song>\`, ` +
     `\`${prefix}burg @user\`… or with an @Monarch mention${extra}. Change yours with \`${prefix}prefix set <new>\`; ` +
@@ -237,16 +250,22 @@ function chunkLines(lines: string[], prefix: string, suffix: string): string[][]
     length += line.length + 1;
   }
   if (current.length > 0) chunks.push(current);
-  return chunks.map((chunk, i) =>
-    i === 0 ? chunk : chunk, // grouping handled by the caller via suffixes
-  ).map((chunk, i) => (i === 0 ? chunk : chunk)); // (kept simple — see helpEmbeds)
+  return chunks
+    .map(
+      (chunk, i) => (i === 0 ? chunk : chunk), // grouping handled by the caller via suffixes
+    )
+    .map((chunk, i) => (i === 0 ? chunk : chunk)); // (kept simple — see helpEmbeds)
 }
 
 /**
  * `/monarch help` → an embed with every command, grouped like the
  * dashboard's Help page. The shared catalog is the single source of truth.
  */
-export function renderHelpEmbeds(appUrl: string, guildId?: string, prefix: string = DEFAULT_COMMAND_PREFIX): APIEmbed[] {
+export function renderHelpEmbeds(
+  appUrl: string,
+  guildId?: string,
+  prefix: string = DEFAULT_COMMAND_PREFIX,
+): APIEmbed[] {
   const helpUrl = guildId ? `${appUrl}/s/${guildId}/help` : appUrl;
 
   const fields: { name: string; value: string }[] = [];
@@ -284,7 +303,7 @@ export function renderHelpEmbeds(appUrl: string, guildId?: string, prefix: strin
         `-# Music player: /music play · pause · resume · skip · queue · nowplaying · volume · loop · shuffle · remove · clear · stop\n` +
         prefixHelpLine(prefix),
       fields,
-      footer: { text: "For any issues dm @icy404 on Discord."},
+      footer: { text: "For any issues dm @icy404 on Discord." },
     },
   ];
 }

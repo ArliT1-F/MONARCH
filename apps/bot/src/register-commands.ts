@@ -18,7 +18,9 @@ if (!token || !clientId) {
 }
 
 const commands = [monarchCommandJSON(), burgCommandJSON(), musicCommandJSON()];
-const route = guildId ? Routes.applicationGuildCommands(clientId, guildId) : Routes.applicationCommands(clientId);
+const route = guildId
+  ? Routes.applicationGuildCommands(clientId, guildId)
+  : Routes.applicationCommands(clientId);
 
 const rest = new REST({ version: "10" }).setToken(token);
 await rest.put(route, { body: commands });

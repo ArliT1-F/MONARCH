@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emptyServerDesign, type ServerDesign } from "@monarch/schemas";
 import { diffServerDesign, planApply } from "@monarch/design-engine";
-import {
-  InMemoryMockStore,
-  MockDiscordGateway,
-  type MockState,
-} from "../src/mock-gateway.js";
+import { InMemoryMockStore, MockDiscordGateway, type MockState } from "../src/mock-gateway.js";
 import { executeApplyPlan } from "../src/executor.js";
 
 /**
@@ -18,7 +14,16 @@ function makeState(): MockState {
   const design = emptyServerDesign("g1", "Guild");
   design.roles = [
     { id: "r1", name: "@everyone", position: 0, permissions: "0", managed: false },
-    { id: "r2", name: "Member", position: 1, color: "#88c0d0", hoist: true, mentionable: false, permissions: "0", managed: false },
+    {
+      id: "r2",
+      name: "Member",
+      position: 1,
+      color: "#88c0d0",
+      hoist: true,
+      mentionable: false,
+      permissions: "0",
+      managed: false,
+    },
     { id: "r3", name: "MEE6", position: 50, permissions: "8", managed: true },
   ];
   return {
@@ -41,11 +46,20 @@ describe("Role apply loop", () => {
     const store = new InMemoryMockStore(makeState());
     const gw = new MockDiscordGateway(store);
 
-    const current = (await gw.fetchServerDesign("g1"));
+    const current = await gw.fetchServerDesign("g1");
     if (!current.ok) throw new Error("no design");
     const desired: ServerDesign = structuredClone(current.value);
     // create a new role
-    desired.roles.push({ id: "new_mod", name: "Mod", position: 5, color: "#ff8800", hoist: true, mentionable: true, permissions: "8589934592", managed: false });
+    desired.roles.push({
+      id: "new_mod",
+      name: "Mod",
+      position: 5,
+      color: "#ff8800",
+      hoist: true,
+      mentionable: true,
+      permissions: "8589934592",
+      managed: false,
+    });
     // rename Member → Verified
     const member = desired.roles.find((r) => r.id === "r2")!;
     member.name = "Verified";
@@ -69,7 +83,7 @@ describe("Role apply loop", () => {
     const result = await executeApplyPlan(gw, plan, desired);
     expect(result.ok).toBe(true);
 
-    const after = (await gw.fetchServerDesign("g1"));
+    const after = await gw.fetchServerDesign("g1");
     if (!after.ok) throw new Error("no design");
     // Mod is created
     const mod = after.value.roles.find((r) => r.name === "Mod");
@@ -106,10 +120,16 @@ describe("Role apply loop", () => {
   it("records created role ids so draft rebasing works", async () => {
     const store = new InMemoryMockStore(makeState());
     const gw = new MockDiscordGateway(store);
-    const current = (await gw.fetchServerDesign("g1"));
+    const current = await gw.fetchServerDesign("g1");
     if (!current.ok) throw new Error("no design");
     const desired = structuredClone(current.value);
-    desired.roles.push({ id: "new_helper", name: "Helper", position: 3, permissions: "0", managed: false });
+    desired.roles.push({
+      id: "new_helper",
+      name: "Helper",
+      position: 3,
+      permissions: "0",
+      managed: false,
+    });
     const plan = planApply(diffServerDesign(current.value, desired));
     const result = await executeApplyPlan(gw, plan, desired);
     expect(result.ok).toBe(true);

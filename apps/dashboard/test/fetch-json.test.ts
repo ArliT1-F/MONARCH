@@ -66,7 +66,9 @@ describe("apiErrorMessage", () => {
 
 describe("networkErrorMessage", () => {
   it("maps a failed fetch (TypeError) to a connection message", () => {
-    expect(networkErrorMessage(new TypeError("Failed to fetch"))).toContain("check your connection");
+    expect(networkErrorMessage(new TypeError("Failed to fetch"))).toContain(
+      "check your connection",
+    );
   });
 
   it("keeps explicit error messages", () => {

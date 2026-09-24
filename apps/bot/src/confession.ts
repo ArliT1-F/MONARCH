@@ -123,7 +123,7 @@ export class ConfessionRegistry {
 
   /**
    * The confession channels for this guild. Never throws: an unreachable
-   * store (or a stored value that isn't a snowflake) degrades to "off".
+   * store (or a stored value that isnt a snowflake) degrades to "off".
    */
   async config(guildId: string): Promise<ConfessionChannels> {
     const hit = this.cache.get(guildId);
@@ -133,7 +133,9 @@ export class ConfessionRegistry {
       const loaded = await this.store.load(guildId);
       const channels = {
         channelId: SNOWFLAKE.test(loaded.channelId ?? "") ? (loaded.channelId as string) : null,
-        logChannelId: SNOWFLAKE.test(loaded.logChannelId ?? "") ? (loaded.logChannelId as string) : null,
+        logChannelId: SNOWFLAKE.test(loaded.logChannelId ?? "")
+          ? (loaded.logChannelId as string)
+          : null,
       };
       this.cache.set(guildId, { channels, expiresAt: this.now() + this.ttlMs });
       return channels;
@@ -156,8 +158,12 @@ export class ConfessionRegistry {
     guildId: string,
     channels: ConfessionChannels,
   ): Promise<{ ok: true } | { ok: false; message: string }> {
-    const channelId = SNOWFLAKE.test(channels.channelId ?? "") ? (channels.channelId as string) : null;
-    const logChannelId = SNOWFLAKE.test(channels.logChannelId ?? "") ? (channels.logChannelId as string) : null;
+    const channelId = SNOWFLAKE.test(channels.channelId ?? "")
+      ? (channels.channelId as string)
+      : null;
+    const logChannelId = SNOWFLAKE.test(channels.logChannelId ?? "")
+      ? (channels.logChannelId as string)
+      : null;
     if (channels.channelId !== null && channelId === null) {
       return { ok: false, message: "❌ That confession channel id isn't a valid Discord channel." };
     }
@@ -185,7 +191,10 @@ export class ConfessionRegistry {
       await this.store.save(guildId, { channelId, logChannelId });
     } catch (e) {
       const detail = apiMessage(e);
-      return { ok: false, message: `❌ Couldn't save the confession setup.${detail ? `\n${detail}` : ""}` };
+      return {
+        ok: false,
+        message: `❌ Couldn't save the confession setup.${detail ? `\n${detail}` : ""}`,
+      };
     }
     this.cache.set(guildId, {
       channels: { channelId, logChannelId },
@@ -218,7 +227,10 @@ export function internalConfessionStore(appUrl: string, token: string): Confessi
     async load(guildId) {
       const res = await fetch(url(guildId), { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error(`confession lookup failed (${res.status})`);
-      const data = (await res.json()) as { channelId?: string | null; logChannelId?: string | null };
+      const data = (await res.json()) as {
+        channelId?: string | null;
+        logChannelId?: string | null;
+      };
       return {
         channelId: typeof data.channelId === "string" ? data.channelId : null,
         logChannelId: typeof data.logChannelId === "string" ? data.logChannelId : null,
@@ -228,10 +240,16 @@ export function internalConfessionStore(appUrl: string, token: string): Confessi
       const res = await fetch(url(guildId), {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ channelId: channels.channelId, logChannelId: channels.logChannelId }),
+        body: JSON.stringify({
+          channelId: channels.channelId,
+          logChannelId: channels.logChannelId,
+        }),
       });
       if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { message?: string; fix?: string } | null;
+        const data = (await res.json().catch(() => null)) as {
+          message?: string;
+          fix?: string;
+        } | null;
         throw new Error(data?.message ?? `confession update failed (${res.status})`);
       }
     },
@@ -286,7 +304,11 @@ export function confessionLogEmbed(input: {
     fields: [
       { name: "From", value: `<@${input.userId}>`, inline: true },
       { name: "When", value: `<t:${Math.floor(input.at / 1000)}:F>`, inline: true },
-      { name: "Public post", value: `<#${input.publicChannelId}> · <${input.publicMessageUrl}>`, inline: true },
+      {
+        name: "Public post",
+        value: `<#${input.publicChannelId}> · <${input.publicMessageUrl}>`,
+        inline: true,
+      },
     ],
     footer: { text: "Staff only — never out a confessor." },
   };
@@ -338,7 +360,10 @@ export interface ConfessFlowDeps {
   };
 }
 
-async function ephemeral(interaction: ButtonInteraction | ModalSubmitInteraction, content: string): Promise<void> {
+async function ephemeral(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  content: string,
+): Promise<void> {
   await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
 }
 
@@ -363,7 +388,10 @@ function onCooldownReply(nextAllowedAt: number, windowMs: number): string {
 }
 
 /** The "Confess" button was pressed → open the modal (when confessions are on). */
-export async function handleConfessButton(interaction: ButtonInteraction, deps: ConfessFlowDeps): Promise<void> {
+export async function handleConfessButton(
+  interaction: ButtonInteraction,
+  deps: ConfessFlowDeps,
+): Promise<void> {
   if (!interaction.inCachedGuild()) {
     await ephemeral(interaction, "❌ Run this inside a server.");
     return;
@@ -390,14 +418,20 @@ export async function handleConfessButton(interaction: ButtonInteraction, deps: 
 }
 
 /** The modal was submitted → anonymous embed in the public channel + staff log. */
-export async function handleConfessSubmit(interaction: ModalSubmitInteraction, deps: ConfessFlowDeps): Promise<void> {
+export async function handleConfessSubmit(
+  interaction: ModalSubmitInteraction,
+  deps: ConfessFlowDeps,
+): Promise<void> {
   if (!interaction.inCachedGuild()) {
     await ephemeral(interaction, "❌ Confess from inside a server.");
     return;
   }
   const text = interaction.fields.getTextInputValue(CONFESS_TEXT_ID).trim();
   if (text.length < MIN_CONFESSED_LENGTH) {
-    await ephemeral(interaction, "❌ That's too short to count as a confession — tell us a bit more.");
+    await ephemeral(
+      interaction,
+      "❌ That's too short to count as a confession — tell us a bit more.",
+    );
     return;
   }
 
@@ -428,7 +462,10 @@ export async function handleConfessSubmit(interaction: ModalSubmitInteraction, d
   if (!isConfessionStaff(interaction)) {
     const decision = await deps.cooldowns.claim(interaction.user.id);
     if (!decision.allowed) {
-      await ephemeral(interaction, onCooldownReply(decision.nextAllowedAt, deps.cooldowns.windowMs));
+      await ephemeral(
+        interaction,
+        onCooldownReply(decision.nextAllowedAt, deps.cooldowns.windowMs),
+      );
       return;
     }
     nextAllowedAt = decision.nextAllowedAt;
@@ -472,7 +509,10 @@ export async function handleConfessSubmit(interaction: ModalSubmitInteraction, d
         });
       } catch (e) {
         logFailed = true;
-        deps.log.warn("confession log entry failed", { guildId: interaction.guildId, error: String(e) });
+        deps.log.warn("confession log entry failed", {
+          guildId: interaction.guildId,
+          error: String(e),
+        });
       }
     } else {
       logFailed = true;
@@ -486,7 +526,9 @@ export async function handleConfessSubmit(interaction: ModalSubmitInteraction, d
   await ephemeral(
     interaction,
     `🤫 Your confession is live in **${publicChannel.name}** — it's anonymous, nobody can trace it back to you.` +
-      (nextAllowedAt !== null ? ` You can confess again <t:${Math.floor(nextAllowedAt / 1000)}:R>.` : "") +
+      (nextAllowedAt !== null
+        ? ` You can confess again <t:${Math.floor(nextAllowedAt / 1000)}:R>.`
+        : "") +
       (logFailed ? " (Heads up: I couldn't write the staff log entry for this one.)" : ""),
   );
 }

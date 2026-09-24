@@ -34,7 +34,9 @@ export function rebaseDesign(current: ServerDesign, desired: ServerDesign): Reba
   let adopted = 0;
 
   // ── categories ───────────────────────────────────────────────
-  const claimedCategories = new Set(desired.categories.map((c) => c.id).filter((id) => liveCategories.has(id)));
+  const claimedCategories = new Set(
+    desired.categories.map((c) => c.id).filter((id) => liveCategories.has(id)),
+  );
   for (const cat of desired.categories) {
     if (liveCategories.has(cat.id)) continue;
     const match = current.categories.find(
@@ -52,11 +54,15 @@ export function rebaseDesign(current: ServerDesign, desired: ServerDesign): Reba
   const categoryId = (id: string) => idMap.get(id) ?? id;
 
   // ── channels ─────────────────────────────────────────────────
-  const claimedChannels = new Set(desired.channels.map((c) => c.id).filter((id) => liveChannels.has(id)));
+  const claimedChannels = new Set(
+    desired.channels.map((c) => c.id).filter((id) => liveChannels.has(id)),
+  );
   const candidates = (ch: ChannelDesign, parentId: string | undefined) =>
     current.channels.filter(
       (live) =>
-        !claimedChannels.has(live.id) && live.type === ch.type && sameChannelName(live.name, ch.name, ch) &&
+        !claimedChannels.has(live.id) &&
+        live.type === ch.type &&
+        sameChannelName(live.name, ch.name, ch) &&
         (parentId === undefined ? true : (live.parentId ?? null) === parentId),
     );
   for (const ch of desired.channels) {
@@ -110,12 +116,17 @@ export function mergeDesigns(current: ServerDesign, incoming: ServerDesign): Ser
     ...current,
     categories: [
       ...current.categories,
-      ...incoming.categories.map((c) => ({ ...c, id: localised(c.id), position: c.position + categoryOffset })),
+      ...incoming.categories.map((c) => ({
+        ...c,
+        id: localised(c.id),
+        position: c.position + categoryOffset,
+      })),
     ],
     channels: [
       ...current.channels,
       ...incoming.channels.map((ch) => {
-        const parentId = ch.parentId && incomingCategoryIds.has(ch.parentId) ? localised(ch.parentId) : undefined;
+        const parentId =
+          ch.parentId && incomingCategoryIds.has(ch.parentId) ? localised(ch.parentId) : undefined;
         return {
           ...ch,
           id: localised(ch.id),
@@ -156,6 +167,7 @@ function sameName(a: string, b: string): boolean {
 /** Discord lowercases/dashes text-like channel names; compare the way it stores them. */
 function sameChannelName(a: string, b: string, ch: ChannelDesign): boolean {
   const textLike = ch.type === "text" || ch.type === "announcement" || ch.type === "forum";
-  const norm = (s: string) => (textLike ? s.trim().toLowerCase().replace(/\s+/g, "-") : s.trim().toLowerCase());
+  const norm = (s: string) =>
+    textLike ? s.trim().toLowerCase().replace(/\s+/g, "-") : s.trim().toLowerCase();
   return norm(a) === norm(b);
 }

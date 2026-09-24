@@ -111,10 +111,7 @@ export function roleDesignerReducer(
   }
 }
 
-function applyEdit(
-  state: RoleDesignerState,
-  action: RoleDesignerAction,
-): RoleDesignerState {
+function applyEdit(state: RoleDesignerState, action: RoleDesignerAction): RoleDesignerState {
   if (!state.design) return state;
   const d = state.design;
 
@@ -130,11 +127,7 @@ function applyEdit(
         permissions: "0",
         managed: false,
       };
-      return mutate(
-        state,
-        () => [...d.roles, role],
-        { selection: { id: role.id } },
-      );
+      return mutate(state, () => [...d.roles, role], { selection: { id: role.id } });
     }
     case "DELETE_ROLE": {
       const next = d.roles.filter((r) => r.id !== action.id);

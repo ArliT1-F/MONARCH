@@ -13,10 +13,7 @@ const Body = z.object({ design: ServerDesignSchema });
  * Validate a desired design and diff it against LIVE Discord state.
  * Read-only: never mutates anything.
  */
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const csrf = assertSameOrigin(req);
   if (csrf) return csrf;
   const { guildId } = await params;
@@ -28,12 +25,18 @@ export async function POST(
     return jsonError(400, { code: "plan.invalid", message: "The design payload is invalid." });
   }
   if (body.data.design.guildId !== guildId) {
-    return jsonError(400, { code: "plan.wrong-guild", message: "This design belongs to a different server." });
+    return jsonError(400, {
+      code: "plan.wrong-guild",
+      message: "This design belongs to a different server.",
+    });
   }
 
   const current = await fetchCurrentDesign(guildId);
   if (!current) {
-    return jsonError(502, { code: "guild.state", message: "Monarch couldn't read this server's structure." });
+    return jsonError(502, {
+      code: "guild.state",
+      message: "Monarch couldn't read this server's structure.",
+    });
   }
 
   const validation = validateServerDesign(body.data.design);

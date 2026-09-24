@@ -19,7 +19,10 @@ export interface GuildContext {
 }
 
 export function jsonError(status: number, error: Partial<MonarchError> & { message: string }) {
-  return NextResponse.json({ error: { code: error.code ?? "request.failed", ...error } }, { status });
+  return NextResponse.json(
+    { error: { code: error.code ?? "request.failed", ...error } },
+    { status },
+  );
 }
 
 export function assertSameOrigin(req: NextRequest): NextResponse | null {

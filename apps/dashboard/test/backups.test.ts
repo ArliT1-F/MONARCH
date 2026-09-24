@@ -75,7 +75,11 @@ describe("stageRestore", () => {
       { id: "ch3", name: "spam", type: "text", position: 1, parentId: "c1" },
     ];
 
-    const outcome = await stageRestore({ guildId: "900", userId: "u1", snapshotId: backup.snapshot.id });
+    const outcome = await stageRestore({
+      guildId: "900",
+      userId: "u1",
+      snapshotId: backup.snapshot.id,
+    });
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.recreated).toBe(1);
@@ -96,7 +100,11 @@ describe("stageRestore", () => {
   it("404s for unknown or foreign snapshots", async () => {
     const backup = await createBackup({ guildId: "900", userId: "u1" });
     if (!backup.ok) throw new Error("backup failed");
-    const foreign = await stageRestore({ guildId: "901", userId: "u1", snapshotId: backup.snapshot.id });
+    const foreign = await stageRestore({
+      guildId: "901",
+      userId: "u1",
+      snapshotId: backup.snapshot.id,
+    });
     expect(foreign).toMatchObject({ ok: false, status: 404 });
     const missing = await stageRestore({ guildId: "900", userId: "u1", snapshotId: "snap_nope" });
     expect(missing).toMatchObject({ ok: false, status: 404 });
@@ -120,7 +128,12 @@ describe("export / import", () => {
 
   it("imports in add mode by appending under the live structure", async () => {
     const template = buildTemplate(liveDesign());
-    const outcome = await stageImport({ guildId: "900", userId: "u2", json: template, mode: "add" });
+    const outcome = await stageImport({
+      guildId: "900",
+      userId: "u2",
+      json: template,
+      mode: "add",
+    });
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome).toMatchObject({ mode: "add", categoryCount: 1, channelCount: 2 });
@@ -136,7 +149,12 @@ describe("export / import", () => {
     const source = liveDesign();
     source.channels = [source.channels[0]!];
     const template = buildTemplate(source);
-    const outcome = await stageImport({ guildId: "900", userId: "u3", json: template, mode: "replace" });
+    const outcome = await stageImport({
+      guildId: "900",
+      userId: "u3",
+      json: template,
+      mode: "replace",
+    });
     expect(outcome.ok).toBe(true);
 
     const draft = await getStore().getDraft("900", "u3");
@@ -146,7 +164,12 @@ describe("export / import", () => {
   });
 
   it("rejects files that are not Monarch templates", async () => {
-    const outcome = await stageImport({ guildId: "900", userId: "u4", json: { hello: "world" }, mode: "add" });
+    const outcome = await stageImport({
+      guildId: "900",
+      userId: "u4",
+      json: { hello: "world" },
+      mode: "add",
+    });
     expect(outcome).toMatchObject({ ok: false, status: 400, code: "template.invalid" });
     expect(await getStore().getDraft("900", "u4")).toBeNull();
   });
@@ -155,7 +178,12 @@ describe("export / import", () => {
     const source = liveDesign();
     source.channels[0]!.name = "";
     const template = buildTemplate(source);
-    const outcome = await stageImport({ guildId: "900", userId: "u5", json: template, mode: "add" });
+    const outcome = await stageImport({
+      guildId: "900",
+      userId: "u5",
+      json: template,
+      mode: "add",
+    });
     expect(outcome).toMatchObject({ ok: false, status: 422, code: "template.validation" });
   });
 });

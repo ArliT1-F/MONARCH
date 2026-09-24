@@ -39,7 +39,10 @@ export function applyVariablesToEmbed(embed: EmbedDesign, ctx: VariableContext):
   };
 }
 
-export function applyVariablesToMessage(message: MessageDesign, ctx: VariableContext): MessageDesign {
+export function applyVariablesToMessage(
+  message: MessageDesign,
+  ctx: VariableContext,
+): MessageDesign {
   return {
     ...message,
     content: resolveText(message.content, ctx),
@@ -107,7 +110,9 @@ export function renderButtonPayload(button: MessageButton): APIButtonComponent {
 }
 
 /** Chunk flat button lists into Discord action rows of ≤5. */
-function toActionRows(buttons: MessageButton[]): APIActionRowComponent<APIMessageActionRowComponent>[] {
+function toActionRows(
+  buttons: MessageButton[],
+): APIActionRowComponent<APIMessageActionRowComponent>[] {
   const rows: APIActionRowComponent<APIMessageActionRowComponent>[] = [];
   for (let i = 0; i < buttons.length; i += 5) {
     rows.push({

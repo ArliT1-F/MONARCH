@@ -58,7 +58,11 @@ export function classifySource(raw: string): SourceQuery {
   const uri = input.match(new RegExp(`^spotify:(track|album|playlist):(${ID})$`, "i"));
   if (uri) {
     const type = uri[1]!.toLowerCase();
-    return { kind: `spotify-${type}` as SourceKind, id: uri[2], url: `https://open.spotify.com/${type}/${uri[2]}` };
+    return {
+      kind: `spotify-${type}` as SourceKind,
+      id: uri[2],
+      url: `https://open.spotify.com/${type}/${uri[2]}`,
+    };
   }
 
   let parsed: URL;
@@ -69,11 +73,19 @@ export function classifySource(raw: string): SourceQuery {
   }
 
   if (YOUTUBE_HOSTS.has(parsed.hostname.toLowerCase())) {
-    if (parsed.hostname.toLowerCase() === "youtu.be" || parsed.hostname.toLowerCase() === "www.youtu.be") {
+    if (
+      parsed.hostname.toLowerCase() === "youtu.be" ||
+      parsed.hostname.toLowerCase() === "www.youtu.be"
+    ) {
       const id = parsed.pathname.slice(1).split("/")[0];
       if (id && new RegExp(`^${ID}$`).test(id)) {
         const playlistId = parsed.searchParams.get("list") ?? undefined;
-        return { kind: "youtube-video", id, playlistId, url: `https://www.youtube.com/watch?v=${id}` };
+        return {
+          kind: "youtube-video",
+          id,
+          playlistId,
+          url: `https://www.youtube.com/watch?v=${id}`,
+        };
       }
       return { kind: "search", query: input };
     }
@@ -91,7 +103,12 @@ export function classifySource(raw: string): SourceQuery {
       return { kind: "search", query: input };
     }
     if (parsed.pathname === "/playlist") {
-      if (playlistParam) return { kind: "youtube-playlist", id: playlistParam, url: `https://www.youtube.com/playlist?list=${playlistParam}` };
+      if (playlistParam)
+        return {
+          kind: "youtube-playlist",
+          id: playlistParam,
+          url: `https://www.youtube.com/playlist?list=${playlistParam}`,
+        };
       return { kind: "search", query: input };
     }
     const short = parsed.pathname.match(new RegExp(`^/(shorts|embed|live|v)/(${ID})`));
@@ -107,14 +124,27 @@ export function classifySource(raw: string): SourceQuery {
     const kind = parts[0]?.toLowerCase();
     const id = parts[1];
     if (kind && id && SPOTIFY_MUSIC_TYPES.has(kind) && new RegExp(`^${ID}$`).test(id)) {
-      return { kind: `spotify-${kind}` as SourceKind, id, url: `https://open.spotify.com/${kind}/${id}` };
+      return {
+        kind: `spotify-${kind}` as SourceKind,
+        id,
+        url: `https://open.spotify.com/${kind}/${id}`,
+      };
     }
     // Internationalized paths like /intl-de/track/<id>
     if (parts[0]?.toLowerCase().startsWith("intl-")) {
       const innerKind = parts[1]?.toLowerCase();
       const innerId = parts[2];
-      if (innerKind && innerId && SPOTIFY_MUSIC_TYPES.has(innerKind) && new RegExp(`^${ID}$`).test(innerId)) {
-        return { kind: `spotify-${innerKind}` as SourceKind, id: innerId, url: `https://open.spotify.com/${innerKind}/${innerId}` };
+      if (
+        innerKind &&
+        innerId &&
+        SPOTIFY_MUSIC_TYPES.has(innerKind) &&
+        new RegExp(`^${ID}$`).test(innerId)
+      ) {
+        return {
+          kind: `spotify-${innerKind}` as SourceKind,
+          id: innerId,
+          url: `https://open.spotify.com/${innerKind}/${innerId}`,
+        };
       }
     }
     return { kind: "search", query: input };

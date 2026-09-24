@@ -22,7 +22,11 @@ export async function POST(
   try {
     const outcome = await stageRestore({ guildId, userId: access.ctx.session.userId, snapshotId });
     if (!outcome.ok) {
-      return jsonError(outcome.status, { code: outcome.code, message: outcome.message, fix: outcome.fix });
+      return jsonError(outcome.status, {
+        code: outcome.code,
+        message: outcome.message,
+        fix: outcome.fix,
+      });
     }
     return NextResponse.json(outcome);
   } catch (error) {

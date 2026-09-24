@@ -39,9 +39,8 @@ export default async function LandingPage({
           Design your Discord.
         </h1>
         <p className="mb-10 text-sm leading-relaxed text-ink-300">
-          A visual studio for Discord servers — design structure, preview every
-          change, and deploy with confidence. Nothing touches your server until
-          you approve the diff.
+          A visual studio for Discord servers — design structure, preview every change, and deploy
+          with confidence. Nothing touches your server until you approve the diff.
         </p>
 
         {error && (
@@ -68,16 +67,16 @@ export default async function LandingPage({
           <>
             <InviteBotButton variant="secondary" className="mt-3 w-full" />
             <p className="mt-3 text-[11px] text-ink-400">
-              Adding the bot doesn&apos;t change anything on its own — Monarch only
-              writes to your server after you approve a diff.
+              Adding the bot doesn&apos;t change anything on its own — Monarch only writes to your
+              server after you approve a diff.
             </p>
           </>
         )}
 
         {demo && (
           <p className="mt-4 text-xs text-ink-400">
-            Demo mode — no Discord app configured. Monarch runs against mock
-            servers so you can try the full design&nbsp;→&nbsp;diff&nbsp;→&nbsp;apply flow.
+            Demo mode — no Discord app configured. Monarch runs against mock servers so you can try
+            the full design&nbsp;→&nbsp;diff&nbsp;→&nbsp;apply flow.
           </p>
         )}
 

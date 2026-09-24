@@ -1,4 +1,9 @@
-import type { DesignatedChannels, ResolvedTarget, ServerDesign, TargetConfig } from "@monarch/schemas";
+import type {
+  DesignatedChannels,
+  ResolvedTarget,
+  ServerDesign,
+  TargetConfig,
+} from "@monarch/schemas";
 import { ok, err, monarchError, type Result, hasPermission, Permission } from "@monarch/shared";
 import type { DiscordGateway } from "./gateway.js";
 
@@ -32,9 +37,13 @@ export async function resolveTarget(
     channelId = designated[target.key];
     if (!channelId) {
       return err(
-        monarchError("target.not-designated", `No ${labelFor(target.key)} channel is designated for this server.`, {
-          fix: `Set one under Settings → Designated Channels, or pick a channel explicitly.`,
-        }),
+        monarchError(
+          "target.not-designated",
+          `No ${labelFor(target.key)} channel is designated for this server.`,
+          {
+            fix: `Set one under Settings → Designated Channels, or pick a channel explicitly.`,
+          },
+        ),
       );
     }
   } else {
@@ -59,9 +68,13 @@ export async function resolveTarget(
   }
   if (channel.type === "voice" || channel.type === "stage") {
     return err(
-      monarchError("target.channel-kind", `#${channel.name} is a ${channel.type} channel and can't receive messages from Monarch.`, {
-        fix: "Choose a text or announcement channel.",
-      }),
+      monarchError(
+        "target.channel-kind",
+        `#${channel.name} is a ${channel.type} channel and can't receive messages from Monarch.`,
+        {
+          fix: "Choose a text or announcement channel.",
+        },
+      ),
     );
   }
 
@@ -95,9 +108,7 @@ export async function resolveTarget(
 
 /** Channels of a design that are valid message targets (for pickers). */
 export function messageableChannels(design: ServerDesign) {
-  return design.channels.filter(
-    (c) => c.type === "text" || c.type === "announcement",
-  );
+  return design.channels.filter((c) => c.type === "text" || c.type === "announcement");
 }
 
 function labelFor(key: string): string {

@@ -1,10 +1,7 @@
 import { MessageFlags, TextInputStyle } from "discord.js";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { CONFESSION_COOLDOWN_MS } from "@monarch/shared";
-import {
-  ConfessionCooldowns,
-  type ConfessionCooldownStore,
-} from "../src/confession-cooldown.js";
+import { ConfessionCooldowns, type ConfessionCooldownStore } from "../src/confession-cooldown.js";
 import {
   CONFESS_BUTTON_ID,
   CONFESS_MODAL_ID,
@@ -27,14 +24,25 @@ const LOG_CHANNEL_ID = "400000000000000001";
 const USER_ID = "700000000000000001";
 
 /** A fake in-memory ConfessionStore. */
-function fakeStore(initial: Record<string, { channelId: string | null; logChannelId: string | null }> = {}) {
-  const data: Record<string, { channelId: string | null; logChannelId: string | null }> = { ...initial };
+function fakeStore(
+  initial: Record<string, { channelId: string | null; logChannelId: string | null }> = {},
+) {
+  const data: Record<string, { channelId: string | null; logChannelId: string | null }> = {
+    ...initial,
+  };
   return {
     data,
-    load: vi.fn(async (guildId: string) => data[guildId] ?? { channelId: null, logChannelId: null }),
-    save: vi.fn(async (guildId: string, channels: { channelId: string | null; logChannelId: string | null }) => {
-      data[guildId] = channels;
-    }),
+    load: vi.fn(
+      async (guildId: string) => data[guildId] ?? { channelId: null, logChannelId: null },
+    ),
+    save: vi.fn(
+      async (
+        guildId: string,
+        channels: { channelId: string | null; logChannelId: string | null },
+      ) => {
+        data[guildId] = channels;
+      },
+    ),
   };
 }
 
@@ -47,17 +55,25 @@ describe("ConfessionRegistry", () => {
     const registry = new ConfessionRegistry();
     expect(registry.persistent).toBe(false);
     expect(await registry.config(GUILD_ID)).toEqual({ channelId: null, logChannelId: null });
-    const outcome = await registry.configure(GUILD_ID, { channelId: CHANNEL_ID, logChannelId: null });
+    const outcome = await registry.configure(GUILD_ID, {
+      channelId: CHANNEL_ID,
+      logChannelId: null,
+    });
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.message).toContain("INTERNAL_API_TOKEN");
   });
 
   it("loads, caches and expires like the prefix registry", async () => {
-    const store = fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: LOG_CHANNEL_ID } });
+    const store = fakeStore({
+      [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: LOG_CHANNEL_ID },
+    });
     let now = 1_000;
     const registry = new ConfessionRegistry({ store, now: () => now, ttlMs: 60_000 });
 
-    expect(await registry.config(GUILD_ID)).toEqual({ channelId: CHANNEL_ID, logChannelId: LOG_CHANNEL_ID });
+    expect(await registry.config(GUILD_ID)).toEqual({
+      channelId: CHANNEL_ID,
+      logChannelId: LOG_CHANNEL_ID,
+    });
     expect(store.load).toHaveBeenCalledOnce();
 
     now += 30_000; // within the TTL
@@ -88,9 +104,14 @@ describe("ConfessionRegistry", () => {
   });
 
   it("treats a stored value that is not a snowflake as absent", async () => {
-    const store = fakeStore({ [GUILD_ID]: { channelId: "not-a-snowflake", logChannelId: LOG_CHANNEL_ID } });
+    const store = fakeStore({
+      [GUILD_ID]: { channelId: "not-a-snowflake", logChannelId: LOG_CHANNEL_ID },
+    });
     const registry = new ConfessionRegistry({ store });
-    expect(await registry.config(GUILD_ID)).toEqual({ channelId: null, logChannelId: LOG_CHANNEL_ID });
+    expect(await registry.config(GUILD_ID)).toEqual({
+      channelId: null,
+      logChannelId: LOG_CHANNEL_ID,
+    });
   });
 
   it("refuses to save invalid or self-contradictory configurations", async () => {
@@ -100,7 +121,10 @@ describe("ConfessionRegistry", () => {
     const badId = await registry.configure(GUILD_ID, { channelId: "nope", logChannelId: null });
     expect(badId.ok).toBe(false);
 
-    const sameChannel = await registry.configure(GUILD_ID, { channelId: CHANNEL_ID, logChannelId: CHANNEL_ID });
+    const sameChannel = await registry.configure(GUILD_ID, {
+      channelId: CHANNEL_ID,
+      logChannelId: CHANNEL_ID,
+    });
     expect(sameChannel.ok).toBe(false);
     if (!sameChannel.ok) expect(sameChannel.message).toContain("different");
 
@@ -111,21 +135,31 @@ describe("ConfessionRegistry", () => {
     const store = fakeStore();
     const registry = new ConfessionRegistry({ store });
 
-    const outcome = await registry.configure(GUILD_ID, { channelId: CHANNEL_ID, logChannelId: LOG_CHANNEL_ID });
+    const outcome = await registry.configure(GUILD_ID, {
+      channelId: CHANNEL_ID,
+      logChannelId: LOG_CHANNEL_ID,
+    });
     expect(outcome).toEqual({ ok: true });
     expect(store.save).toHaveBeenCalledOnce();
     expect(store.load).not.toHaveBeenCalled(); // the cache is seeded by the write
 
     // A second worker (fresh registry, same store) reads the persisted value.
     const fresh = new ConfessionRegistry({ store });
-    expect(await fresh.config(GUILD_ID)).toEqual({ channelId: CHANNEL_ID, logChannelId: LOG_CHANNEL_ID });
+    expect(await fresh.config(GUILD_ID)).toEqual({
+      channelId: CHANNEL_ID,
+      logChannelId: LOG_CHANNEL_ID,
+    });
   });
 
   it("disables with both ids null", async () => {
-    const store = fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: LOG_CHANNEL_ID } });
+    const store = fakeStore({
+      [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: LOG_CHANNEL_ID },
+    });
     const registry = new ConfessionRegistry({ store });
 
-    expect(await registry.configure(GUILD_ID, { channelId: null, logChannelId: null })).toEqual({ ok: true });
+    expect(await registry.configure(GUILD_ID, { channelId: null, logChannelId: null })).toEqual({
+      ok: true,
+    });
     expect(store.data[GUILD_ID]).toEqual({ channelId: null, logChannelId: null });
   });
 });
@@ -182,9 +216,11 @@ describe("confession embeds", () => {
   it("the modal has one paragraph input capped at the max length", () => {
     const modal = confessionModal().toJSON();
     expect(modal.custom_id).toBe(CONFESS_MODAL_ID);
-    const input = (modal.components[0] as unknown as {
-      components: { custom_id: string; style: number; max_length: number }[];
-    }).components[0]!;
+    const input = (
+      modal.components[0] as unknown as {
+        components: { custom_id: string; style: number; max_length: number }[];
+      }
+    ).components[0]!;
     expect(input.custom_id).toBe(CONFESS_TEXT_ID);
     expect(input.style).toBe(TextInputStyle.Paragraph);
     expect(input.max_length).toBe(MAX_CONFESSED_LENGTH);
@@ -203,11 +239,10 @@ function fakeChannel(id: string, name: string, opts: { send?: boolean } = {}) {
     // `...args: any[]` (rather than no parameters) so the assertions can read
     // the payload back off `send.mock.calls[0]![0]` — the flow's real argument
     // is a discord.js payload the double doesn't need to model.
-    send: vi.fn(
-      async (..._args: any[]) =>
-        opts.send === false
-          ? Promise.reject(new Error("cannot send"))
-          : { id: `m-${Math.random()}`, url: `https://discord.com/channels/${GUILD_ID}/${id}/m1` },
+    send: vi.fn(async (..._args: any[]) =>
+      opts.send === false
+        ? Promise.reject(new Error("cannot send"))
+        : { id: `m-${Math.random()}`, url: `https://discord.com/channels/${GUILD_ID}/${id}/m1` },
     ),
   };
 }
@@ -246,7 +281,10 @@ function asModal(interaction: FakeInteraction): Parameters<typeof handleConfessS
   return interaction as never;
 }
 
-function fakeInteraction(kind: "button" | "modal", extra: Record<string, unknown> = {}): FakeInteraction {
+function fakeInteraction(
+  kind: "button" | "modal",
+  extra: Record<string, unknown> = {},
+): FakeInteraction {
   return {
     inCachedGuild: () => true,
     inGuild: () => true,
@@ -257,10 +295,17 @@ function fakeInteraction(kind: "button" | "modal", extra: Record<string, unknown
     deferred: false,
     reply: vi.fn(async () => ({ id: "r1" })),
     showModal: vi.fn(async () => ({})),
-    fields: kind === "modal" ? { getTextInputValue: (id: string) => (extra["text"] as string) ?? "" } : undefined,
+    fields:
+      kind === "modal"
+        ? { getTextInputValue: (id: string) => (extra["text"] as string) ?? "" }
+        : undefined,
     client: {
       user: { id: "900000000000000001", username: "monarch" },
-      channels: { fetch: vi.fn(async (id: string) => (extra["channels"] as Record<string, unknown>)[id] ?? null) },
+      channels: {
+        fetch: vi.fn(
+          async (id: string) => (extra["channels"] as Record<string, unknown>)[id] ?? null,
+        ),
+      },
     },
     ...extra,
   } as never as FakeInteraction;
@@ -283,7 +328,8 @@ function fakeCooldowns(opts: { blockedUntil?: number; unreachable?: boolean } = 
     claim: async () => {
       calls.claim += 1;
       if (opts.unreachable) throw new Error("dashboard down");
-      if (opts.blockedUntil !== undefined) return { claimed: false, nextAllowedAt: opts.blockedUntil };
+      if (opts.blockedUntil !== undefined)
+        return { claimed: false, nextAllowedAt: opts.blockedUntil };
       return { claimed: true, nextAllowedAt: Date.now() + CONFESSION_COOLDOWN_MS };
     },
     release: async () => {
@@ -314,7 +360,9 @@ describe("confess flow", () => {
   });
 
   it("the button opens the modal when a confession channel exists", async () => {
-    const registry = new ConfessionRegistry({ store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }) });
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
     const interaction = fakeInteraction("button");
     await handleConfessButton(asButton(interaction), { registry, cooldowns, log });
     expect(interaction.showModal).toHaveBeenCalledOnce();
@@ -323,7 +371,9 @@ describe("confess flow", () => {
 
   it("the modal posts the anonymous embed plus the Confess button", async () => {
     const channel = fakeChannel(CHANNEL_ID, "confessions");
-    const registry = new ConfessionRegistry({ store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }) });
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
     const interaction = fakeInteraction("modal", {
       text: "I think I left the oven on.",
       channels: { [CHANNEL_ID]: channel },
@@ -371,15 +421,22 @@ describe("confess flow", () => {
 
   it("rejects an empty or too-short confession without posting", async () => {
     const channel = fakeChannel(CHANNEL_ID, "confessions");
-    const registry = new ConfessionRegistry({ store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }) });
-    const interaction = fakeInteraction("modal", { text: "  ", channels: { [CHANNEL_ID]: channel } });
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
+    const interaction = fakeInteraction("modal", {
+      text: "  ",
+      channels: { [CHANNEL_ID]: channel },
+    });
     await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
     expect(channel.send).not.toHaveBeenCalled();
     expect(interaction.reply.mock.calls[0]![0].content).toContain("too short");
   });
 
   it("gives up cleanly when the confession channel is gone", async () => {
-    const registry = new ConfessionRegistry({ store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }) });
+    const registry = new ConfessionRegistry({
+      store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
+    });
     const interaction = fakeInteraction("modal", {
       text: "a real confession",
       channels: {}, // fetch returns null
@@ -501,7 +558,7 @@ describe("confess flow", () => {
     });
     await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
 
-    // The claim happened *before* the send (otherwise there'd be nothing to
+    // The claim happend *before* the send (otherwise there'd be nothing to
     // release), and the release happened because the send failed.
     expect(calls.claim).toBe(1);
     expect(calls.release).toBe(1);
@@ -526,7 +583,10 @@ describe("confess flow", () => {
     const registry = new ConfessionRegistry({
       store: fakeStore({ [GUILD_ID]: { channelId: CHANNEL_ID, logChannelId: null } }),
     });
-    const interaction = fakeInteraction("modal", { text: "  ", channels: { [CHANNEL_ID]: channel } });
+    const interaction = fakeInteraction("modal", {
+      text: "  ",
+      channels: { [CHANNEL_ID]: channel },
+    });
     await handleConfessSubmit(asModal(interaction), { registry, cooldowns, log });
 
     expect(calls.claim).toBe(0);

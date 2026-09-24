@@ -122,7 +122,7 @@ const PRESERVE =
 const SUFFIXES: Record<Exclude<BurgStyle, "random">, readonly string[]> = {
   soft: [" uwu~", " owo~", " >w<", " ^w^"],
   cat: [" nya~", " nya nya~", " (=^.c.^=)", "mastaw~", "purr~"],
-  chaotic: [" uwu~ (\" 3\")", " owo!! >w<", " (≧ω≦)", " nya~ nya~"],
+  chaotic: [' uwu~ (" 3")', " owo!! >w<", " (≧ω≦)", " nya~ nya~"],
 };
 
 const STYLES: readonly Exclude<BurgStyle, "random">[] = ["soft", "cat", "chaotic"];
@@ -142,25 +142,30 @@ function cuteCase(ch: string): string {
 
 /** The predictable spelling changes shared by every burg style. */
 function uwuifyPlain(text: string): string {
-  return text
-    // Do these before the single-word `you` replacement: "you're" → "ur" → "uw".
-    .replace(/\b(?:you['’]?re|youre|your)\b/gi, "ur")
-    .replace(/\byou\b/gi, "u")
-    .replace(/\bare\b/gi, "aw")
-    .replace(/\bfor\b/gi, "fow")
-    // love → luv → wuv, which is the familiar cute spelling.
-    .replace(/ove/gi, "uv")
-    // "there" → "dewe" and "fuck" → "fukk" are intentionally a little
-    // more playful than only replacing r/l.
-    .replace(/th/gi, "d")
-    .replace(/ck/gi, "kk")
-    .replace(/[rl]/gi, cuteCase);
+  return (
+    text
+      // Do these before the single-word `you` replacement: "you're" → "ur" → "uw".
+      .replace(/\b(?:you['’]?re|youre|your)\b/gi, "ur")
+      .replace(/\byou\b/gi, "u")
+      .replace(/\bare\b/gi, "aw")
+      .replace(/\bfor\b/gi, "fow")
+      // love → luv → wuv, which is the familiar cute spelling.
+      .replace(/ove/gi, "uv")
+      // "there" → "dewe" and "fuck" → "fukk" are intentionally a little
+      // more playful than only replacing r/l.
+      .replace(/th/gi, "d")
+      .replace(/ck/gi, "kk")
+      .replace(/[rl]/gi, cuteCase)
+  );
 }
 
 function stutterFirstWord(text: string): string {
-  return text.replace(/^(\s*)([A-Za-z])([A-Za-z]*)/, (_match, space: string, first: string, rest: string) => {
-    return `${space}${first}-${first}${rest}`;
-  });
+  return text.replace(
+    /^(\s*)([A-Za-z])([A-Za-z]*)/,
+    (_match, space: string, first: string, rest: string) => {
+      return `${space}${first}-${first}${rest}`;
+    },
+  );
 }
 
 /**
@@ -181,7 +186,10 @@ function flourish(text: string, style: Exclude<BurgStyle, "random">, random: () 
   // Chaotic mode gets one extra silly flourish occasionally. It is deliberately
   // opt-in/random so the default never turns every word into keyboard soup.
   if (style === "chaotic" && random() < 0.28) {
-    text = text.replace(/\b([A-Za-z]*)(f)\b/gi, (_match, prefix: string, last: string) => `${prefix}${last}${last}`);
+    text = text.replace(
+      /\b([A-Za-z]*)(f)\b/gi,
+      (_match, prefix: string, last: string) => `${prefix}${last}${last}`,
+    );
   }
   return text;
 }
@@ -224,7 +232,8 @@ export function toBurg(
     converted[firstPlainIndex] = flourish(converted[firstPlainIndex]!, chosenStyle, random);
   }
   if (lastPlainIndex >= 0) {
-    converted[lastPlainIndex] = `${converted[lastPlainIndex]}${pick(SUFFIXES[chosenStyle], random)}`;
+    converted[lastPlainIndex] =
+      `${converted[lastPlainIndex]}${pick(SUFFIXES[chosenStyle], random)}`;
   }
   return converted.join("");
 }

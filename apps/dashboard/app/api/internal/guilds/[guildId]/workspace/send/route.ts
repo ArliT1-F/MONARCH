@@ -16,10 +16,7 @@ const Body = z.object({
  * Bot-facing test/publish of the saved design (used by /monarch test).
  * Auth: `Authorization: Bearer <INTERNAL_API_TOKEN>`.
  */
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const unauthorized = assertInternalAuth(req);
   if (unauthorized) return unauthorized;
 

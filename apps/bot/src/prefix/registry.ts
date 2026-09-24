@@ -30,7 +30,10 @@ export interface PrefixRegistryOptions {
   store?: PrefixStore | null;
   ttlMs?: number;
   now?: () => number;
-  log?: { info: (msg: string, meta?: Record<string, unknown>) => void; warn: (msg: string, meta?: Record<string, unknown>) => void };
+  log?: {
+    info: (msg: string, meta?: Record<string, unknown>) => void;
+    warn: (msg: string, meta?: Record<string, unknown>) => void;
+  };
 }
 
 const DEFAULT_TTL_MS = 60_000;
@@ -83,7 +86,9 @@ export class PrefixRegistry {
     const hit = this.cache.get(guildId);
     if (!hit || hit.expiresAt <= this.now()) return null;
     // `hit.prefix === null` is an answer ("no custom prefix here"), not a miss.
-    return dedupeSorted(hit.prefix ? [hit.prefix, DEFAULT_COMMAND_PREFIX] : [DEFAULT_COMMAND_PREFIX]);
+    return dedupeSorted(
+      hit.prefix ? [hit.prefix, DEFAULT_COMMAND_PREFIX] : [DEFAULT_COMMAND_PREFIX],
+    );
   }
 
   /**
@@ -112,7 +117,10 @@ export class PrefixRegistry {
    * Change (or with `null`, reset) a guild's prefix. Returns a
    * user-presentable error message instead of throwing.
    */
-  async set(guildId: string, requested: string | null): Promise<{ ok: true; prefix: string } | { ok: false; message: string }> {
+  async set(
+    guildId: string,
+    requested: string | null,
+  ): Promise<{ ok: true; prefix: string } | { ok: false; message: string }> {
     if (requested === null) {
       try {
         await this.store?.save(guildId, null);
@@ -165,7 +173,10 @@ export class PrefixRegistry {
       const parsed = stored === null ? null : parseCommandPrefix(stored);
       const prefix = parsed && parsed.ok ? parsed.prefix : null;
       if (stored !== null && prefix === null) {
-        this.log?.warn("ignoring an invalid stored prefix — using the default", { guildId, stored });
+        this.log?.warn("ignoring an invalid stored prefix — using the default", {
+          guildId,
+          stored,
+        });
       }
       this.remember(guildId, prefix);
       return prefix;
@@ -215,7 +226,10 @@ export function internalPrefixStore(appUrl: string, token: string): PrefixStore 
         body: JSON.stringify({ prefix }),
       });
       if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { message?: string; fix?: string } | null;
+        const data = (await res.json().catch(() => null)) as {
+          message?: string;
+          fix?: string;
+        } | null;
         throw new Error(data?.message ?? `prefix update failed (${res.status})`);
       }
     },

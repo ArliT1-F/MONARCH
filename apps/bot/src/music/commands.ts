@@ -25,8 +25,22 @@ export type MusicSourcePreference = "youtube" | "spotify";
 function normalizeSourceToken(raw: string | null | undefined): MusicSourcePreference | null {
   if (!raw) return null;
   const t = raw.trim().toLowerCase();
-  if (["spotify", "sp", "spot", "spotify.com", "open.spotify.com", "spoti"].includes(t)) return "spotify";
-  if (["youtube", "yt", "ytb", "ytmusic", "youtube.com", "youtu.be", "youtubemusic", "music.youtube.com", "youtube_music", "yt_music"].includes(t))
+  if (["spotify", "sp", "spot", "spotify.com", "open.spotify.com", "spoti"].includes(t))
+    return "spotify";
+  if (
+    [
+      "youtube",
+      "yt",
+      "ytb",
+      "ytmusic",
+      "youtube.com",
+      "youtu.be",
+      "youtubemusic",
+      "music.youtube.com",
+      "youtube_music",
+      "yt_music",
+    ].includes(t)
+  )
     return "youtube";
   return null;
 }
@@ -35,7 +49,10 @@ function normalizeSourceToken(raw: string | null | undefined): MusicSourcePrefer
  * Prefix helper: `!play never gonna give you up spotify` or `!play spotify never gonna...`
  * Default is youtube. Returns query without the source token.
  */
-function extractSourceFromArgs(args: readonly string[]): { query: string; source: MusicSourcePreference } {
+function extractSourceFromArgs(args: readonly string[]): {
+  query: string;
+  source: MusicSourcePreference;
+} {
   if (args.length === 0) return { query: "", source: "youtube" };
   const first = normalizeSourceToken(args[0]);
   const last = normalizeSourceToken(args[args.length - 1]);
@@ -87,23 +104,35 @@ export function musicCommandJSON() {
     .addSubcommand((s) => s.setName("pause").setDescription("Pause the current song"))
     .addSubcommand((s) => s.setName("resume").setDescription("Resume the paused song"))
     .addSubcommand((s) =>
-      s.setName("skip").setDescription("Skip the current song (vote, or instantly with DJ / staff / requester)"),
+      s
+        .setName("skip")
+        .setDescription("Skip the current song (vote, or instantly with DJ / staff / requester)"),
     )
     .addSubcommand((s) =>
       s
         .setName("queue")
         .setDescription("Show the queue and what's playing")
         .addIntegerOption((o) =>
-          o.setName("page").setDescription("Page number for long queues").setMinValue(1).setMaxValue(50),
+          o
+            .setName("page")
+            .setDescription("Page number for long queues")
+            .setMinValue(1)
+            .setMaxValue(50),
         ),
     )
-    .addSubcommand((s) => s.setName("nowplaying").setDescription("Show the current track with progress"))
+    .addSubcommand((s) =>
+      s.setName("nowplaying").setDescription("Show the current track with progress"),
+    )
     .addSubcommand((s) =>
       s
         .setName("volume")
         .setDescription("Show or set the volume (0–150%)")
         .addIntegerOption((o) =>
-          o.setName("level").setDescription("0 = mute, 100 = normal, 150 = loudest").setMinValue(0).setMaxValue(150),
+          o
+            .setName("level")
+            .setDescription("0 = mute, 100 = normal, 150 = loudest")
+            .setMinValue(0)
+            .setMaxValue(150),
         ),
     )
     .addSubcommand((s) =>
@@ -127,11 +156,17 @@ export function musicCommandJSON() {
         .setName("remove")
         .setDescription("Remove a track from the queue by its #position")
         .addIntegerOption((o) =>
-          o.setName("position").setDescription("The #number shown by /music queue").setRequired(true).setMinValue(1),
+          o
+            .setName("position")
+            .setDescription("The #number shown by /music queue")
+            .setRequired(true)
+            .setMinValue(1),
         ),
     )
     .addSubcommand((s) => s.setName("clear").setDescription("Clear the queue but keep playing"))
-    .addSubcommand((s) => s.setName("stop").setDescription("Stop playback, clear the queue and leave"))
+    .addSubcommand((s) =>
+      s.setName("stop").setDescription("Stop playback, clear the queue and leave"),
+    )
     .toJSON();
 }
 
@@ -197,7 +232,9 @@ export class MusicCommands {
       const me = guild.members.me;
       const perms = me ? memberChannel.permissionsFor(me) : null;
       if (!perms?.has("Connect") || !perms?.has("Speak")) {
-        await ctx.replyHidden(`🔒 I need **Connect** and **Speak** permissions in **${memberChannel.name}**.`);
+        await ctx.replyHidden(
+          `🔒 I need **Connect** and **Speak** permissions in **${memberChannel.name}**.`,
+        );
         return;
       }
     }
@@ -234,7 +271,9 @@ export class MusicCommands {
           await ctx.replyHidden("Nothing is playing right now.");
           return;
         }
-        await ctx.reply(`⏸ **Paused.** \`${ctx.commandPrefix}resume\` to continue, \`${ctx.commandPrefix}skip\` to move on.`);
+        await ctx.reply(
+          `⏸ **Paused.** \`${ctx.commandPrefix}resume\` to continue, \`${ctx.commandPrefix}skip\` to move on.`,
+        );
         return;
       }
       case "resume": {
@@ -255,7 +294,9 @@ export class MusicCommands {
       case "queue": {
         const snapshot = this.manager.queue(guildId).snapshot();
         if (!snapshot.current && snapshot.upcoming.length === 0) {
-          await ctx.reply(`The queue is empty — add something with \`${ctx.commandPrefix}play <song>\`.`);
+          await ctx.reply(
+            `The queue is empty — add something with \`${ctx.commandPrefix}play <song>\`.`,
+          );
           return;
         }
         const page = this.readPage(ctx);
@@ -361,7 +402,9 @@ export class MusicCommands {
         const wasActive = this.manager.isPlayingSomewhere(guildId);
         this.manager.teardown(guildId, false);
         await ctx.reply(
-          wasActive ? "⏹ **Stopped.** Queue cleared — see you next time!" : "I wasn't playing anything, but fine — left the channel.",
+          wasActive
+            ? "⏹ **Stopped.** Queue cleared — see you next time!"
+            : "I wasn't playing anything, but fine — left the channel.",
         );
         return;
       }
@@ -401,7 +444,9 @@ export class MusicCommands {
       // getStringOption would have returned "spotify" — but we already handled it.
       // If a separate `source` word was provided as first arg and query still
       // contains it, normalize again from any explicit option.
-      const explicit = normalizeSourceToken(ctx.getStringOption("source") ?? ctx.getStringOption("query")?.split(" ")[0]);
+      const explicit = normalizeSourceToken(
+        ctx.getStringOption("source") ?? ctx.getStringOption("query")?.split(" ")[0],
+      );
       if (explicit && query.toLowerCase() !== explicit) {
         // If user typed `!play spotify never gonna...` we already stripped it,
         // but if they typed `!play never gonna... source:spotify`? Keep parsed source.
@@ -452,13 +497,17 @@ export class MusicCommands {
     if (result.tracks.length === 1) {
       await ctx.edit(
         `🎶 Added **[${first.title}](${first.url})** by ${first.author} \`${formatDuration(first.durationMs)}\` · _via ${viaLabel}_\n` +
-          (startingNow ? "— **preparing playback**." : `— position **#${queue.size}** in the queue.`),
+          (startingNow
+            ? "— **preparing playback**."
+            : `— position **#${queue.size}** in the queue.`),
       );
     } else {
       const capped = result.skipped;
       const summary =
         `📚 Added **${added}** track${added === 1 ? "" : "s"} from **${result.origin}** · _via ${viaLabel}_` +
-        (dropped + capped > 0 ? ` (${dropped + capped} left out — queue/playlist limit is ${maxQueue}/${maxPlaylistTracks})` : "") +
+        (dropped + capped > 0
+          ? ` (${dropped + capped} left out — queue/playlist limit is ${maxQueue}/${maxPlaylistTracks})`
+          : "") +
         (startingNow ? " — **starting now**." : ` — starting at position **#${position}**.`);
       await ctx.edit(summary);
     }
@@ -472,7 +521,9 @@ export class MusicCommands {
     const current = this.manager.queue(guildId).nowPlaying();
 
     if (!current) {
-      await ctx.reply(`There's nothing to skip — play something with \`${ctx.commandPrefix}play <song>\`.`);
+      await ctx.reply(
+        `There's nothing to skip — play something with \`${ctx.commandPrefix}play <song>\`.`,
+      );
       return;
     }
 
@@ -535,7 +586,7 @@ export class MusicCommands {
   }
 }
 
-/** First whole number in the argument list (prefix surface). */
+/** First whole number in the arguement list (prefix surface). */
 function firstInt(args: readonly string[]): number | null {
   for (const arg of args) {
     if (/^-?\d+$/.test(arg.trim())) return Number.parseInt(arg.trim(), 10);

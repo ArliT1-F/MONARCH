@@ -14,7 +14,11 @@ describe("renderEmbedPayload", () => {
       description: "World",
       url: "https://example.com",
       color: "#5865f2",
-      author: { name: "Author", url: "https://example.com/a", iconUrl: "https://example.com/i.png" },
+      author: {
+        name: "Author",
+        url: "https://example.com/a",
+        iconUrl: "https://example.com/i.png",
+      },
       footer: { text: "foot", iconUrl: "https://example.com/f.png" },
       imageUrl: "https://example.com/big.png",
       thumbnailUrl: "https://example.com/small.png",
@@ -24,7 +28,11 @@ describe("renderEmbedPayload", () => {
     const p = renderEmbedPayload(embed);
     expect(p.title).toBe("Hello");
     expect(p.color).toBe(0x5865f2);
-    expect(p.author).toEqual({ name: "Author", url: "https://example.com/a", icon_url: "https://example.com/i.png" });
+    expect(p.author).toEqual({
+      name: "Author",
+      url: "https://example.com/a",
+      icon_url: "https://example.com/i.png",
+    });
     expect(p.footer).toEqual({ text: "foot", icon_url: "https://example.com/f.png" });
     expect(p.image).toEqual({ url: "https://example.com/big.png" });
     expect(p.thumbnail).toEqual({ url: "https://example.com/small.png" });
@@ -60,7 +68,11 @@ describe("renderMessagePayload", () => {
     expect(p.components).toHaveLength(2); // 6 buttons → 2 rows
     expect(p.components![0]!.components).toHaveLength(5);
     expect(p.components![1]!.components).toHaveLength(1);
-    expect(p.components![0]!.components[0]).toMatchObject({ type: 2, style: 5, url: "https://example.com/0" });
+    expect(p.components![0]!.components[0]).toMatchObject({
+      type: 2,
+      style: 5,
+      url: "https://example.com/0",
+    });
   });
 
   it("omits empty fields", () => {
@@ -81,7 +93,13 @@ describe("variable resolution", () => {
   it("resolves variables in message content, embeds and buttons", () => {
     const message: MessageDesign = {
       content: "Hi {user} on {server}!",
-      embeds: [{ title: "{server}", description: "{member_count} members", fields: [{ name: "{channel}", value: "hi {display_name}" }] }],
+      embeds: [
+        {
+          title: "{server}",
+          description: "{member_count} members",
+          fields: [{ name: "{channel}", value: "hi {display_name}" }],
+        },
+      ],
       buttons: [{ id: "b", label: "Join {server}", style: "link", url: "https://example.com" }],
     };
     const out = applyVariablesToMessage(message, ctx);

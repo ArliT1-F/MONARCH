@@ -70,13 +70,7 @@ export default async function SelectServerPage() {
             >
               <div className="mb-4 flex items-center gap-3">
                 {g.iconUrl ? (
-                  <Image
-                    src={g.iconUrl}
-                    alt=""
-                    width={44}
-                    height={44}
-                    className="rounded-xl"
-                  />
+                  <Image src={g.iconUrl} alt="" width={44} height={44} className="rounded-xl" />
                 ) : (
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-ink-700 text-sm font-semibold text-ink-200">
                     {initials(g.name)}

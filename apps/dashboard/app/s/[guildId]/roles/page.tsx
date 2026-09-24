@@ -3,11 +3,7 @@ import { getSession } from "@/lib/session";
 import { getGuildSummary } from "@/lib/discord";
 import { RoleDesigner } from "@/components/designer/RoleDesigner";
 
-export default async function RolesPage({
-  params,
-}: {
-  params: Promise<{ guildId: string }>;
-}) {
+export default async function RolesPage({ params }: { params: Promise<{ guildId: string }> }) {
   const session = await getSession();
   if (!session) redirect("/");
   const { guildId } = await params;

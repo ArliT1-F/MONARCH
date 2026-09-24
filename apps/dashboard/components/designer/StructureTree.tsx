@@ -14,11 +14,7 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { ChannelDesign, ChannelKind } from "@monarch/schemas";
 import { isLocalId } from "@monarch/shared";
@@ -148,7 +144,10 @@ export function StructureTree({
         />
 
         {/* categories */}
-        <SortableContext items={categories.map((c) => catId(c.id))} strategy={verticalListSortingStrategy}>
+        <SortableContext
+          items={categories.map((c) => catId(c.id))}
+          strategy={verticalListSortingStrategy}
+        >
           {categories.map((cat) => (
             <CategoryBlock key={cat.id} categoryId={cat.id} state={state} dispatch={dispatch} />
           ))}
@@ -210,7 +209,9 @@ function CategoryBlock({
       className={`mt-4 ${isDragging ? "opacity-40" : ""}`}
     >
       <div
-        onClick={() => dispatch({ type: "SELECT", selection: { kind: "category", id: categoryId } })}
+        onClick={() =>
+          dispatch({ type: "SELECT", selection: { kind: "category", id: categoryId } })
+        }
         className={`group flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 transition ${
           selected ? "bg-royal-500/15" : "hover:bg-ink-800/60"
         }`}
@@ -224,7 +225,12 @@ function CategoryBlock({
         >
           <GripIcon />
         </button>
-        <svg viewBox="0 0 16 16" className="h-2.5 w-2.5 text-ink-400" fill="currentColor" aria-hidden>
+        <svg
+          viewBox="0 0 16 16"
+          className="h-2.5 w-2.5 text-ink-400"
+          fill="currentColor"
+          aria-hidden
+        >
           <path d="M4.5 6l3.5 4 3.5-4h-7z" />
         </svg>
         <span

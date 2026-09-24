@@ -60,7 +60,12 @@ export async function executeApplyPlan(
           else error = res.error;
         } else if (e.resource === "channel") {
           const detail = e.detail as {
-            type: string; topic?: string; parentId?: string; nsfw?: boolean; slowmode?: number; position?: number;
+            type: string;
+            topic?: string;
+            parentId?: string;
+            nsfw?: boolean;
+            slowmode?: number;
+            position?: number;
           };
           const parentId = detail.parentId ? resolveId(detail.parentId) : undefined;
           const res = await gateway.createChannel(plan.guildId, {
@@ -146,7 +151,11 @@ export async function executeApplyPlan(
 
     if (error) {
       failed = true;
-      log.error("apply step failed", { guildId: plan.guildId, step: step.describe, code: error.code });
+      log.error("apply step failed", {
+        guildId: plan.guildId,
+        step: step.describe,
+        code: error.code,
+      });
       results.push({ describe: step.describe, status: "failed", error });
     } else {
       results.push({ describe: step.describe, status: "done" });
@@ -189,7 +198,12 @@ function changesToPayload(changes: { field: string; after: unknown }[]) {
 }
 
 function roleChangesToPayload(changes: { field: string; after: unknown }[]) {
-  const payload: { color?: string | null; hoist?: boolean; mentionable?: boolean; permissions?: string } = {};
+  const payload: {
+    color?: string | null;
+    hoist?: boolean;
+    mentionable?: boolean;
+    permissions?: string;
+  } = {};
   for (const c of changes) {
     if (c.field === "color") payload.color = (c.after as string | undefined) ?? null;
     if (c.field === "hoist") payload.hoist = Boolean(c.after);
