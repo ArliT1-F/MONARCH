@@ -16,7 +16,7 @@ import { getStore } from "@/lib/store";
  *          form whose submission would then be refused.
  * POST   → claim the window: `{ claimed, nextAllowedAt, retryAfterMs,
  *          cooldownMs }`. `claimed: false` means a window is already running —
- *          **200 either way**, because "not yet" is an answer to the question
+ *          **200 either way**, becuase "not yet" is an answer to the question
  *          the bot asked, not a failed request. Claiming is a compare-and-set
  *          in the store, so two racing submissions produce exactly one
  *          confession.
@@ -40,10 +40,7 @@ function invalidUser() {
   });
 }
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ userId: string }> },
-) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
   const unauthorized = assertInternalAuth(req);
   if (unauthorized) return unauthorized;
   const { userId } = await params;
@@ -63,10 +60,7 @@ export async function GET(
   }
 }
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ userId: string }> },
-) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
   const unauthorized = assertInternalAuth(req);
   if (unauthorized) return unauthorized;
   const { userId } = await params;

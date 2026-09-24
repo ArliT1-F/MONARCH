@@ -30,7 +30,7 @@ const { ytdlpJson, ytdlpSearch, ytdlpPlaylist, ensureYtdlp, YtdlpError } = vi.ho
 });
 
 vi.mock("../src/music/ytdlp.js", async (original) => ({
-  ...await original<typeof import("../src/music/ytdlp.js")>(),
+  ...(await original<typeof import("../src/music/ytdlp.js")>()),
   ytdlpJson,
   ytdlpSearch,
   ytdlpPlaylist,
@@ -68,14 +68,22 @@ async function sources() {
  * Stub Spotify's Web API. Routes are matched in declaration order against the
  * request URL, so list the more specific key (a paged `?offset=` link) first.
  */
-function stubSpotify(routes: Record<string, unknown>, token = { access_token: "tok", expires_in: 3600 }) {
+function stubSpotify(
+  routes: Record<string, unknown>,
+  token = { access_token: "tok", expires_in: 3600 },
+) {
   const fetchMock = vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
     if (url.includes("accounts.spotify.com/api/token")) {
       return { ok: true, status: 200, json: async () => token } as Response;
     }
     const match = Object.entries(routes).find(([key]) => url.includes(key));
-    if (!match) return { ok: false, status: 404, json: async () => ({ error: "not found" }) } as unknown as Response;
+    if (!match)
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({ error: "not found" }),
+      } as unknown as Response;
     return { ok: true, status: 200, json: async () => match[1] } as Response;
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -91,14 +99,24 @@ function stubSpotifyAndEmbed(api: Record<string, unknown>, embed: string | null)
   const fetchMock = vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
     if (url.includes("accounts.spotify.com/api/token")) {
-      return { ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 3600 }) } as Response;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: "tok", expires_in: 3600 }),
+      } as Response;
     }
     if (url.includes("open.spotify.com/embed/")) {
-      if (embed === null) return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
+      if (embed === null)
+        return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
       return { ok: true, status: 200, text: async () => embed } as Response;
     }
     const match = Object.entries(api).find(([key]) => url.includes(key));
-    if (!match) return { ok: false, status: 404, json: async () => ({ error: "not found" }) } as unknown as Response;
+    if (!match)
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({ error: "not found" }),
+      } as unknown as Response;
     return { ok: true, status: 200, json: async () => match[1] } as Response;
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -139,7 +157,9 @@ const spotifyTrackPayload = {
   name: "Viti Ri Gon Kalaja",
   duration_ms: 253_000,
   external_urls: { spotify: "https://open.spotify.com/track/abc123abc123abc1" },
-  album: { images: [{ url: "https://i.scdn.co/small.jpg" }, { url: "https://i.scdn.co/large.jpg" }] },
+  album: {
+    images: [{ url: "https://i.scdn.co/small.jpg" }, { url: "https://i.scdn.co/large.jpg" }],
+  },
   artists: [{ name: "Muharrem Ahmeti" }],
 };
 
@@ -152,7 +172,11 @@ function playlistRow(name: string, id: string, extras: Record<string, unknown> =
     added_by: { id: "icy404" },
     is_local: false,
     ...extras,
-    item: { ...spotifyTrackPayload, name, external_urls: { spotify: `https://open.spotify.com/track/${id}` } },
+    item: {
+      ...spotifyTrackPayload,
+      name,
+      external_urls: { spotify: `https://open.spotify.com/track/${id}` },
+    },
   };
 }
 
@@ -162,7 +186,12 @@ beforeEach(() => {
   ytdlpSearch.mockReset();
   ytdlpPlaylist.mockReset();
   ensureYtdlp.mockReset();
-  ensureYtdlp.mockResolvedValue({ available: true, bin: "/usr/local/bin/yt-dlp", version: "2026.08.19", source: "path" });
+  ensureYtdlp.mockResolvedValue({
+    available: true,
+    bin: "/usr/local/bin/yt-dlp",
+    version: "2026.08.19",
+    source: "path",
+  });
   process.env.SPOTIFY_CLIENT_ID = "client";
   process.env.SPOTIFY_CLIENT_SECRET = "secret";
   delete process.env.MUSIC_SEARCH_PREFIX;
@@ -183,7 +212,12 @@ describe("YouTube links", () => {
     ytdlpJson.mockResolvedValue(entry());
     const { resolveQuery } = await sources();
 
-    const result = await resolveQuery("https://www.youtube.com/watch?v=dQw4w9WgXcQ", requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
     expect(ytdlpJson).toHaveBeenCalledWith("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     expect(result.kind).toBe("youtube-video");
@@ -217,33 +251,47 @@ describe("YouTube links", () => {
     expect(ytdlpJson).toHaveBeenCalledWith("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
 
     ytdlpJson.mockClear();
-    await resolveQuery("https://www.youtube.com/shorts/dQw4w9WgXcQ", requestedBy, requestedByName, 250);
+    await resolveQuery(
+      "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+      requestedBy,
+      requestedByName,
+      250,
+    );
     expect(ytdlpJson).toHaveBeenCalledWith("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
   });
 
   it("refuses a live stream instead of queuing something with no end", async () => {
     ytdlpJson.mockResolvedValue(entry({ is_live: true, live_status: "is_live", duration: null }));
     const { resolveQuery, SourceError } = await sources();
-    await expect(resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250))
-      .rejects.toThrow(SourceError);
-    await expect(resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250))
-      .rejects.toThrow(/live stream/i);
+    await expect(
+      resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250),
+    ).rejects.toThrow(SourceError);
+    await expect(
+      resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250),
+    ).rejects.toThrow(/live stream/i);
   });
 
   it("explains an unavailable video", async () => {
-    ytdlpJson.mockRejectedValue(new YtdlpError("That video is unavailable (removed, region-locked, or age-restricted without cookies)."));
+    ytdlpJson.mockRejectedValue(
+      new YtdlpError(
+        "That video is unavailable (removed, region-locked, or age-restricted without cookies).",
+      ),
+    );
     const { resolveQuery } = await sources();
-    await expect(resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250))
-      .rejects.toThrow(/unavailable/i);
+    await expect(
+      resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250),
+    ).rejects.toThrow(/unavailable/i);
   });
 
   it("keeps yt-dlp's own explanation, wrapped as a source error", async () => {
     ytdlpJson.mockRejectedValue(new YtdlpError("That video is private, so it can't be played."));
     const { resolveQuery, SourceError } = await sources();
-    await expect(resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250))
-      .rejects.toThrow(SourceError);
-    await expect(resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250))
-      .rejects.toThrow(/private/);
+    await expect(
+      resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250),
+    ).rejects.toThrow(SourceError);
+    await expect(
+      resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250),
+    ).rejects.toThrow(/private/);
   });
 
   it("names the missing downloader and points at the fix", async () => {
@@ -255,10 +303,12 @@ describe("YouTube links", () => {
       detail: "yt-dlp is not installed and downloading it failed (HTTP 403).",
     });
     const { resolveQuery } = await sources();
-    await expect(resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250))
-      .rejects.toThrow(/yt-dlp/);
-    await expect(resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250))
-      .rejects.toThrow(/YTDLP_PATH|troubleshooting-music/);
+    await expect(
+      resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250),
+    ).rejects.toThrow(/yt-dlp/);
+    await expect(
+      resolveQuery("https://youtu.be/dQw4w9WgXcQ", requestedBy, requestedByName, 250),
+    ).rejects.toThrow(/YTDLP_PATH|troubleshooting-music/);
     expect(ytdlpJson).not.toHaveBeenCalled();
   });
 });
@@ -266,7 +316,11 @@ describe("YouTube links", () => {
 describe("playlists", () => {
   it("imports a playlist, capped, and reports what was left out", async () => {
     const entries = Array.from({ length: 12 }, (_, i) =>
-      entry({ id: `id${i}`, title: `Song ${i}`, webpage_url: `https://www.youtube.com/watch?v=id${i}` }),
+      entry({
+        id: `id${i}`,
+        title: `Song ${i}`,
+        webpage_url: `https://www.youtube.com/watch?v=id${i}`,
+      }),
     );
     ytdlpPlaylist.mockResolvedValue({ _type: "playlist", title: "My Mix", entries });
     const { resolveQuery } = await sources();
@@ -278,7 +332,10 @@ describe("playlists", () => {
       10,
     );
 
-    expect(ytdlpPlaylist).toHaveBeenCalledWith("https://www.youtube.com/playlist?list=PL1234567890", 10);
+    expect(ytdlpPlaylist).toHaveBeenCalledWith(
+      "https://www.youtube.com/playlist?list=PL1234567890",
+      10,
+    );
     expect(result.kind).toBe("youtube-playlist");
     expect(result.origin).toBe("My Mix");
     expect(result.tracks).toHaveLength(10);
@@ -292,13 +349,23 @@ describe("playlists", () => {
       title: "Mixed",
       entries: [
         entry({ id: "a", webpage_url: "https://www.youtube.com/watch?v=a" }),
-        entry({ id: "b", is_live: true, live_status: "is_live", webpage_url: "https://www.youtube.com/watch?v=b" }),
+        entry({
+          id: "b",
+          is_live: true,
+          live_status: "is_live",
+          webpage_url: "https://www.youtube.com/watch?v=b",
+        }),
         null, // removed between the flat listing and now
         entry({ id: "c", webpage_url: "https://www.youtube.com/watch?v=c" }),
       ],
     });
     const { resolveQuery } = await sources();
-    const result = await resolveQuery("https://www.youtube.com/playlist?list=PL1234567890", requestedBy, requestedByName, 50);
+    const result = await resolveQuery(
+      "https://www.youtube.com/playlist?list=PL1234567890",
+      requestedBy,
+      requestedByName,
+      50,
+    );
     expect(result.tracks.map((t) => t.videoId)).toEqual(["a", "c"]);
     expect(result.skipped).toBe(2);
   });
@@ -306,8 +373,14 @@ describe("playlists", () => {
   it("says so when a playlist has nothing playable", async () => {
     ytdlpPlaylist.mockResolvedValue({ _type: "playlist", title: "Empty", entries: [] });
     const { resolveQuery } = await sources();
-    await expect(resolveQuery("https://www.youtube.com/playlist?list=PL1234567890", requestedBy, requestedByName, 50))
-      .rejects.toThrow(/no playable videos/i);
+    await expect(
+      resolveQuery(
+        "https://www.youtube.com/playlist?list=PL1234567890",
+        requestedBy,
+        requestedByName,
+        50,
+      ),
+    ).rejects.toThrow(/no playable videos/i);
   });
 });
 
@@ -315,7 +388,11 @@ describe("search", () => {
   it("searches with yt-dlp and takes the first playable result", async () => {
     ytdlpSearch.mockResolvedValue([
       entry({ id: "live", title: "A live thing", is_live: true, live_status: "is_live" }),
-      entry({ id: "second", title: "The Song", webpage_url: "https://www.youtube.com/watch?v=second" }),
+      entry({
+        id: "second",
+        title: "The Song",
+        webpage_url: "https://www.youtube.com/watch?v=second",
+      }),
     ]);
     const { resolveQuery } = await sources();
 
@@ -344,12 +421,16 @@ describe("search", () => {
   it("says when nothing matched", async () => {
     ytdlpSearch.mockResolvedValue([]);
     const { resolveQuery } = await sources();
-    await expect(resolveQuery("asdkjhaskjdh", requestedBy, requestedByName, 250)).rejects.toThrow(/No track matched/);
+    await expect(resolveQuery("asdkjhaskjdh", requestedBy, requestedByName, 250)).rejects.toThrow(
+      /No track matched/,
+    );
   });
 
   it("refuses an empty query", async () => {
     const { resolveQuery } = await sources();
-    await expect(resolveQuery("   ", requestedBy, requestedByName, 250)).rejects.toThrow(/Tell me what to play/);
+    await expect(resolveQuery("   ", requestedBy, requestedByName, 250)).rejects.toThrow(
+      /Tell me what to play/,
+    );
     expect(ytdlpSearch).not.toHaveBeenCalled();
   });
 });
@@ -405,29 +486,59 @@ describe("other sources yt-dlp can load", () => {
       );
     const { resolveQuery } = await sources();
 
-    const result = await resolveQuery("https://soundcloud.com/artist/track", requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      "https://soundcloud.com/artist/track",
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
-    expect(ytdlpJson).toHaveBeenNthCalledWith(1, "https://soundcloud.com/artist/track", { flat: true, limit: 250 });
-    expect(result.tracks[0]).toMatchObject({ sourceKind: "other", sourceName: "soundcloud", title: "SoundCloud thing" });
+    expect(ytdlpJson).toHaveBeenNthCalledWith(1, "https://soundcloud.com/artist/track", {
+      flat: true,
+      limit: 250,
+    });
+    expect(result.tracks[0]).toMatchObject({
+      sourceKind: "other",
+      sourceName: "soundcloud",
+      title: "SoundCloud thing",
+    });
   });
 
   it("expands a link that turns out to be a playlist", async () => {
     ytdlpJson.mockResolvedValue({ _type: "playlist", entries: [entry()] });
-    ytdlpPlaylist.mockResolvedValue({ _type: "playlist", title: "A list", entries: [entry({ id: "one" }), entry({ id: "two" })] });
+    ytdlpPlaylist.mockResolvedValue({
+      _type: "playlist",
+      title: "A list",
+      entries: [entry({ id: "one" }), entry({ id: "two" })],
+    });
     const { resolveQuery } = await sources();
 
-    const result = await resolveQuery("https://example.com/mystery-list", requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      "https://example.com/mystery-list",
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
     expect(result.origin).toBe("A list");
     expect(result.tracks).toHaveLength(2);
   });
 
   it("falls back to searching when the downloader can't load that link", async () => {
-    ytdlpJson.mockRejectedValue(new YtdlpError("That link isn't something the downloader supports."));
-    ytdlpSearch.mockResolvedValue([entry({ id: "searched", webpage_url: "https://www.youtube.com/watch?v=searched" })]);
+    ytdlpJson.mockRejectedValue(
+      new YtdlpError("That link isn't something the downloader supports."),
+    );
+    ytdlpSearch.mockResolvedValue([
+      entry({ id: "searched", webpage_url: "https://www.youtube.com/watch?v=searched" }),
+    ]);
     const { resolveQuery } = await sources();
 
-    const result = await resolveQuery("https://example.com/mystery", requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      "https://example.com/mystery",
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
     expect(ytdlpSearch).toHaveBeenCalledWith("https://example.com/mystery", 5, "ytsearch");
     expect(result.tracks[0]!.videoId).toBe("searched");
@@ -472,9 +583,16 @@ describe("Spotify", () => {
   it("keeps the Spotify metadata when the match has none", async () => {
     stubSpotify({ "/tracks/abc123abc123abc1": spotifyTrackPayload });
     const { resolveQuery, ensurePlayable } = await sources();
-    const result = await resolveQuery("spotify:track:abc123abc123abc1", requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      "spotify:track:abc123abc123abc1",
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
-    ytdlpSearch.mockResolvedValue([entry({ id: "m", thumbnail: null, duration: null, title: "Whatever" })]);
+    ytdlpSearch.mockResolvedValue([
+      entry({ id: "m", thumbnail: null, duration: null, title: "Whatever" }),
+    ]);
     const playable = await ensurePlayable(result.tracks[0]!);
     expect(playable.durationMs).toBe(253_000); // Spotify's, not the downloader's unknown
     expect(playable.thumbnail).toBe("https://i.scdn.co/large.jpg");
@@ -484,7 +602,12 @@ describe("Spotify", () => {
   it("says what it searched when every match was unplayable", async () => {
     stubSpotify({ "/tracks/abc123abc123abc1": spotifyTrackPayload });
     const { resolveQuery, ensurePlayable } = await sources();
-    const result = await resolveQuery("spotify:track:abc123abc123abc1", requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      "spotify:track:abc123abc123abc1",
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
     ytdlpSearch.mockResolvedValue([]); // the search worked; nothing was playable
     await expect(ensurePlayable(result.tracks[0]!)).rejects.toThrow(
@@ -495,14 +618,20 @@ describe("Spotify", () => {
   it("refuses to replay a track with nothing to play", async () => {
     const { ensurePlayable, SourceError } = await sources();
     await expect(ensurePlayable({ id: "x", title: "X" } as never)).rejects.toThrow(SourceError);
-    await expect(ensurePlayable({ id: "x", title: "X" } as never)).rejects.toThrow(/don't know how to play/);
+    await expect(ensurePlayable({ id: "x", title: "X" } as never)).rejects.toThrow(
+      /don't know how to play/,
+    );
   });
 
   it("imports a playlist page by page and counts unavailable tracks", async () => {
     stubSpotify({
       "offset=2": {
         items: [
-          { ...spotifyTrackPayload, name: "Two", external_urls: { spotify: "https://open.spotify.com/track/two" } },
+          {
+            ...spotifyTrackPayload,
+            name: "Two",
+            external_urls: { spotify: "https://open.spotify.com/track/two" },
+          },
         ],
         next: null,
       },
@@ -511,7 +640,13 @@ describe("Spotify", () => {
         images: [{ url: "https://i.scdn.co/cover.jpg" }],
         tracks: {
           items: [
-            { track: { ...spotifyTrackPayload, name: "One", external_urls: { spotify: "https://open.spotify.com/track/one" } } },
+            {
+              track: {
+                ...spotifyTrackPayload,
+                name: "One",
+                external_urls: { spotify: "https://open.spotify.com/track/one" },
+              },
+            },
             { track: null }, // unavailable in this market
           ],
           next: "https://api.spotify.com/v1/playlists/abc123abc123abc1/tracks?offset=2",
@@ -528,7 +663,10 @@ describe("Spotify", () => {
     );
 
     expect(result.origin).toBe("Albanian Classics");
-    expect(result.tracks.map((t) => t.title)).toEqual(["Muharrem Ahmeti – One", "Muharrem Ahmeti – Two"]);
+    expect(result.tracks.map((t) => t.title)).toEqual([
+      "Muharrem Ahmeti – One",
+      "Muharrem Ahmeti – Two",
+    ]);
     expect(result.skipped).toBe(1);
     expect(ytdlpSearch).not.toHaveBeenCalled();
   });
@@ -538,7 +676,10 @@ describe("Spotify", () => {
   // `track` key is still there as a boolean, so a parser that reads `track`
   // first finds no tracks in a playlist that is full of them.
   it("imports a whole playlist when every row's `track` is a boolean", async () => {
-    const rows = [playlistRow("One", "one", { track: true }), playlistRow("Two", "two", { track: true })];
+    const rows = [
+      playlistRow("One", "one", { track: true }),
+      playlistRow("Two", "two", { track: true }),
+    ];
     stubSpotify({
       [`/playlists/${playlistId}`]: {
         name: "Phonk",
@@ -557,7 +698,10 @@ describe("Spotify", () => {
 
     expect(result.kind).toBe("spotify-playlist");
     expect(result.origin).toBe("Phonk");
-    expect(result.tracks.map((t) => t.title)).toEqual(["Muharrem Ahmeti – One", "Muharrem Ahmeti – Two"]);
+    expect(result.tracks.map((t) => t.title)).toEqual([
+      "Muharrem Ahmeti – One",
+      "Muharrem Ahmeti – Two",
+    ]);
     expect(result.tracks[0]!.youtubeSearch).toBe("Muharrem Ahmeti – One");
     expect(result.skipped).toBe(0);
   });
@@ -571,7 +715,12 @@ describe("Spotify", () => {
     });
     const { resolveQuery } = await sources();
 
-    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      `https://open.spotify.com/playlist/${playlistId}`,
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
     expect(result.tracks.map((t) => t.title)).toEqual(["Muharrem Ahmeti – One"]);
   });
@@ -588,7 +737,12 @@ describe("Spotify", () => {
     });
     const { resolveQuery } = await sources();
 
-    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      `https://open.spotify.com/playlist/${playlistId}`,
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
     expect(result.tracks.map((t) => t.title)).toEqual(["Muharrem Ahmeti – One"]);
   });
@@ -601,10 +755,15 @@ describe("Spotify", () => {
         const url = String(input);
         calls.push(url);
         if (url.includes("accounts.spotify.com")) {
-          return { ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 3600 }) } as Response;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ access_token: "tok", expires_in: 3600 }),
+          } as Response;
         }
         // Spotify's legacy `/tracks` cursor is dead: the endpoint answers 403.
-        if (url.includes("offset=1")) return { ok: false, status: 403, json: async () => ({}) } as unknown as Response;
+        if (url.includes("offset=1"))
+          return { ok: false, status: 403, json: async () => ({}) } as unknown as Response;
         return {
           ok: true,
           status: 200,
@@ -621,7 +780,12 @@ describe("Spotify", () => {
     );
     const { resolveQuery } = await sources();
 
-    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      `https://open.spotify.com/playlist/${playlistId}`,
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
     expect(calls).toContain(`https://api.spotify.com/v1/playlists/${playlistId}/items?offset=1`);
     expect(result.tracks.map((t) => t.title)).toEqual(["Muharrem Ahmeti – One"]);
@@ -633,16 +797,32 @@ describe("Spotify", () => {
     const fetchMock = stubSpotifyAndEmbed(
       // What a Development Mode app gets for a playlist it doesn't own: a name,
       // a count, and no rows.
-      { [`/playlists/${playlistId}`]: { name: "Phonk", items: { total: 137, next: null, items: [] } } },
+      {
+        [`/playlists/${playlistId}`]: {
+          name: "Phonk",
+          items: { total: 137, next: null, items: [] },
+        },
+      },
       embedPlaylistHtml("Phonk", [
         { id: "one", title: "One", subtitle: "Artist A", duration: 180_000 },
         { id: "two", title: "Two", subtitle: "Artist B", duration: 200_000 },
-        { uri: "spotify:episode:cast", id: "cast", title: "A podcast episode", subtitle: "Some show", duration: 600_000 },
+        {
+          uri: "spotify:episode:cast",
+          id: "cast",
+          title: "A podcast episode",
+          subtitle: "Some show",
+          duration: 600_000,
+        },
       ]),
     );
     const { resolveQuery } = await sources();
 
-    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      `https://open.spotify.com/playlist/${playlistId}`,
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
     expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(
       `https://open.spotify.com/embed/playlist/${playlistId}`,
@@ -663,11 +843,18 @@ describe("Spotify", () => {
     stubSpotifyAndEmbed(
       // Spotify's editorial playlists have answered 404 here for years.
       { [`/playlists/${playlistId}`]: { error: { status: 404, message: "Not found" } } },
-      embedPlaylistHtml("Phonk", [{ id: "one", title: "One", subtitle: "Artist A", duration: 180_000 }]),
+      embedPlaylistHtml("Phonk", [
+        { id: "one", title: "One", subtitle: "Artist A", duration: 180_000 },
+      ]),
     );
     const { resolveQuery } = await sources();
 
-    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      `https://open.spotify.com/playlist/${playlistId}`,
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
     expect(result.origin).toBe("Phonk");
     expect(result.tracks.map((t) => t.title)).toEqual(["Artist A – One"]);
@@ -677,19 +864,36 @@ describe("Spotify", () => {
     stubSpotifyAndEmbed(
       // Nothing but the boolean stub under the old key — a shape rename that a
       // lenient reader would let pass as "this playlist is empty".
-      { [`/playlists/${playlistId}`]: { name: "Phonk", tracks: { total: 2, next: null, items: [{ track: true }, { track: true }] } } },
-      embedPlaylistHtml("Phonk", [{ id: "one", title: "One", subtitle: "Artist A", duration: 180_000 }]),
+      {
+        [`/playlists/${playlistId}`]: {
+          name: "Phonk",
+          tracks: { total: 2, next: null, items: [{ track: true }, { track: true }] },
+        },
+      },
+      embedPlaylistHtml("Phonk", [
+        { id: "one", title: "One", subtitle: "Artist A", duration: 180_000 },
+      ]),
     );
     const { resolveQuery } = await sources();
 
-    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      `https://open.spotify.com/playlist/${playlistId}`,
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
     expect(result.tracks.map((t) => t.title)).toEqual(["Artist A – One"]);
   });
 
   it("says why when Spotify withholds a playlist's tracks", async () => {
     stubSpotifyAndEmbed(
-      { [`/playlists/${playlistId}`]: { name: "Phonk", items: { total: 137, next: null, items: [] } } },
+      {
+        [`/playlists/${playlistId}`]: {
+          name: "Phonk",
+          items: { total: 137, next: null, items: [] },
+        },
+      },
       null, // private playlist: the embed page isn't readable either
     );
     const { resolveQuery } = await sources();
@@ -708,32 +912,61 @@ describe("Spotify", () => {
   });
 
   it("treats a playlist response with no contents field at all the same way", async () => {
-    stubSpotifyAndEmbed({ [`/playlists/${playlistId}`]: { name: "Phonk", tracks: { total: 12 } } }, null);
+    stubSpotifyAndEmbed(
+      { [`/playlists/${playlistId}`]: { name: "Phonk", tracks: { total: 12 } } },
+      null,
+    );
     const { resolveQuery } = await sources();
 
-    await expect(resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250))
-      .rejects.toThrow(/12 listed/);
+    await expect(
+      resolveQuery(
+        `https://open.spotify.com/playlist/${playlistId}`,
+        requestedBy,
+        requestedByName,
+        250,
+      ),
+    ).rejects.toThrow(/12 listed/);
   });
 
   it("doesn't reach for the embed page when the API already answered", async () => {
     const fetchMock = stubSpotifyAndEmbed(
-      { [`/playlists/${playlistId}`]: { name: "Phonk", items: { total: 1, next: null, items: [playlistRow("One", "one")] } } },
-      embedPlaylistHtml("Phonk", [{ id: "stale", title: "Stale", subtitle: "Old", duration: 1_000 }]),
+      {
+        [`/playlists/${playlistId}`]: {
+          name: "Phonk",
+          items: { total: 1, next: null, items: [playlistRow("One", "one")] },
+        },
+      },
+      embedPlaylistHtml("Phonk", [
+        { id: "stale", title: "Stale", subtitle: "Old", duration: 1_000 },
+      ]),
     );
     const { resolveQuery } = await sources();
 
-    const result = await resolveQuery(`https://open.spotify.com/playlist/${playlistId}`, requestedBy, requestedByName, 250);
+    const result = await resolveQuery(
+      `https://open.spotify.com/playlist/${playlistId}`,
+      requestedBy,
+      requestedByName,
+      250,
+    );
 
     expect(result.tracks.map((t) => t.title)).toEqual(["Muharrem Ahmeti – One"]);
-    expect(fetchMock.mock.calls.map((call) => String(call[0])).some((url) => url.includes("/embed/"))).toBe(false);
+    expect(
+      fetchMock.mock.calls.map((call) => String(call[0])).some((url) => url.includes("/embed/")),
+    ).toBe(false);
   });
 
   it("says when Spotify isn't configured", async () => {
     delete process.env.SPOTIFY_CLIENT_ID;
     const { resolveQuery, spotifyConfigured } = await sources();
     expect(spotifyConfigured()).toBe(false);
-    await expect(resolveQuery("https://open.spotify.com/track/abc123abc123abc1", requestedBy, requestedByName, 250))
-      .rejects.toThrow(/SPOTIFY_CLIENT_ID/);
+    await expect(
+      resolveQuery(
+        "https://open.spotify.com/track/abc123abc123abc1",
+        requestedBy,
+        requestedByName,
+        250,
+      ),
+    ).rejects.toThrow(/SPOTIFY_CLIENT_ID/);
   });
 
   it("searches Spotify when the user asks for that source", async () => {
@@ -742,7 +975,13 @@ describe("Spotify", () => {
     });
     const { resolveQuery } = await sources();
 
-    const result = await resolveQuery("viti ri gon kalaja", requestedBy, requestedByName, 250, "spotify");
+    const result = await resolveQuery(
+      "viti ri gon kalaja",
+      requestedBy,
+      requestedByName,
+      250,
+      "spotify",
+    );
 
     expect(result.kind).toBe("spotify-track");
     expect(result.tracks[0]!.youtubeSearch).toBe("Muharrem Ahmeti – Viti Ri Gon Kalaja");
@@ -753,8 +992,9 @@ describe("Spotify", () => {
     delete process.env.SPOTIFY_CLIENT_ID;
     delete process.env.SPOTIFY_CLIENT_SECRET;
     const { resolveQuery } = await sources();
-    await expect(resolveQuery("viti ri gon kalaja", requestedBy, requestedByName, 250, "spotify"))
-      .rejects.toThrow(/SPOTIFY_CLIENT_ID/);
+    await expect(
+      resolveQuery("viti ri gon kalaja", requestedBy, requestedByName, 250, "spotify"),
+    ).rejects.toThrow(/SPOTIFY_CLIENT_ID/);
   });
 });
 

@@ -43,13 +43,14 @@ export function analyzeServerDesign(
     const scored = checks.filter((r) => !r.dismissed);
     let score = 100;
     if (scored.length > 0) {
-      const weightOf = (id: string) =>
-        CHECKS.find((c) => c.id === id)?.weight ?? 1;
+      const weightOf = (id: string) => CHECKS.find((c) => c.id === id)?.weight ?? 1;
       const totalWeight = scored.reduce((sum, r) => sum + weightOf(r.id), 0);
       score =
         totalWeight === 0
           ? 100
-          : Math.round((scored.reduce((sum, r) => sum + r.score * weightOf(r.id), 0) / totalWeight) * 100);
+          : Math.round(
+              (scored.reduce((sum, r) => sum + r.score * weightOf(r.id), 0) / totalWeight) * 100,
+            );
     }
     return { id: cat.id, label: cat.label, score, checks };
   });
@@ -69,9 +70,8 @@ export function analyzeServerDesign(
     voiceChannels: design.channels.length - textLike.length,
     topicsSet: textLike.filter((c) => (c.topic ?? "").trim().length > 0).length,
     roles: design.roles.length,
-    coloredRoles: design.roles.filter(
-      (r) => !!r.color && !r.managed && r.id !== design.guildId,
-    ).length,
+    coloredRoles: design.roles.filter((r) => !!r.color && !r.managed && r.id !== design.guildId)
+      .length,
     uncategorizedChannels: design.channels.filter((c) => !c.parentId).length,
   };
 

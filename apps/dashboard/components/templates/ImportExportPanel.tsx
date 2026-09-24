@@ -62,7 +62,10 @@ export function ImportExportPanel({
         designerUrl?: string;
       }>(res);
       if (!res.ok || !data?.designerUrl) {
-        setNotice({ tone: "error", text: apiErrorMessage(data, res, "Monarch couldn't import the template.") });
+        setNotice({
+          tone: "error",
+          text: apiErrorMessage(data, res, "Monarch couldn't import the template."),
+        });
         return;
       }
       setNotice({
@@ -98,7 +101,8 @@ export function ImportExportPanel({
           Download template (.json)
         </a>
         <p className="mt-3 text-[11px] text-ink-400">
-          Or run <code className="rounded bg-ink-800 px-1 py-0.5 text-ink-200">/monarch export</code> in
+          Or run{" "}
+          <code className="rounded bg-ink-800 px-1 py-0.5 text-ink-200">/monarch export</code> in
           Discord to get the file right in the channel.
         </p>
       </section>
@@ -171,7 +175,10 @@ export function ImportExportPanel({
         >
           {notice.text}
           {notice.designerUrl && (
-            <Link href={notice.designerUrl} className="ml-2 font-medium underline underline-offset-2">
+            <Link
+              href={notice.designerUrl}
+              className="ml-2 font-medium underline underline-offset-2"
+            >
               Open Server Designer →
             </Link>
           )}
@@ -198,7 +205,13 @@ function ModeOption({
         checked ? "border-royal-500/60 bg-royal-500/10" : "border-ink-700 hover:border-ink-500"
       }`}
     >
-      <input type="radio" name="import-mode" checked={checked} onChange={onChange} className="mt-0.5 accent-royal-500" />
+      <input
+        type="radio"
+        name="import-mode"
+        checked={checked}
+        onChange={onChange}
+        className="mt-0.5 accent-royal-500"
+      />
       <span>
         <span className="block text-xs font-medium text-ink-100">{title}</span>
         <span className="block text-[11px] leading-relaxed text-ink-400">{description}</span>
@@ -209,7 +222,14 @@ function ModeOption({
 
 function DownloadIcon() {
   return (
-    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+    <svg
+      viewBox="0 0 16 16"
+      className="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      aria-hidden
+    >
       <path d="M8 2v8m0 0 3-3M8 10 5 7M3 12.5h10" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );

@@ -76,12 +76,7 @@ export interface DiffUnsupported {
 }
 
 export type DiffEntry =
-  | DiffCreate
-  | DiffModify
-  | DiffRename
-  | DiffMove
-  | DiffDelete
-  | DiffUnsupported;
+  DiffCreate | DiffModify | DiffRename | DiffMove | DiffDelete | DiffUnsupported;
 
 export interface ServerDiff {
   guildId: string;
@@ -108,7 +103,13 @@ export function diffServerDesign(current: ServerDesign, desired: ServerDesign): 
 
   for (const cat of desired.categories) {
     if (isLocalId(cat.id)) {
-      entries.push({ op: "create", resource: "category", localId: cat.id, name: cat.name, detail: cat });
+      entries.push({
+        op: "create",
+        resource: "category",
+        localId: cat.id,
+        name: cat.name,
+        detail: cat,
+      });
       continue;
     }
     desiredCatIds.add(cat.id);
@@ -126,12 +127,25 @@ export function diffServerDesign(current: ServerDesign, desired: ServerDesign): 
     const renamed = cur.name !== cat.name;
     const moved = cur.position !== cat.position;
     if (renamed) {
-      entries.push({ op: "rename", resource: "category", id: cat.id, before: cur.name, after: cat.name, changes: [] });
+      entries.push({
+        op: "rename",
+        resource: "category",
+        id: cat.id,
+        before: cur.name,
+        after: cat.name,
+        changes: [],
+      });
     }
     if (moved) {
       entries.push({
-        op: "move", resource: "category", id: cat.id, name: cat.name,
-        fromParent: null, toParent: null, fromPosition: cur.position, toPosition: cat.position,
+        op: "move",
+        resource: "category",
+        id: cat.id,
+        name: cat.name,
+        fromParent: null,
+        toParent: null,
+        fromPosition: cur.position,
+        toPosition: cat.position,
       });
     }
     if (!renamed && !moved) unchanged++;
@@ -148,7 +162,13 @@ export function diffServerDesign(current: ServerDesign, desired: ServerDesign): 
 
   for (const ch of desired.channels) {
     if (isLocalId(ch.id)) {
-      entries.push({ op: "create", resource: "channel", localId: ch.id, name: ch.name, detail: ch });
+      entries.push({
+        op: "create",
+        resource: "channel",
+        localId: ch.id,
+        name: ch.name,
+        detail: ch,
+      });
       continue;
     }
     desiredChannelIds.add(ch.id);
@@ -184,15 +204,27 @@ export function diffServerDesign(current: ServerDesign, desired: ServerDesign): 
     const moved = (cur.parentId ?? null) !== (ch.parentId ?? null) || cur.position !== ch.position;
 
     if (renamed) {
-      entries.push({ op: "rename", resource: "channel", id: ch.id, before: cur.name, after: ch.name, changes });
+      entries.push({
+        op: "rename",
+        resource: "channel",
+        id: ch.id,
+        before: cur.name,
+        after: ch.name,
+        changes,
+      });
     } else if (changes.length > 0) {
       entries.push({ op: "modify", resource: "channel", id: ch.id, name: ch.name, changes });
     }
     if (moved) {
       entries.push({
-        op: "move", resource: "channel", id: ch.id, name: ch.name,
-        fromParent: cur.parentId ?? null, toParent: ch.parentId ?? null,
-        fromPosition: cur.position, toPosition: ch.position,
+        op: "move",
+        resource: "channel",
+        id: ch.id,
+        name: ch.name,
+        fromParent: cur.parentId ?? null,
+        toParent: ch.parentId ?? null,
+        fromPosition: cur.position,
+        toPosition: ch.position,
       });
     }
     if (!renamed && !moved && changes.length === 0) unchanged++;
@@ -227,7 +259,8 @@ export function diffServerDesign(current: ServerDesign, desired: ServerDesign): 
     deletes,
     unsupported,
     unchangedCount: unchanged,
-    isEmpty: creates.length + modifies.length + renames.length + moves.length + deletes.length === 0,
+    isEmpty:
+      creates.length + modifies.length + renames.length + moves.length + deletes.length === 0,
   };
 }
 
@@ -329,7 +362,7 @@ export function diffRoles(
   for (const cur of current.roles) {
     if (!desiredIds.has(cur.id) && !desired.roles.some((r) => r.id === cur.id)) {
       if (cur.managed) {
-        // managed roles are not editable and we don't propose deleting them
+        // managed roles are not editable and we dont propose deleting them
         continue;
       }
       entries.push({ op: "delete", resource: "role", id: cur.id, name: cur.name });

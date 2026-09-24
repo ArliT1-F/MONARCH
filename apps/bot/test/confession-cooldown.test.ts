@@ -169,7 +169,10 @@ describe("ConfessionCooldowns", () => {
 
   it("prunes expired windows instead of growing forever", () => {
     let now = 1_700_000_000_000;
-    const cooldowns = new ConfessionCooldowns({ store: memoryStore(() => now).store, now: () => now });
+    const cooldowns = new ConfessionCooldowns({
+      store: memoryStore(() => now).store,
+      now: () => now,
+    });
 
     for (let i = 0; i < 600; i++) cooldowns.remember(`user-${i}`, now + 1_000);
     expect(cooldowns.size).toBe(600);
@@ -190,9 +193,14 @@ describe("internalConfessionCooldownStore", () => {
   });
 
   it("GETs the window with the bearer token", async () => {
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ nextAllowedAt: "2026-09-13T12:00:00.000Z" }) });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ nextAllowedAt: "2026-09-13T12:00:00.000Z" }),
+    });
     expect(await store.status(USER)).toBe(Date.parse("2026-09-13T12:00:00.000Z"));
-    expect(fetchMock).toHaveBeenCalledWith(url, { headers: { Authorization: "Bearer secret-token" } });
+    expect(fetchMock).toHaveBeenCalledWith(url, {
+      headers: { Authorization: "Bearer secret-token" },
+    });
   });
 
   it("reads a missing or unparseable window as 'free'", async () => {
@@ -223,7 +231,11 @@ describe("internalConfessionCooldownStore", () => {
 
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ claimed: false, nextAllowedAt: "2026-09-13T12:00:00.000Z", retryAfterMs: 1000 }),
+      json: async () => ({
+        claimed: false,
+        nextAllowedAt: "2026-09-13T12:00:00.000Z",
+        retryAfterMs: 1000,
+      }),
     });
     expect((await store.claim(USER)).claimed).toBe(false);
   });
@@ -241,7 +253,12 @@ describe("internalConfessionCooldownStore", () => {
     fetchMock.mockResolvedValue({
       ok: false,
       status: 500,
-      json: async () => ({ error: { code: "store.unavailable", message: "Monarch couldn't reserve the confession cooldown." } }),
+      json: async () => ({
+        error: {
+          code: "store.unavailable",
+          message: "Monarch couldn't reserve the confession cooldown.",
+        },
+      }),
     });
     await expect(store.claim(USER)).rejects.toThrow(/couldn't reserve/);
   });

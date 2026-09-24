@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyServerDesign } from "@monarch/schemas";
-import {
-  MockDiscordGateway,
-  InMemoryMockStore,
-  type MockState,
-} from "../src/mock-gateway.js";
+import { MockDiscordGateway, InMemoryMockStore, type MockState } from "../src/mock-gateway.js";
 import { resolveTarget } from "../src/target-resolver.js";
 import { diffServerDesign, planApply } from "@monarch/design-engine";
 import { executeApplyPlan } from "../src/executor.js";
@@ -75,11 +71,17 @@ describe("executeApplyPlan against the mock gateway", () => {
     const store = new InMemoryMockStore(makeState());
     const gw = new MockDiscordGateway(store);
 
-    const current = (await gw.fetchServerDesign("g1"));
+    const current = await gw.fetchServerDesign("g1");
     if (!current.ok) throw new Error("no design");
     const desired = structuredClone(current.value);
     desired.categories.push({ id: "new_cat", name: "COMMUNITY", position: 1 });
-    desired.channels.push({ id: "new_ch", name: "general", type: "text", position: 0, parentId: "new_cat" });
+    desired.channels.push({
+      id: "new_ch",
+      name: "general",
+      type: "text",
+      position: 0,
+      parentId: "new_cat",
+    });
     desired.channels[0]!.name = "start-here";
     desired.channels = desired.channels.filter((c) => c.id !== "ch2");
 
@@ -101,7 +103,9 @@ describe("executeApplyPlan against the mock gateway", () => {
     // re-diffing fresh state against the desired design shows no drift
     const rediff = diffServerDesign(after.value, {
       ...desired,
-      categories: desired.categories.map((c) => (c.id === "new_cat" ? { ...c, id: result.createdIds["new_cat"]! } : c)),
+      categories: desired.categories.map((c) =>
+        c.id === "new_cat" ? { ...c, id: result.createdIds["new_cat"]! } : c,
+      ),
       channels: desired.channels.map((c) => ({
         ...c,
         id: c.id === "new_ch" ? result.createdIds["new_ch"]! : c.id,

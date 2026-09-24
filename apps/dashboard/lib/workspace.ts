@@ -110,7 +110,10 @@ function pickDesign(
         ? EmbedDesignSchema.safeParse(provided)
         : MessageDesignSchema.safeParse(provided);
     if (!parsed.success) {
-      return { ok: false, error: monarchError("workspace.invalid", "The design payload is invalid.") };
+      return {
+        ok: false,
+        error: monarchError("workspace.invalid", "The design payload is invalid."),
+      };
     }
     return { ok: true, design: parsed.data };
   }

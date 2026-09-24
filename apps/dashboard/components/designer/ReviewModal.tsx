@@ -154,7 +154,8 @@ export function ReviewModal({
                       {s.describe}
                       {s.error && (
                         <span className="block text-[11px] text-danger-400">
-                          {s.error.message} {s.error.fix && <em className="text-ink-400">{s.error.fix}</em>}
+                          {s.error.message}{" "}
+                          {s.error.fix && <em className="text-ink-400">{s.error.fix}</em>}
                         </span>
                       )}
                     </span>
@@ -175,12 +176,18 @@ export function ReviewModal({
               {plan.validation.issues.length > 0 && (
                 <div className="mb-4 space-y-1.5">
                   {plan.validation.errors.map((e, i) => (
-                    <p key={`e${i}`} className="rounded-lg border border-danger-400/25 bg-danger-400/5 px-3 py-2 text-[11px] text-danger-400">
+                    <p
+                      key={`e${i}`}
+                      className="rounded-lg border border-danger-400/25 bg-danger-400/5 px-3 py-2 text-[11px] text-danger-400"
+                    >
                       ❌ {e.message} {e.fix && <span className="text-ink-400">{e.fix}</span>}
                     </p>
                   ))}
                   {plan.validation.warnings.map((w, i) => (
-                    <p key={`w${i}`} className="rounded-lg border border-warn-400/25 bg-warn-400/5 px-3 py-2 text-[11px] text-warn-400">
+                    <p
+                      key={`w${i}`}
+                      className="rounded-lg border border-warn-400/25 bg-warn-400/5 px-3 py-2 text-[11px] text-warn-400"
+                    >
                       ⚠ {w.message} {w.fix && <span className="text-ink-400">{w.fix}</span>}
                     </p>
                   ))}
@@ -194,7 +201,10 @@ export function ReviewModal({
                   color="text-warn-400"
                   label={`~ ${plan.diff.renames.length + plan.diff.modifies.length + plan.diff.moves.length} changed`}
                 />
-                <SummaryPill color="text-danger-400" label={`- ${plan.diff.deletes.length} deleted`} />
+                <SummaryPill
+                  color="text-danger-400"
+                  label={`- ${plan.diff.deletes.length} deleted`}
+                />
                 <SummaryPill color="text-ink-400" label={`${plan.diff.unchangedCount} unchanged`} />
               </div>
 
@@ -310,7 +320,9 @@ export function ReviewModal({
 
 function SummaryPill({ color, label }: { color: string; label: string }) {
   return (
-    <span className={`rounded-full border border-ink-700 bg-ink-850 px-2.5 py-1 font-medium ${color}`}>
+    <span
+      className={`rounded-full border border-ink-700 bg-ink-850 px-2.5 py-1 font-medium ${color}`}
+    >
       {label}
     </span>
   );

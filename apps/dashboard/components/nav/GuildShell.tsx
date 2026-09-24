@@ -96,7 +96,9 @@ export function GuildShell({
           <Link href="/select" className="flex items-center gap-2" aria-label="Choose a server">
             <MonarchMark className="h-6 w-6" />
           </Link>
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink-100">{guildName}</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink-100">
+            {guildName}
+          </span>
           {demo && (
             <span className="rounded-full bg-gold-400/10 px-2 py-0.5 text-[10px] font-medium text-gold-400">
               demo
@@ -111,7 +113,14 @@ export function GuildShell({
 
 function MenuIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+    <svg
+      viewBox="0 0 20 20"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden
+    >
       <path d="M3 5.5h14M3 10h14M3 14.5h14" strokeLinecap="round" />
     </svg>
   );
@@ -119,7 +128,14 @@ function MenuIcon() {
 
 function CloseIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+    <svg
+      viewBox="0 0 20 20"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden
+    >
       <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
     </svg>
   );

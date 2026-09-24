@@ -45,7 +45,7 @@ import { SlashCommandContext } from "./slash-context.js";
  * The web dashboard is the product; the bot is the integration layer.
  * Commands provide quick actions and dashboard links. Structural changes
  * are executed by the API layer through @monarch/discord (REST), not by
- * this process. The live burg gag runs here because it
+ * this process. The live burg gag runs here becuase it
  * need gateway message events; the rest of the design work stays in the API.
  *
  * Every command answers to both surfaces: slash (`/burg`,
@@ -69,7 +69,9 @@ const internalToken = process.env.INTERNAL_API_TOKEN;
 const ownerUserId = process.env.MONARCH_OWNER_USER_ID?.trim() || null;
 
 if (!token) {
-  log.warn("DISCORD_BOT_TOKEN is not set — bot not started. (Dashboard demo mode does not need the bot.)");
+  log.warn(
+    "DISCORD_BOT_TOKEN is not set — bot not started. (Dashboard demo mode does not need the bot.)",
+  );
   process.exit(0);
 }
 
@@ -147,23 +149,31 @@ const debugReporter: DebugReporter = {
 };
 
 function getMusic(): MusicManager {
-  music ??= new MusicManager(client, (guildId, embed: APIEmbed, content?: string) => {
-    const channelId = music?.announcementChannelId(guildId);
-    if (!channelId) return;
-    void client.channels
-      .fetch(channelId)
-      .then(async (channel) => {
-        if (channel?.isSendable()) await channel.send({ embeds: [embed], content });
-      })
-      .catch((e) => log.warn("music announcement failed", { guildId, error: String(e) }));
-  }, undefined, undefined, debugReporter);
+  music ??= new MusicManager(
+    client,
+    (guildId, embed: APIEmbed, content?: string) => {
+      const channelId = music?.announcementChannelId(guildId);
+      if (!channelId) return;
+      void client.channels
+        .fetch(channelId)
+        .then(async (channel) => {
+          if (channel?.isSendable()) await channel.send({ embeds: [embed], content });
+        })
+        .catch((e) => log.warn("music announcement failed", { guildId, error: String(e) }));
+    },
+    undefined,
+    undefined,
+    debugReporter,
+  );
   return music;
 }
 
 /** One line describing the audio path, for the boot log. */
 function describeAudio(): string {
   const ffmpeg = resolveFfmpegPath();
-  return ffmpeg ? `yt-dlp + ffmpeg (${ffmpeg})` : "yt-dlp (Opus passthrough — no ffmpeg, volume is fixed)";
+  return ffmpeg
+    ? `yt-dlp + ffmpeg (${ffmpeg})`
+    : "yt-dlp (Opus passthrough — no ffmpeg, volume is fixed)";
 }
 
 /**
@@ -312,7 +322,9 @@ async function burgWebhook(message: Message<true>): Promise<Webhook | null> {
   const hooks = await host.fetchWebhooks();
   let hook = hooks.find(
     (candidate) =>
-      candidate.owner?.id === client.user?.id && candidate.name === BURG_WEBHOOK_NAME && candidate.token,
+      candidate.owner?.id === client.user?.id &&
+      candidate.name === BURG_WEBHOOK_NAME &&
+      candidate.token,
   );
   if (!hook) {
     hook = await host.createWebhook({ name: BURG_WEBHOOK_NAME, reason: "Monarch burg relay" });
@@ -424,8 +436,10 @@ async function onMessage(message: Message) {
     }
 
     const member = message.member;
-    const displayName = member?.displayName ?? message.author.displayName ?? message.author.username;
-    const avatarURL = member?.displayAvatarURL({ size: 256 }) ?? message.author.displayAvatarURL({ size: 256 });
+    const displayName =
+      member?.displayName ?? message.author.displayName ?? message.author.username;
+    const avatarURL =
+      member?.displayAvatarURL({ size: 256 }) ?? message.author.displayAvatarURL({ size: 256 });
     const username = sanitizeRelayUsername(displayName, message.author.username);
     const sendPayload = (): WebhookMessageCreateOptions => ({
       content: truncate(body, 2000) || undefined,
@@ -439,7 +453,7 @@ async function onMessage(message: Message) {
     // Relay first (attachments are re-uploaded from the original's CDN
     // URLs, which must still exist), then delete. The delete happens even if
     // the relay failed so the gag always holds. One channel relays at a time
-    // so quick messages can't arrive swapped.
+    // so quick messages cant arrive swapped.
     await serializeRelay(message.channelId, async () => {
       try {
         const hook = await burgWebhook(message);
@@ -469,7 +483,9 @@ async function onMessage(message: Message) {
       } catch (e) {
         log.warn("burg relay failed — original still deleted", { error: String(e) });
       }
-      await message.delete().catch((e) => log.warn("could not delete burg'd message", { error: String(e) }));
+      await message
+        .delete()
+        .catch((e) => log.warn("could not delete burg'd message", { error: String(e) }));
     });
   } catch (e) {
     log.error("message relay failed", { error: String(e) });
@@ -718,7 +734,9 @@ async function registerCommands(botToken: string) {
   } catch (e) {
     // Non-fatal: previously registered commands keep working, and crash-looping
     // the worker on a transient Discord REST error would take them offline too.
-    log.error("slash command registration failed — continuing with existing commands", { error: String(e) });
+    log.error("slash command registration failed — continuing with existing commands", {
+      error: String(e),
+    });
   }
 }
 

@@ -24,12 +24,12 @@ Suggested positioning:
 
 The branding should feel:
 
-* premium
-* modern
-* minimal
-* technical without looking corporate
-* visually focused
-* suitable for a SaaS product
+- premium
+- modern
+- minimal
+- technical without looking corporate
+- visually focused
+- suitable for a SaaS product
 
 Do not use excessive gaming/bot aesthetics.
 
@@ -66,20 +66,20 @@ Use TypeScript throughout the application wherever practical.
 
 ## Dashboard
 
-* Next.js
-* React
-* TypeScript
-* Modern CSS / Tailwind CSS
-* Component-based UI architecture
+- Next.js
+- React
+- TypeScript
+- Modern CSS / Tailwind CSS
+- Component-based UI architecture
 
 The dashboard should feel like a professional design application rather than an administration panel.
 
 ## Discord Integration
 
-* Node.js
-* TypeScript
-* discord.js
-* Discord API v10
+- Node.js
+- TypeScript
+- discord.js
+- Discord API v10
 
 Keep all Discord-specific implementation behind an abstraction layer.
 
@@ -89,18 +89,18 @@ The dashboard should not directly depend on discord.js internals.
 
 Either:
 
-* Next.js API routes/server actions
+- Next.js API routes/server actions
 
 or preferably, if the project grows sufficiently:
 
-* separate Node.js/TypeScript API service
+- separate Node.js/TypeScript API service
 
 The architecture must allow the backend to be separated later without rewriting the application.
 
 ## Database
 
-* PostgreSQL
-* Prisma or Drizzle ORM
+- PostgreSQL
+- Prisma or Drizzle ORM
 
 Store application state, designs, templates, snapshots, users, servers, preferences, etc.
 
@@ -181,14 +181,14 @@ The dashboard should show the user's Discord servers that Monarch can legitimate
 
 For every server, determine:
 
-* server ID
-* server name
-* icon
-* whether Monarch is installed
-* whether the user has sufficient permissions
-* Monarch's permissions
-* available channels
-* available roles
+- server ID
+- server name
+- icon
+- whether Monarch is installed
+- whether the user has sufficient permissions
+- Monarch's permissions
+- available channels
+- available roles
 
 Do not assume that every server returned by Discord is editable.
 
@@ -379,17 +379,17 @@ The primary Monarch feature.
 
 Allow users to visually design:
 
-* categories
-* text channels
-* voice channels
-* announcement channels
-* forum channels
-* channel names
-* topics
-* ordering
-* category hierarchy
-* channel organization
-* relevant channel settings
+- categories
+- text channels
+- voice channels
+- announcement channels
+- forum channels
+- channel names
+- topics
+- ordering
+- category hierarchy
+- channel organization
+- relevant channel settings
 
 The UI should resemble a Discord server visually.
 
@@ -415,15 +415,15 @@ VOICE
 
 Features:
 
-* drag-and-drop ordering
-* create/delete/rename
-* move channels
-* move channels between categories
-* duplicate structures
-* visual hierarchy
-* live preview
-* undo/redo
-* unsaved changes indicator
+- drag-and-drop ordering
+- create/delete/rename
+- move channels
+- move channels between categories
+- duplicate structures
+- visual hierarchy
+- live preview
+- undo/redo
+- unsaved changes indicator
 
 Never immediately modify Discord while the user is editing.
 
@@ -451,24 +451,24 @@ Support all relevant Discord embed properties.
 
 ### Embed
 
-* author
-* author name
-* author URL
-* author icon
-* title
-* title URL
-* description
-* color
-* fields
-* inline fields
-* thumbnail
-* image
-* footer
-* footer icon
-* timestamp
-* Markdown
-* mentions
-* URLs
+- author
+- author name
+- author URL
+- author icon
+- title
+- title URL
+- description
+- color
+- fields
+- inline fields
+- thumbnail
+- image
+- footer
+- footer icon
+- timestamp
+- Markdown
+- mentions
+- URLs
 
 Support multiple embeds in one message.
 
@@ -499,25 +499,25 @@ Use a three-panel editor:
 
 Field editor:
 
-* drag/drop
-* reorder
-* duplicate
-* delete
-* inline toggle
+- drag/drop
+- reorder
+- duplicate
+- delete
+- inline toggle
 
 Color editor:
 
-* HEX
-* RGB
-* HSL
-* presets
-* palette suggestions
+- HEX
+- RGB
+- HSL
+- presets
+- palette suggestions
 
 Image handling:
 
-* URL
-* uploaded image
-* Discord attachment-backed image where appropriate
+- URL
+- uploaded image
+- Discord attachment-backed image where appropriate
 
 Variables:
 
@@ -536,32 +536,32 @@ The variable system should be extensible.
 
 Preview should support:
 
-* desktop
-* mobile
-* compact
-* contextual server
-* contextual user
-* contextual channel
+- desktop
+- mobile
+- compact
+- contextual server
+- contextual user
+- contextual channel
 
 The preview must visually resemble Discord as closely as reasonably possible.
 
 Include:
 
-* live updates
-* validation warnings
-* character counts
-* field limits
-* embed limits
-* Markdown preview
+- live updates
+- validation warnings
+- character counts
+- field limits
+- embed limits
+- Markdown preview
 
 Support:
 
-* drafts
-* templates
-* version history
-* undo/redo
-* test sending
-* publishing
+- drafts
+- templates
+- version history
+- undo/redo
+- test sending
+- publishing
 
 ---
 
@@ -600,17 +600,17 @@ Message
 
 Support:
 
-* buttons
-* links
-* select menus
-* action rows where applicable
-* current Discord components
-* Components V2
-* text displays
-* containers
-* sections
-* media where supported
-* interactive layouts where supported
+- buttons
+- links
+- select menus
+- action rows where applicable
+- current Discord components
+- Components V2
+- text displays
+- containers
+- sections
+- media where supported
+- interactive layouts where supported
 
 The architecture must make it possible to add future Discord component types without redesigning the editor.
 
@@ -632,16 +632,16 @@ Purely focused on customization and hierarchy.
 
 Support:
 
-* create roles
-* rename roles
-* colors
-* role icons where supported
-* ordering
-* hierarchy visualization
-* permissions configuration
-* duplicate roles
-* palette generation
-* drag-and-drop hierarchy
+- create roles
+- rename roles
+- colors
+- role icons where supported
+- ordering
+- hierarchy visualization
+- permissions configuration
+- duplicate roles
+- palette generation
+- drag-and-drop hierarchy
 
 Create a visual hierarchy:
 
@@ -671,15 +671,15 @@ Create visually designed welcome/onboarding experiences.
 
 Support:
 
-* welcome message
-* welcome embed
-* welcome image
-* variables
-* buttons
-* role-selection menus where supported
-* server information
-* designated welcome channel
-* preview
+- welcome message
+- welcome embed
+- welcome image
+- variables
+- buttons
+- role-selection menus where supported
+- server information
+- designated welcome channel
+- preview
 
 Example:
 
@@ -705,15 +705,15 @@ Create a centralized branding system.
 
 Support:
 
-* server icon
-* server banner
-* accent colors
-* primary color
-* secondary color
-* role palette
-* emoji style
-* message style
-* embed style
+- server icon
+- server banner
+- accent colors
+- primary color
+- secondary color
+- role palette
+- emoji style
+- message style
+- embed style
 
 Themes should propagate to other Monarch features.
 
@@ -744,28 +744,28 @@ Templates are a major part of Monarch.
 
 Templates may contain:
 
-* server layouts
-* categories
-* channels
-* embeds
-* messages
-* components
-* welcome messages
-* role configurations
-* branding
-* complete design systems
+- server layouts
+- categories
+- channels
+- embeds
+- messages
+- components
+- welcome messages
+- role configurations
+- branding
+- complete design systems
 
 Actions:
 
-* create
-* duplicate
-* edit
-* preview
-* rename
-* delete
-* export
-* import
-* save current design as template
+- create
+- duplicate
+- edit
+- preview
+- rename
+- delete
+- export
+- import
+- save current design as template
 
 Template format should be versioned.
 
@@ -773,10 +773,10 @@ Example:
 
 ```json
 {
-    "format": "monarch-template",
-    "version": 1,
-    "type": "server",
-    "data": {}
+  "format": "monarch-template",
+  "version": 1,
+  "type": "server",
+  "data": {}
 }
 ```
 
@@ -792,13 +792,13 @@ Monarch should maintain snapshots of the configurations it manages.
 
 Support:
 
-* create snapshot
-* automatic snapshots before major changes
-* manual snapshots
-* browse history
-* compare versions
-* restore versions
-* name snapshots
+- create snapshot
+- automatic snapshots before major changes
+- manual snapshots
+- browse history
+- compare versions
+- restore versions
+- name snapshots
 
 Example:
 
@@ -840,16 +840,16 @@ This is NOT a moderation analyzer.
 
 Analyze:
 
-* naming consistency
-* channel structure
-* category organization
-* role naming
-* role color consistency
-* redundant structures
-* inconsistent capitalization
-* excessive clutter
-* poor organization
-* branding consistency
+- naming consistency
+- channel structure
+- category organization
+- role naming
+- role color consistency
+- redundant structures
+- inconsistent capitalization
+- excessive clutter
+- poor organization
+- branding consistency
 
 Example:
 
@@ -897,12 +897,12 @@ Support importing and exporting Monarch designs.
 
 Support:
 
-* JSON export
-* JSON import
-* server design duplication
-* cloning a Monarch design between servers
-* previewing differences
-* applying differences
+- JSON export
+- JSON import
+- server design duplication
+- cloning a Monarch design between servers
+- previewing differences
+- applying differences
 
 Before applying:
 
@@ -947,25 +947,25 @@ Build the architecture so they can be added as modules later.
 
 Potential modules:
 
-* Emoji & Sticker Manager
-* Interactive Role Menus
-* Announcement Designer
-* Event Designer
-* Social Links / Link Hub
-* Advanced Server Themes
-* Cross-Server Design Systems
-* Screenshot → Server Design
-* Advanced Automation
-* Community Template Marketplace
-* Branding generation
-* Role palette generator
-* Quick Actions
-* Favorites
-* Saved components
-* Sandbox / Preview Mode
-* mobile preview
-* desktop preview
-* design screenshot recreation
+- Emoji & Sticker Manager
+- Interactive Role Menus
+- Announcement Designer
+- Event Designer
+- Social Links / Link Hub
+- Advanced Server Themes
+- Cross-Server Design Systems
+- Screenshot → Server Design
+- Advanced Automation
+- Community Template Marketplace
+- Branding generation
+- Role palette generator
+- Quick Actions
+- Favorites
+- Saved components
+- Sandbox / Preview Mode
+- mobile preview
+- desktop preview
+- design screenshot recreation
 
 Do not implement these before the ten core features are stable unless needed as infrastructure dependencies.
 
@@ -991,13 +991,13 @@ ServerDiff
 
 Represent:
 
-* created
-* modified
-* moved
-* renamed
-* deleted
-* unchanged
-* unsupported
+- created
+- modified
+- moved
+- renamed
+- deleted
+- unchanged
+- unsupported
 
 Example:
 
@@ -1019,12 +1019,12 @@ DELETE
 
 The diff engine must be used by:
 
-* Server Designer
-* Role Designer
-* Import/Export
-* Clone
-* Restore
-* Templates
+- Server Designer
+- Role Designer
+- Import/Export
+- Clone
+- Restore
+- Templates
 
 ---
 
@@ -1036,16 +1036,16 @@ Validation must occur before API calls.
 
 Validate:
 
-* Discord resource constraints
-* names
-* lengths
-* supported fields
-* permissions
-* hierarchy
-* required properties
-* component constraints
-* embed constraints
-* target channel validity
+- Discord resource constraints
+- names
+- lengths
+- supported fields
+- permissions
+- hierarchy
+- required properties
+- component constraints
+- embed constraints
+- target channel validity
 
 Return useful errors.
 
@@ -1086,13 +1086,13 @@ The rest of Monarch should call these abstractions instead of directly making Di
 
 Handle:
 
-* authentication
-* permissions
-* API errors
-* retries where appropriate
-* rate limits
-* request failures
-* unsupported resources
+- authentication
+- permissions
+- API errors
+- retries where appropriate
+- rate limits
+- request failures
+- unsupported resources
 
 Do not hardcode Discord rate limits throughout the application.
 
@@ -1156,11 +1156,11 @@ Display:
 
 Allow:
 
-* save draft
-* discard draft
-* autosave
-* undo
-* redo
+- save draft
+- discard draft
+- autosave
+- undo
+- redo
 
 ---
 
@@ -1266,16 +1266,16 @@ Treat Discord OAuth credentials and tokens as sensitive.
 
 Requirements:
 
-* secure session handling
-* encrypted secrets
-* environment variables
-* server-side permission validation
-* CSRF protection where applicable
-* input validation
-* API authorization
-* rate limiting for Monarch's own endpoints
-* safe file/image handling
-* prevent arbitrary URL abuse where applicable
+- secure session handling
+- encrypted secrets
+- environment variables
+- server-side permission validation
+- CSRF protection where applicable
+- input validation
+- API authorization
+- rate limiting for Monarch's own endpoints
+- safe file/image handling
+- prevent arbitrary URL abuse where applicable
 
 Do not expose bot credentials to the frontend.
 
@@ -1303,23 +1303,23 @@ Properties
 
 Use:
 
-* dark mode first
-* clean typography
-* subtle animations
-* drag-and-drop
-* tooltips
-* keyboard shortcuts
-* command palette
-* contextual menus
-* autosave indicators
-* responsive design
+- dark mode first
+- clean typography
+- subtle animations
+- drag-and-drop
+- tooltips
+- keyboard shortcuts
+- command palette
+- contextual menus
+- autosave indicators
+- responsive design
 
 Avoid:
 
-* giant collections of buttons
-* cluttered admin-panel layouts
-* unnecessary gradients everywhere
-* excessive Discord/gaming clichés
+- giant collections of buttons
+- cluttered admin-panel layouts
+- unnecessary gradients everywhere
+- excessive Discord/gaming clichés
 
 The UI should feel like:
 
@@ -1362,7 +1362,7 @@ SETTINGS
   Account
 ```
 
-Optional modules should appear separately.
+Optional modules should appear seperately.
 
 ---
 
@@ -1380,11 +1380,11 @@ with a dropdown.
 
 When changing server:
 
-* warn about unsaved changes
-* save or discard draft
-* reload server state
-* update target resolver
-* update preview context
+- warn about unsaved changes
+- save or discard draft
+- reload server state
+- update target resolver
+- update preview context
 
 Never accidentally apply changes to the previous server.
 
@@ -1474,21 +1474,21 @@ Implement structured logging.
 
 Log:
 
-* API operations
-* Discord requests
-* errors
-* permission failures
-* validation failures
-* design applications
-* restores
-* imports
-* exports
+- API operations
+- Discord requests
+- errors
+- permission failures
+- validation failures
+- design applications
+- restores
+- imports
+- exports
 
 Never log:
 
-* OAuth tokens
-* bot tokens
-* sensitive credentials
+- OAuth tokens
+- bot tokens
+- sensitive credentials
 
 ---
 
@@ -1498,26 +1498,26 @@ Create automated tests for:
 
 ### Unit tests
 
-* schemas
-* validators
-* diff engine
-* renderers
-* permissions
-* target resolver
+- schemas
+- validators
+- diff engine
+- renderers
+- permissions
+- target resolver
 
 ### Integration tests
 
-* Discord service
-* database
-* API
+- Discord service
+- database
+- API
 
 ### UI tests
 
-* server designer
-* embed builder
-* message builder
-* role designer
-* import/export
+- server designer
+- embed builder
+- message builder
+- role designer
+- import/export
 
 Test destructive operations carefully.
 
@@ -1531,16 +1531,16 @@ Do NOT attempt to build everything simultaneously.
 
 Build:
 
-* monorepo
-* dashboard
-* API
-* bot
-* PostgreSQL
-* authentication
-* Discord connection
-* server selection
-* shared schemas
-* permission system
+- monorepo
+- dashboard
+- API
+- bot
+- PostgreSQL
+- authentication
+- Discord connection
+- server selection
+- shared schemas
+- permission system
 
 Goal:
 
@@ -1554,15 +1554,15 @@ Login → select server → view server
 
 Build:
 
-* server visualization
-* categories
-* channels
-* drag/drop
-* drafts
-* undo/redo
-* validation
-* diff engine
-* apply changes
+- server visualization
+- categories
+- channels
+- drag/drop
+- drafts
+- undo/redo
+- validation
+- diff engine
+- apply changes
 
 Goal:
 
@@ -1599,12 +1599,12 @@ Create embed
 
 Build:
 
-* message editor
-* component tree
-* Components V2 architecture
-* preview
-* validation
-* test sending
+- message editor
+- component tree
+- Components V2 architecture
+- preview
+- validation
+- test sending
 
 ---
 
@@ -1612,9 +1612,9 @@ Build:
 
 Build:
 
-* role designer
-* branding studio
-* welcome/onboarding designer
+- role designer
+- branding studio
+- welcome/onboarding designer
 
 Integrate the shared theme system.
 
@@ -1624,11 +1624,11 @@ Integrate the shared theme system.
 
 Build:
 
-* template system
-* snapshots
-* version history
-* restore
-* comparison
+- template system
+- snapshots
+- version history
+- restore
+- comparison
 
 ---
 
@@ -1636,11 +1636,11 @@ Build:
 
 Build:
 
-* design analyzer
-* cleanup suggestions
-* JSON export/import
-* server cloning
-* diff previews
+- design analyzer
+- cleanup suggestions
+- JSON export/import
+- server cloning
+- diff previews
 
 ---
 
@@ -1690,10 +1690,10 @@ Do not fake functionality.
 
 Do not claim that Monarch can clone:
 
-* things Discord doesn't expose
-* permissions the bot doesn't have
-* resources above the bot's hierarchy
-* information unavailable through the API
+- things Discord doesn't expose
+- permissions the bot doesn't have
+- resources above the bot's hierarchy
+- information unavailable through the API
 
 ---
 
@@ -1703,19 +1703,19 @@ This is an explicit product boundary.
 
 Do NOT add:
 
-* anti-raid
-* auto moderation
-* ban systems
-* kick systems
-* warning systems
-* spam detection
-* moderation logs
-* economy
-* leveling
-* music
-* generic utility commands
+- anti-raid
+- auto moderation
+- ban systems
+- kick systems
+- warning systems
+- spam detection
+- moderation logs
+- economy
+- leveling
+- music
+- generic utility commands
 
-If a proposed feature doesn't contribute to:
+If a proposed feature doesnt contribute to:
 
 > **designing, customizing, organizing, branding, previewing, templating, or managing the visual/configuration structure of a Discord server**
 
@@ -1731,12 +1731,12 @@ The dashboard is the main interface.
 
 Discord commands should primarily provide:
 
-* quick actions
-* dashboard links
-* previews
-* tests
-* feature access
-* configuration shortcuts
+- quick actions
+- dashboard links
+- previews
+- tests
+- feature access
+- configuration shortcuts
 
 Do not recreate the entire dashboard as slash commands.
 
@@ -1746,17 +1746,17 @@ Do not recreate the entire dashboard as slash commands.
 
 Requirements:
 
-* TypeScript strict mode
-* clear types
-* modular architecture
-* no giant files
-* no duplicated business logic
-* reusable components
-* server-side validation
-* meaningful naming
-* documentation for complex systems
-* environment configuration
-* proper error boundaries
+- TypeScript strict mode
+- clear types
+- modular architecture
+- no giant files
+- no duplicated business logic
+- reusable components
+- server-side validation
+- meaningful naming
+- documentation for complex systems
+- environment configuration
+- proper error boundaries
 
 Do not take shortcuts that make future feature development difficult.
 
@@ -1797,19 +1797,19 @@ A feature is not considered complete merely because the UI exists.
 
 A feature is complete when:
 
-* UI works
-* state is persisted
-* validation exists
-* permissions are checked
-* preview works
-* errors are handled
-* Discord integration works where applicable
-* destructive changes require confirmation
-* tests exist
-* architecture is documented
-* loading/empty/error states exist
-* mobile/responsive behavior is reasonable
-* no obvious console/server errors remain
+- UI works
+- state is persisted
+- validation exists
+- permissions are checked
+- preview works
+- errors are handled
+- Discord integration works where applicable
+- destructive changes require confirmation
+- tests exist
+- architecture is documented
+- loading/empty/error states exist
+- mobile/responsive behavior is reasonable
+- no obvious console/server errors remain
 
 ---
 
@@ -1862,7 +1862,7 @@ Then deploy it to Discord.
 
 The central principle is:
 
-> **Monarch doesn't just manage a Discord server. Monarch lets you design one.**
+> **Monarch doesnt just manage a Discord server. Monarch lets you design one.**
 
 ---
 
@@ -1919,7 +1919,7 @@ A short legend:
   `POST /api/guilds/:id/apply` — enforces `confirmDestructive`,
   pre/post snapshots, audit).
 - ✅ **Goal reached**: `Login → Select Server → Visually redesign server
-  → Preview diff → Apply`.
+→ Preview diff → Apply`.
 
 ### Phase 3 — Embed Builder (FEATURE 2)
 
@@ -1933,7 +1933,7 @@ A short legend:
 - ✅ Three-panel editor (`components/content/BuilderApp.tsx` +
   `EmbedEditor` + `EmbedPreview` + properties panel).
 - ✅ Field editor: drag/drop, reorder, duplicate, delete, inline toggle.
-- ✅ Color editor: HEX input (RGB/HSL/picker/palettes are *not* yet
+- ✅ Color editor: HEX input (RGB/HSL/picker/palettes are _not_ yet
   built — only hex is implemented; treat as 🟡).
 - 🟡 Image handling: URL supported, uploaded image is not
   (`imageUrl?: string` only); Discord attachment-backed is not.
@@ -1950,15 +1950,15 @@ A short legend:
 - ✅ Templates (export/import as `monarch-template` JSON, see A.3).
 - ✅ Version history (per-guild `DesignVersion` table; pre/post-apply
   snapshots automatically recorded).
-- ✅ Undo/redo (autosave is a separate axis; editor-level undo is not
+- ✅ Undo/redo (autosave is a seperate axis; editor-level undo is not
   yet implemented for the embed editor — only the Server Designer has
   it). **🟡**
 - ✅ Send Test (designated `testing` channel; explicit override).
 - ✅ Publishing (designated `announcements` channel).
-- 🟡 "Save Template" as a *library* item is not yet wired (the
+- 🟡 "Save Template" as a _library_ item is not yet wired (the
   `Template` model exists; the UI does not). See Appendix B.1.
 - ✅ **Goal reached** (with the noted 🟡 items): `Create embed → Preview
-  → Validate → Send Test → Save Template → Publish`.
+→ Validate → Send Test → Save Template → Publish`.
 
 ### Phase 4 — Message / Components (FEATURE 3)
 
@@ -2013,7 +2013,7 @@ A short legend:
   - Export endpoint streams the JSON; the bot attaches it to a slash
     command reply.
   - Import UI on `/s/:id/import-export`.
-- ✅ Template *library* (`/s/:id/library`) — save the live structure as a
+- ✅ Template _library_ (`/s/:id/library`) — save the live structure as a
   template, upload `monarch-template` files, rename / duplicate / download /
   delete, and one-click install into the current guild (always via the
   diff-first import pipeline). Owner-scoped `MonarchStore` methods back it
@@ -2035,53 +2035,53 @@ A short legend:
 
 ## A.2 Cross-cutting spec items (sections 1–28)
 
-| Spec section | Item | Status | Where |
-|---|---|---|---|
-| §2 | "Preview first → validate → diff → confirm → apply" | ✅ | `POST /api/guilds/:id/apply` |
-| §5 | Discord OAuth2 (identify + guilds) | ✅ | `lib/auth.ts` |
-| §5 | Per-server: id/name/icon/botInstalled/userCanDesign/botPermissions | ✅ | `GuildSummary` schema + `listGuildSummaries` |
-| §6 | Server selection screen | ✅ | `/select` page |
-| §7 | Target Resolver (designated channels, explicit override) | ✅ | `@monarch/discord/target-resolver.ts` |
-| §7 | Cross-guild guard | ✅ | `target.kind === "explicit" && target.guildId !== guildId` → `target.wrong-guild` |
-| §7 | Interaction replies stay in interaction context | ✅ | `apps/bot/src/index.ts` always `interaction.reply({...ephemeral})` |
-| §7 | Generated content uses Target Resolver | ✅ | `lib/workspace.ts` `sendWorkspaceDesign` |
-| §8 | Internal `ServerDesign` schema (not raw Discord JSON) | ✅ | `@monarch/schemas/server-design.ts` |
-| §8 | Renderer is the only place that builds Discord API payloads | ✅ | `@monarch/renderer` (and `@monarch/discord` for inbound) |
-| §11 | Diff engine: create/modify/rename/move/delete/unsupported | ✅ | `packages/design-engine/diff.ts` |
-| §11 | Diff engine is shared by Designer / Restore / Import / Templates | ✅ | `rebaseDesign`, `mergeDesigns`, `localiseIds` in `compose.ts` |
-| §12 | Centralized validation engine | ✅ | `@monarch/validation/engine.ts` + `*-rules.ts` |
-| §12 | Human-readable errors with `fix` suggestions | ✅ | `MonarchError{code,message,reason,fix,detail}` |
-| §13 | Discord API abstraction (not direct `discord.js` calls in routes) | ✅ | `DiscordGateway` interface; only `apps/bot` uses discord.js directly (slash commands + burg relay, which need the Gateway connection) |
-| §14 | Permission checks: user + bot + hierarchy + target + API | ✅ | `requireGuildAccess` + apply route's bot `ManageChannels` check + `resolveTarget`'s permission check |
-| §15 | Draft system (autosave, discard, undo/redo) | ✅ | Designer reducer + `DesignDraft` row + `PUT /api/guilds/:id/draft` |
-| §16 | Undo/redo (Ctrl+Z / Ctrl+Shift+Z) | ✅ | `designer-state.ts` |
-| §17 | Live previews (server, embed, message) | ✅ | `components/designer/StructureTree`, `components/content/preview.tsx` |
-| §18 | Send Test through Target Resolver (never #general) | ✅ | `POST /api/guilds/:id/test-message` and `…/workspace/send` |
-| §19 | Database model: User, Guild, GuildSettings, ServerDesign, DesignDraft, DesignVersion, Template, AuditEntry, plus GuildWorkspace, Session, MockDiscordState | 🟡 | All listed entities exist; `ServerDesign` is stored as `Json` on `DesignDraft`/`DesignVersion` rather than as its own table. `DiscordAccount` is folded into `User` (no separate account table — `User.id` IS the Discord user id). `BrandTheme` is not a table; `Branding` lives inside `ServerDesign`. |
-| §20 | Encrypted OAuth tokens at rest | ✅ | AES-256-GCM via `lib/secure-token.ts` (key from `SESSION_SECRET` via scrypt, format `v1.<iv>.<tag>.<ciphertext>`) |
-| §20 | HMAC-signed session cookies, never tokens in the browser | ✅ | `lib/session.ts` |
-| §20 | CSRF protection on mutations | ✅ | `assertSameOrigin` checks `sec-fetch-site` |
-| §20 | Server-side permission validation independent of frontend | ✅ | All routes go through `requireGuildAccess` |
-| §20 | No bot credentials in the browser bundle | ✅ | `lib/env.ts` is the only env reader; never imported by `"use client"` files |
-| §21 | Dark mode first, clean typography, subtle animations | ✅ | Tailwind palette in `app/globals.css` |
-| §21 | Sidebar / Canvas / Inspector layout | ✅ | `apps/dashboard/app/s/[guildId]/layout.tsx` + `components/designer/DesignerApp.tsx` |
-| §21 | Drag-and-drop, tooltips, keyboard shortcuts, autosave indicator | ✅ | Undo/redo, dirty indicator, "Saving…/Saved/error" |
-| §22 | Global navigation: Overview / Design / Library / Manage / Settings | ✅ | `components/nav/SidebarNav.tsx` (Overview, Server Designer, Embed Builder, Message Designer, Role Designer; Library: Template Library · Templates Import/Export; Manage: Backups & History · Design Analyzer; Settings: Designated Channels). Welcome/Branding show as "soon". |
-| §23 | Server context always visible; server switcher in the layout | ✅ | `ServerSwitcher` in the layout |
-| §24 | Feature module system | ⏳ | No formal `FeatureModule` registry yet; the structure is implicit (each feature has its own `app/s/[guildId]/<slug>/page.tsx` + components + lib helpers). Adding a registry is a small refactor. |
-| §25 | Shared design system (Button, Modal, Inspector, …) | 🟡 | Custom design system exists (Tailwind, `globals.css` color tokens) but the listed component set is not formalized into a single barrel. Common patterns repeat (panel, pill, error box, summary pill). |
-| §26 | Errors understandable, technical detail in logs | ✅ | `MonarchError` + `translateDiscordError`; `error.detail` is sent to the logger, not the wire |
-| §27 | Structured JSON logging; never log tokens/secrets | ✅ | `createLogger` in `@monarch/shared`; redacts `/token|secret|authorization|password|cookie/i` |
-| §28 | Unit tests for schemas, validators, diff, renderers, permissions, target resolver | ✅ | `packages/*/test/*.test.ts` |
-| §28 | Integration tests for Discord service, database, API | ✅ | `apps/dashboard/test/prisma-store.integration.test.ts` (PGlite + applied migrations); `packages/discord/test/gateway.test.ts` (full apply loop against mock) |
-| §28 | UI tests | ⏳ | No component tests yet. |
-| §31 | "Unsupported by Discord" surfaced, never faked | ✅ | Diff engine `unsupported` op + Review modal renders it explicitly |
-| §32 | No moderation features | ✅ | Only feature with even a moderation veneer is `/burg` (a gag). See Appendix B.5. |
-| §33 | Bot stays lightweight; commands are links/tests/config shortcuts | ✅ | `apps/bot/src/index.ts` is ~460 lines (gateway wiring only — the commands live in `monarch-commands.ts`, `music/commands.ts` and `prefix/`); no structural mutations happen in the bot |
-| §34 | TypeScript strict; modular; no giant files; no duplicated business logic | ✅ | `tsconfig.base.json` has `strict` + `noUncheckedIndexedAccess`; `lib/api.ts`, `lib/workspace.ts`, `lib/backups.ts` are the cross-cutting services used by both user and bot routes |
-| §35 | Agent development rules | 🟡 | Followed during PRs 1–9, but not yet formalized into a process document beyond the existing PR descriptions |
-| §36 | Definition of done | ✅ | Each shipped feature meets it (UI + persistence + validation + permissions + preview + error handling + destructive confirmation + tests + docs) |
-| §37 | "Monarch lets you design one" central principle | ✅ | Captured in the product tagline and the Review/Apply loop |
+| Spec section | Item                                                                                                                                                       | Status | Where                                                                                                                                                                                                                                                                                                    |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §2           | "Preview first → validate → diff → confirm → apply"                                                                                                        | ✅     | `POST /api/guilds/:id/apply`                                                                                                                                                                                                                                                                             |
+| §5           | Discord OAuth2 (identify + guilds)                                                                                                                         | ✅     | `lib/auth.ts`                                                                                                                                                                                                                                                                                            |
+| §5           | Per-server: id/name/icon/botInstalled/userCanDesign/botPermissions                                                                                         | ✅     | `GuildSummary` schema + `listGuildSummaries`                                                                                                                                                                                                                                                             |
+| §6           | Server selection screen                                                                                                                                    | ✅     | `/select` page                                                                                                                                                                                                                                                                                           |
+| §7           | Target Resolver (designated channels, explicit override)                                                                                                   | ✅     | `@monarch/discord/target-resolver.ts`                                                                                                                                                                                                                                                                    |
+| §7           | Cross-guild guard                                                                                                                                          | ✅     | `target.kind === "explicit" && target.guildId !== guildId` → `target.wrong-guild`                                                                                                                                                                                                                        |
+| §7           | Interaction replies stay in interaction context                                                                                                            | ✅     | `apps/bot/src/index.ts` always `interaction.reply({...ephemeral})`                                                                                                                                                                                                                                       |
+| §7           | Generated content uses Target Resolver                                                                                                                     | ✅     | `lib/workspace.ts` `sendWorkspaceDesign`                                                                                                                                                                                                                                                                 |
+| §8           | Internal `ServerDesign` schema (not raw Discord JSON)                                                                                                      | ✅     | `@monarch/schemas/server-design.ts`                                                                                                                                                                                                                                                                      |
+| §8           | Renderer is the only place that builds Discord API payloads                                                                                                | ✅     | `@monarch/renderer` (and `@monarch/discord` for inbound)                                                                                                                                                                                                                                                 |
+| §11          | Diff engine: create/modify/rename/move/delete/unsupported                                                                                                  | ✅     | `packages/design-engine/diff.ts`                                                                                                                                                                                                                                                                         |
+| §11          | Diff engine is shared by Designer / Restore / Import / Templates                                                                                           | ✅     | `rebaseDesign`, `mergeDesigns`, `localiseIds` in `compose.ts`                                                                                                                                                                                                                                            |
+| §12          | Centralized validation engine                                                                                                                              | ✅     | `@monarch/validation/engine.ts` + `*-rules.ts`                                                                                                                                                                                                                                                           |
+| §12          | Human-readable errors with `fix` suggestions                                                                                                               | ✅     | `MonarchError{code,message,reason,fix,detail}`                                                                                                                                                                                                                                                           |
+| §13          | Discord API abstraction (not direct `discord.js` calls in routes)                                                                                          | ✅     | `DiscordGateway` interface; only `apps/bot` uses discord.js directly (slash commands + burg relay, which need the Gateway connection)                                                                                                                                                                    |
+| §14          | Permission checks: user + bot + hierarchy + target + API                                                                                                   | ✅     | `requireGuildAccess` + apply route's bot `ManageChannels` check + `resolveTarget`'s permission check                                                                                                                                                                                                     |
+| §15          | Draft system (autosave, discard, undo/redo)                                                                                                                | ✅     | Designer reducer + `DesignDraft` row + `PUT /api/guilds/:id/draft`                                                                                                                                                                                                                                       |
+| §16          | Undo/redo (Ctrl+Z / Ctrl+Shift+Z)                                                                                                                          | ✅     | `designer-state.ts`                                                                                                                                                                                                                                                                                      |
+| §17          | Live previews (server, embed, message)                                                                                                                     | ✅     | `components/designer/StructureTree`, `components/content/preview.tsx`                                                                                                                                                                                                                                    |
+| §18          | Send Test through Target Resolver (never #general)                                                                                                         | ✅     | `POST /api/guilds/:id/test-message` and `…/workspace/send`                                                                                                                                                                                                                                               |
+| §19          | Database model: User, Guild, GuildSettings, ServerDesign, DesignDraft, DesignVersion, Template, AuditEntry, plus GuildWorkspace, Session, MockDiscordState | 🟡     | All listed entities exist; `ServerDesign` is stored as `Json` on `DesignDraft`/`DesignVersion` rather than as its own table. `DiscordAccount` is folded into `User` (no separate account table — `User.id` IS the Discord user id). `BrandTheme` is not a table; `Branding` lives inside `ServerDesign`. |
+| §20          | Encrypted OAuth tokens at rest                                                                                                                             | ✅     | AES-256-GCM via `lib/secure-token.ts` (key from `SESSION_SECRET` via scrypt, format `v1.<iv>.<tag>.<ciphertext>`)                                                                                                                                                                                        |
+| §20          | HMAC-signed session cookies, never tokens in the browser                                                                                                   | ✅     | `lib/session.ts`                                                                                                                                                                                                                                                                                         |
+| §20          | CSRF protection on mutations                                                                                                                               | ✅     | `assertSameOrigin` checks `sec-fetch-site`                                                                                                                                                                                                                                                               |
+| §20          | Server-side permission validation independent of frontend                                                                                                  | ✅     | All routes go through `requireGuildAccess`                                                                                                                                                                                                                                                               |
+| §20          | No bot credentials in the browser bundle                                                                                                                   | ✅     | `lib/env.ts` is the only env reader; never imported by `"use client"` files                                                                                                                                                                                                                              |
+| §21          | Dark mode first, clean typography, subtle animations                                                                                                       | ✅     | Tailwind palette in `app/globals.css`                                                                                                                                                                                                                                                                    |
+| §21          | Sidebar / Canvas / Inspector layout                                                                                                                        | ✅     | `apps/dashboard/app/s/[guildId]/layout.tsx` + `components/designer/DesignerApp.tsx`                                                                                                                                                                                                                      |
+| §21          | Drag-and-drop, tooltips, keyboard shortcuts, autosave indicator                                                                                            | ✅     | Undo/redo, dirty indicator, "Saving…/Saved/error"                                                                                                                                                                                                                                                        |
+| §22          | Global navigation: Overview / Design / Library / Manage / Settings                                                                                         | ✅     | `components/nav/SidebarNav.tsx` (Overview, Server Designer, Embed Builder, Message Designer, Role Designer; Library: Template Library · Templates Import/Export; Manage: Backups & History · Design Analyzer; Settings: Designated Channels). Welcome/Branding show as "soon".                           |
+| §23          | Server context always visible; server switcher in the layout                                                                                               | ✅     | `ServerSwitcher` in the layout                                                                                                                                                                                                                                                                           |
+| §24          | Feature module system                                                                                                                                      | ⏳     | No formal `FeatureModule` registry yet; the structure is implicit (each feature has its own `app/s/[guildId]/<slug>/page.tsx` + components + lib helpers). Adding a registry is a small refactor.                                                                                                        |
+| §25          | Shared design system (Button, Modal, Inspector, …)                                                                                                         | 🟡     | Custom design system exists (Tailwind, `globals.css` color tokens) but the listed component set is not formalized into a single barrel. Common patterns repeat (panel, pill, error box, summary pill).                                                                                                   |
+| §26          | Errors understandable, technical detail in logs                                                                                                            | ✅     | `MonarchError` + `translateDiscordError`; `error.detail` is sent to the logger, not the wire                                                                                                                                                                                                             |
+| §27          | Structured JSON logging; never log tokens/secrets                                                                                                          | ✅     | `createLogger` in `@monarch/shared`; redacts `/token                                                                                                                                                                                                                                                     | secret | authorization | password | cookie/i` |
+| §28          | Unit tests for schemas, validators, diff, renderers, permissions, target resolver                                                                          | ✅     | `packages/*/test/*.test.ts`                                                                                                                                                                                                                                                                              |
+| §28          | Integration tests for Discord service, database, API                                                                                                       | ✅     | `apps/dashboard/test/prisma-store.integration.test.ts` (PGlite + applied migrations); `packages/discord/test/gateway.test.ts` (full apply loop against mock)                                                                                                                                             |
+| §28          | UI tests                                                                                                                                                   | ⏳     | No component tests yet.                                                                                                                                                                                                                                                                                  |
+| §31          | "Unsupported by Discord" surfaced, never faked                                                                                                             | ✅     | Diff engine `unsupported` op + Review modal renders it explicitly                                                                                                                                                                                                                                        |
+| §32          | No moderation features                                                                                                                                     | ✅     | Only feature with even a moderation veneer is `/burg` (a gag). See Appendix B.5.                                                                                                                                                                                                                         |
+| §33          | Bot stays lightweight; commands are links/tests/config shortcuts                                                                                           | ✅     | `apps/bot/src/index.ts` is ~460 lines (gateway wiring only — the commands live in `monarch-commands.ts`, `music/commands.ts` and `prefix/`); no structural mutations happen in the bot                                                                                                                   |
+| §34          | TypeScript strict; modular; no giant files; no duplicated business logic                                                                                   | ✅     | `tsconfig.base.json` has `strict` + `noUncheckedIndexedAccess`; `lib/api.ts`, `lib/workspace.ts`, `lib/backups.ts` are the cross-cutting services used by both user and bot routes                                                                                                                       |
+| §35          | Agent development rules                                                                                                                                    | 🟡     | Followed during PRs 1–9, but not yet formalized into a process document beyond the existing PR descriptions                                                                                                                                                                                              |
+| §36          | Definition of done                                                                                                                                         | ✅     | Each shipped feature meets it (UI + persistence + validation + permissions + preview + error handling + destructive confirmation + tests + docs)                                                                                                                                                         |
+| §37          | "Monarch lets you design one" central principle                                                                                                            | ✅     | Captured in the product tagline and the Review/Apply loop                                                                                                                                                                                                                                                |
 
 ---
 
@@ -2118,7 +2118,7 @@ PostgreSQL-backed production path (Prisma 7, engine-free, Vercel-ready).
 
 These features and decisions are **not** described in sections 1–37 of
 the master specification. They were added by the implementation team
-because the spec explicitly invites "optional modules" (§10) and
+becuase the spec explicitly invites "optional modules" (§10) and
 "Agent Development Rules" (§35) that include updating the architecture
 when a better solution is found. They are listed here for traceability
 so future iterations of the spec can decide whether to fold them in.
@@ -2128,19 +2128,19 @@ so future iterations of the spec can decide whether to fold them in.
 The spec (§33) calls for a lightweight bot with quick actions. We
 delivered more than the spec's command list. The full surface is:
 
-| Slash command | Spec coverage | Notes |
-|---|---|---|
-| `/monarch help` | new | Rendered from a single `COMMAND_HELP` manifest. A unit test enforces it stays in sync with the registered subcommands and under Discord's 2000-char limit. |
-| `/monarch dashboard` | implicit | Link to the studio for the current guild. |
-| `/monarch invite` (`!invite`) | new; see B.10 | The same "Add to Server" link as the dashboard's invite button (`packages/shared/src/invite.ts`), but with no guild pre-selected — the point is installing Monarch somewhere else. Open to every member. |
-| `/monarch status` | new | Bot presence, burg'd count, dashboard URL, this server's prefix. |
-| `/monarch prefix [prefix]` | new; see B.10 | Show or change this server's text-command prefix (Manage Server / Administrator). Persisted on `GuildSettings.commandPrefix` through `GET` / `PUT /api/internal/guilds/:id/prefix`. |
-| `/monarch backup [name]` | new (related to FEATURE 8) | Calls `/api/internal/guilds/:id/backup` with the invoking member's `userId` so the audit trail is correct. |
-| `/monarch export` | new (related to FEATURE 10) | Returns the live structure as a `monarch-template` JSON file via Discord's attachment mechanism. |
-| `/monarch embed` | new (related to FEATURE 2) | Opens the Embed Builder; if `INTERNAL_API_TOKEN` is set, also previews the saved embed. |
-| `/monarch test kind:<embed\|message> [mode] [channel]` | new (related to FEATURE 18) | Test-send or publish the saved design through the dashboard's internal API, optionally to an explicit channel. |
-| `/burg @user [duration] [style] [reason]` | NOT in spec; see B.5 | Gag feature: re-posts the member's messages as cute uwu/owo text. Bare re-run toggles off; re-run with options updates. |
-| `/monarch burged` | NOT in spec; see B.5 | Lists who's burg'd. |
+| Slash command                                          | Spec coverage               | Notes                                                                                                                                                                                                    |
+| ------------------------------------------------------ | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/monarch help`                                        | new                         | Rendered from a single `COMMAND_HELP` manifest. A unit test enforces it stays in sync with the registered subcommands and under Discord's 2000-char limit.                                               |
+| `/monarch dashboard`                                   | implicit                    | Link to the studio for the current guild.                                                                                                                                                                |
+| `/monarch invite` (`!invite`)                          | new; see B.10               | The same "Add to Server" link as the dashboard's invite button (`packages/shared/src/invite.ts`), but with no guild pre-selected — the point is installing Monarch somewhere else. Open to every member. |
+| `/monarch status`                                      | new                         | Bot presence, burg'd count, dashboard URL, this server's prefix.                                                                                                                                         |
+| `/monarch prefix [prefix]`                             | new; see B.10               | Show or change this server's text-command prefix (Manage Server / Administrator). Persisted on `GuildSettings.commandPrefix` through `GET` / `PUT /api/internal/guilds/:id/prefix`.                      |
+| `/monarch backup [name]`                               | new (related to FEATURE 8)  | Calls `/api/internal/guilds/:id/backup` with the invoking member's `userId` so the audit trail is correct.                                                                                               |
+| `/monarch export`                                      | new (related to FEATURE 10) | Returns the live structure as a `monarch-template` JSON file via Discord's attachment mechanism.                                                                                                         |
+| `/monarch embed`                                       | new (related to FEATURE 2)  | Opens the Embed Builder; if `INTERNAL_API_TOKEN` is set, also previews the saved embed.                                                                                                                  |
+| `/monarch test kind:<embed\|message> [mode] [channel]` | new (related to FEATURE 18) | Test-send or publish the saved design through the dashboard's internal API, optionally to an explicit channel.                                                                                           |
+| `/burg @user [duration] [style] [reason]`              | NOT in spec; see B.5        | Gag feature: re-posts the member's messages as cute uwu/owo text. Bare re-run toggles off; re-run with options updates.                                                                                  |
+| `/monarch burged`                                      | NOT in spec; see B.5        | Lists who's burg'd.                                                                                                                                                                                      |
 
 Auth: bot→dashboard requests use a shared `INTERNAL_API_TOKEN`
 (Bearer header, constant-time SHA-256 compare in
@@ -2257,7 +2257,7 @@ shutdown behavior or error budgets. We added:
 
 ## B.5 Gag relay (`/burg`) — explicit non-conformance with §32
 
-§32 says "no moderation features." We ship a *single* moderation-flavoured
+§32 says "no moderation features." We ship a _single_ moderation-flavoured
 slash command, scoped narrowly to gag/joke use, with the following
 guardrails:
 
@@ -2325,9 +2325,9 @@ Not in the spec, but several layers in the code prevent a
 ## B.8 Self-testing the migrations (PR #2)
 
 §28 calls for integration tests against the database. We made the
-integration test *also* exercise every committed migration against a
+integration test _also_ exercise every committed migration against a
 real PostgreSQL (PGlite-in-WASM, exposed over the PG wire protocol),
-so a broken migration fails the test suite *before* it reaches a
+so a broken migration fails the test suite _before_ it reaches a
 production database:
 
 - `apps/dashboard/test/prisma-store.integration.test.ts` boots
@@ -2339,7 +2339,7 @@ production database:
   loop, and (d) AES-GCM token encryption round-trips and fails closed
   on tampering.
 
-## B.9 Internals the spec didn't name
+## B.9 Internals the spec didnt name
 
 These small but useful pieces didn't fit a single spec section but
 are worth recording:
@@ -2352,7 +2352,7 @@ are worth recording:
   `rebaseDesign`). A snapshot from last week cannot be applied
   verbatim if channels have been deleted in the meantime. The
   restore flow re-bases the desired design onto the live one:
-  unchanged ids stay, vanished ids are *adopted* onto a live
+  unchanged ids stay, vanished ids are _adopted_ onto a live
   same-kind/same-name entity when one exists (so message history
   isn't lost), and the rest become new creates. This is a spec
   §31 ("Unsupported by Discord") compliance choice.
@@ -2445,7 +2445,7 @@ dashboard surface.
    **Structure** (text/voice/category/role counts, colored-role ratio),
    **Health** (channels-with-topic ratio, NSFW count, default slowmode,
    audit-log enabled). Distinct from existing analytics bots because
-   it measures *structure*, not *activity* — the bones of the server,
+   it measures _structure_, not _activity_ — the bones of the server,
    not its traffic.
 
 2. **`/monarch health`** — single-number design health score (0–100).
@@ -2456,14 +2456,14 @@ dashboard surface.
    `MEDIUM` (10), audit log enabled (5), no empty categories (10).
    Deterministic — same server, same score. Green ≥80, yellow ≥60,
    red <60. Distinct from existing analytics bots because it measures
-   *design health*, not *engagement*. Preview of FEATURE 9 (Design
+   _design health_, not _engagement_. Preview of FEATURE 9 (Design
    Analyzer) in command form.
 
 3. **`/monarch audit`** — recent Monarch audit entries. Reads the
    existing `AuditEntry` model. Default: last 10 entries for the
    current guild, newest first. Optional `count:` (max 25) and
    `since:` (`1d`, `7d`, `30d`). Ephemeral. Same data as the
-   dashboard's audit log; the bot command is the *short form*.
+   dashboard's audit log; the bot command is the _short form_.
 
 4. **`/monarch botstats`** — the bot's own runtime snapshot. Subject
    is the bot, not the user: status, uptime, latency, RSS memory,
@@ -2480,14 +2480,14 @@ dashboard surface.
    templates with their last-published date and status — `published` /
    `archived` / `draft`), and **Popular** (top 5 most-installed
    templates this month, `GROUP BY templateKey ORDER BY count DESC
-   LIMIT 5`). Distinct because templates are Monarch-specific data
+LIMIT 5`). Distinct because templates are Monarch-specific data
    — no other analytics bot has this.
 
 All five obey §32: no DMs, no per-user persistent state, no
 private-content reads, no message history. Two of them (serverstats,
 health) reuse `@monarch/renderer`'s embed-builder so the response
-itself is a Monarch design — the only commands where the *output
-visual* matches the product's voice.
+itself is a Monarch design — the only commands where the _output
+visual_ matches the product's voice.
 
 ---
 
@@ -2524,40 +2524,40 @@ master spec; they either finish a half-built spec feature (the four
    pickers and to the role designer. The `Branding` schema already
    lives inside `ServerDesign`; this is the editor + the apply path
    (color changes are a Discord PUT to `Guild`). **Medium.**
-   *Spec-finishing.*
+   _Spec-finishing._
 5. **Scheduled publishing for embeds/messages.** Extends FEATURE 18
    (publish). A user can pick a future time (max 7 days) and
    Monarch schedules the publish via the bot's worker (in-memory
    `setTimeout` for short delays, DB-backed queue for longer). On
    apply, the audit entry records the schedule. **Small.**
-   *Power-user.*
+   _Power-user._
 6. **Audit log UI + CSV export.** The data is already there
    (`AuditEntry` rows are written on every apply, restore, and
    export). The dashboard's history page already shows snapshots;
    add a sibling `audit` view + a "Download CSV" button. **Small.**
-   *Power-user.*
+   _Power-user._
 7. **Dry-run mode for destructive changes.** Add `?dry_run=1` to
    `POST /api/guilds/:guildId/apply` (or a `dryRun: true` body
    field). Returns the plan + diff without executing anything,
    suitable for pre-flight from CI or scripts. **Tiny.**
-   *Power-user.*
+   _Power-user._
 8. **Versioned drafts with named milestones.** Extends FEATURE 8
    (drafts). The current draft autosaves silently; add an explicit
    "Save milestone" action that names the milestone ("Welcome v3
    for review") and shows it in the inspector. Restore reverts to
-   the chosen milestone. **Small.** *Power-user.*
+   the chosen milestone. **Small.** _Power-user._
 9. **Sample-template gallery with one-click install.** A small,
    curated set of Monarch-authored starter templates (Welcome
    channel, Rules, Moderator Roster, Event Announcements, Lore &
    Worldbuilding) shown on a public page and installable to a
    user's guild in one click. Marketing surface that doubles as
-   the easiest "try Monarch" path. **Small.** *Adoption.*
+   the easiest "try Monarch" path. **Small.** _Adoption._
 10. **Embed-to-image export (PNG).** The dashboard's embed
     builder already previews the embed as Discord will render it;
     add a "Download as PNG" button that renders a 2× PNG via
     `node-canvas` or `@napi-rs/canvas` and posts the file to
     `content-disposition: attachment`. Useful for changelogs,
-    docs, social posts. **Small–medium.** *Adoption / marketing.*
+    docs, social posts. **Small–medium.** _Adoption / marketing._
 
 Two of the three remaining spec-finishing items (Template Library,
 Design Analyzer) are now done; **Branding Studio** is the last one and
@@ -2572,7 +2572,7 @@ are proposals, not edits to the 37 original sections.
 
 > **Status:** completed in this session — see `agent.md` §16. This
 > appendix documents the implementation choices that were not already
-> implied by the master spec, for future-agent reference.
+> implied by the master spec, for future-agent refrence.
 
 The master spec already declared FEATURE 4 (Role Designer) as a
 Phase 5 deliverable and noted that the `RoleDesign` schema lives
@@ -2606,7 +2606,7 @@ this session resolved:
   Color picker is a 6-char hex `<input type="color">` plus the
   raw text field (so power users can paste `#ff8800` directly).
   Hoist and mentionable are checkboxes. Permissions are presented
-  as a simple *toggles grid* (a small curated set of high-impact
+  as a simple _toggles grid_ (a small curated set of high-impact
   flags) plus a "raw" mode that shows the bitfield. Full
   permission editor is a Phase 6+ item.
 - **Sidebar** — `Role Designer` no longer shows the `soon` badge.
@@ -2624,8 +2624,8 @@ appendix is the implementation record.
 
 ## Appendix H. Implementation record — Template Library & Design Analyzer
 
-*(Written 2026-09-09, after both features landed on one branch. agent.md
-§17/§18 carry the same record for agent sessions.)*
+_(Written 2026-09-09, after both features landed on one branch. agent.md
+§17/§18 carry the same record for agent sessions.)_
 
 ### H.1 Scope decisions (both features)
 
@@ -2633,7 +2633,7 @@ appendix is the implementation record.
    Public templates need a `visibility` concept plus moderation; Appendix F
    item 9 (curated gallery) is the right vehicle for that decision later.
 2. **Installs never bypass the diff.** The library's install buttons call
-   the *existing* guild import endpoint, so every install lands as a staged
+   the _existing_ guild import endpoint, so every install lands as a staged
    draft with the full review UX. The library has zero Discord-mutating
    code.
 3. **Analyzer is advisory-only** (FEATURE 9 contract): the page never
@@ -2660,9 +2660,9 @@ appendix is the implementation record.
   Designer, full diff, destructive confirm at apply. Replace asks for an
   in-page confirm before routing.
 - Storage: `TemplateRecord { id, ownerId, name, type, format, data,
-  createdAt, updatedAt }` in FileStore (`templates.json`) or Prisma
+createdAt, updatedAt }` in FileStore (`templates.json`) or Prisma
   (`Template`). Ownership is enforced on every mutation — cross-owner ids
-  are plain 404s, and a cross-owner *write* is refused (PrismaStore uses
+  are plain 404s, and a cross-owner _write_ is refused (PrismaStore uses
   `updateMany({ where: { id, ownerId } })` + create fallback; FileStore's
   `putTemplate` throws on id collision under a different owner).
 - Downloads rebuild the envelope from the row (`type`/`format`/`data`) and

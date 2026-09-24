@@ -96,7 +96,10 @@ function probeFfmpeg(): string | null {
 
   // A binary we downloaded ourselves (scripts/setup-music.mjs), then the
   // optional npm package (no system install, no build), then the system one.
-  const local = path.join(process.env.MONARCH_BIN_DIR?.trim() || path.join(process.cwd(), ".monarch", "bin"), process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+  const local = path.join(
+    process.env.MONARCH_BIN_DIR?.trim() || path.join(process.cwd(), ".monarch", "bin"),
+    process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg",
+  );
   if (existsSync(local)) return local;
 
   try {
@@ -115,7 +118,8 @@ function probeFfmpeg(): string | null {
  * so installing ffmpeg while the bot runs is picked up without a restart.
  */
 export function resolveFfmpegPath(force = false): string | null {
-  if (!force && ffmpegCache && Date.now() - ffmpegCache.at < FFMPEG_CACHE_MS) return ffmpegCache.path;
+  if (!force && ffmpegCache && Date.now() - ffmpegCache.at < FFMPEG_CACHE_MS)
+    return ffmpegCache.path;
   const resolved = probeFfmpeg();
   ffmpegCache = { at: Date.now(), path: resolved };
   return resolved;
@@ -205,8 +209,14 @@ export interface AudioBackend {
   /** One line describing the pipeline (boot log, `/music status`). */
   describe(): string;
   shutdown(): Promise<void>;
-  on<K extends keyof AudioBackendEvents>(event: K, listener: (payload: AudioBackendEvents[K]) => void): this;
-  off<K extends keyof AudioBackendEvents>(event: K, listener: (payload: AudioBackendEvents[K]) => void): this;
+  on<K extends keyof AudioBackendEvents>(
+    event: K,
+    listener: (payload: AudioBackendEvents[K]) => void,
+  ): this;
+  off<K extends keyof AudioBackendEvents>(
+    event: K,
+    listener: (payload: AudioBackendEvents[K]) => void,
+  ): this;
   emit<K extends keyof AudioBackendEvents>(event: K, payload: AudioBackendEvents[K]): boolean;
 }
 
@@ -301,7 +311,8 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
 
   describe(): string {
     const ffmpeg = resolveFfmpegPath();
-    if (this.pipeline() === "pcm") return `yt-dlp → ffmpeg → Opus (volume ✓)${ffmpeg ? ` · ${path.basename(ffmpeg)}` : ""}`;
+    if (this.pipeline() === "pcm")
+      return `yt-dlp → ffmpeg → Opus (volume ✓)${ffmpeg ? ` · ${path.basename(ffmpeg)}` : ""}`;
     if (ffmpeg) return "yt-dlp → Opus passthrough (no Opus encoder installed — volume unavailable)";
     return "yt-dlp → Opus passthrough (no ffmpeg — volume unavailable)";
   }
@@ -310,7 +321,11 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
 
   async join(guildId: string, channel: VoiceChannelLike): Promise<void> {
     const existing = this.sessions.get(guildId);
-    if (existing && existing.channelId === channel.id && existing.connection.state.status !== VoiceConnectionStatus.Destroyed) {
+    if (
+      existing &&
+      existing.channelId === channel.id &&
+      existing.connection.state.status !== VoiceConnectionStatus.Destroyed
+    ) {
       return;
     }
     if (existing) this.leave(guildId);
@@ -403,7 +418,10 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
     });
 
     player.on("error", (error: Error) => {
-      log.warn("audio player error", { guildId: session.guildId, error: String(error?.message ?? error).slice(0, 300) });
+      log.warn("audio player error", {
+        guildId: session.guildId,
+        error: String(error?.message ?? error).slice(0, 300),
+      });
       session.failure ??= `The audio stream failed (${String(error?.message ?? error).slice(0, 160)}).`;
       session.failureDetail ??= String((error as Error)?.stack ?? error);
     });
@@ -412,7 +430,10 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
   /** Discord dropped the socket: give it a moment to come back, else hand it up. */
   private async onDisconnected(session: GuildSession): Promise<void> {
     if (this.sessions.get(session.guildId) !== session || session.leaving) return;
-    log.warn("voice connection dropped", { guildId: session.guildId, channelId: session.channelId });
+    log.warn("voice connection dropped", {
+      guildId: session.guildId,
+      channelId: session.channelId,
+    });
     try {
       // A move to another channel, or a voice-server reshuffle, recovers by
       // itself within seconds. Anything longer means Discord closed the session.
@@ -421,7 +442,8 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
         entersState(session.connection, VoiceConnectionStatus.Connecting, RECOVER_TIMEOUT_MS),
         entersState(session.connection, VoiceConnectionStatus.Ready, RECOVER_TIMEOUT_MS),
       ]);
-      if (this.sessions.get(session.guildId) === session) log.info("voice connection recovered", { guildId: session.guildId });
+      if (this.sessions.get(session.guildId) === session)
+        log.info("voice connection recovered", { guildId: session.guildId });
     } catch {
       if (this.sessions.get(session.guildId) !== session) return;
       log.warn("voice connection could not be recovered", { guildId: session.guildId });
@@ -470,8 +492,10 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
 
   async play(guildId: string, track: Track): Promise<void> {
     const session = this.sessions.get(guildId);
-    if (!session) throw new AudioError("I'm not in a voice channel — join one and run the command again.");
-    if (!track.sourceUrl) throw new AudioError(`I don't have a playable source for **${track.title}**.`);
+    if (!session)
+      throw new AudioError("I'm not in a voice channel — join one and run the command again.");
+    if (!track.sourceUrl)
+      throw new AudioError(`I don't have a playable source for **${track.title}**.`);
     await this.startTrack(session, track, 0);
   }
 
@@ -504,7 +528,9 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
     } catch (error) {
       session.current = null;
       if (error instanceof YtdlpError) throw new AudioError(error.message);
-      throw error instanceof AudioError ? error : new AudioError(String(error instanceof Error ? error.message : error));
+      throw error instanceof AudioError
+        ? error
+        : new AudioError(String(error instanceof Error ? error.message : error));
     }
     session.pipe = pipe;
 
@@ -515,7 +541,9 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
     } catch (error) {
       this.killPipeline(session);
       session.current = null;
-      throw error instanceof AudioError ? error : new AudioError(String(error instanceof Error ? error.message : error));
+      throw error instanceof AudioError
+        ? error
+        : new AudioError(String(error instanceof Error ? error.message : error));
     }
 
     let resource: AudioResource;
@@ -550,7 +578,10 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
    * yt-dlp's bytes → something Discord can send: PCM through ffmpeg when that
    * buys volume control, otherwise YouTube's own Opus passthrough.
    */
-  private async buildStream(session: GuildSession, pipe: AudioPipe): Promise<{ stream: Readable; inputType: StreamType }> {
+  private async buildStream(
+    session: GuildSession,
+    pipe: AudioPipe,
+  ): Promise<{ stream: Readable; inputType: StreamType }> {
     const ffmpegPath = resolveFfmpegPath();
     if (this.pipeline() === "pcm" && ffmpegPath) {
       const args = [
@@ -568,10 +599,9 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
         String(CHANNELS),
         "pipe:1",
       ];
-      const ffmpeg = (this.options.spawnFfmpeg ?? ((bin, argv) => spawn(bin, argv, { windowsHide: true })))(
-        ffmpegPath,
-        args,
-      );
+      const ffmpeg = (
+        this.options.spawnFfmpeg ?? ((bin, argv) => spawn(bin, argv, { windowsHide: true }))
+      )(ffmpegPath, args);
       session.ffmpeg = ffmpeg;
       let stderr = "";
       ffmpeg.stderr?.on("data", (chunk: Buffer) => {
@@ -587,7 +617,11 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
         // A non-zero exit after the stream ends is normal when we killed it;
         // before then it means the decode failed.
         if (code !== 0 && code !== null && !session.stopping && session.current) {
-          log.warn("ffmpeg exited early", { guildId: session.guildId, code, stderr: stderrTail(stderr) });
+          log.warn("ffmpeg exited early", {
+            guildId: session.guildId,
+            code,
+            stderr: stderrTail(stderr),
+          });
           session.failure ??= "The audio transcoder (ffmpeg) failed on this track.";
           session.failureDetail ??= `ffmpeg exited with code ${code}\n${stderr.slice(-1_500)}`;
         }
@@ -608,7 +642,10 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
       // whole worker down (and the in-memory queue with it) on every skip.
       ffmpeg.stdin?.on("error", (error: NodeJS.ErrnoException) => {
         if (error?.code !== "EPIPE" && error?.code !== "ERR_STREAM_DESTROYED") {
-          log.warn("ffmpeg input error", { guildId: session.guildId, error: String(error).slice(0, 200) });
+          log.warn("ffmpeg input error", {
+            guildId: session.guildId,
+            error: String(error).slice(0, 200),
+          });
         }
         if (pipe.alive()) pipe.kill();
       });
@@ -692,7 +729,10 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
 
     const pipe = session.pipe;
     if (!stopping && pipe && pipe.alive()) {
-      await Promise.race([pipe.exited, new Promise((resolve) => setTimeout(resolve, EXIT_GRACE_MS).unref?.())]);
+      await Promise.race([
+        pipe.exited,
+        new Promise((resolve) => setTimeout(resolve, EXIT_GRACE_MS).unref?.()),
+      ]);
     }
     const exit = pipe && !pipe.alive() ? pipe.result() : null;
     let failure = session.failure;
@@ -700,14 +740,21 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
     if (!failure && !stopping && exit && exit.code !== 0) {
       // Killed by us on the way out? Then it is a stop, not a failure.
       failure = exit.signaled && session.leaving ? null : explainYtdlpFailure(exit.stderr);
-      failureDetail ??= [stderrTail(exit.stderr, 20), `yt-dlp exited with code ${exit.code}`].filter(Boolean).join("\n");
+      failureDetail ??= [stderrTail(exit.stderr, 20), `yt-dlp exited with code ${exit.code}`]
+        .filter(Boolean)
+        .join("\n");
     }
     session.failure = null;
     session.failureDetail = null;
     this.killPipeline(session);
 
     if (stopping) {
-      this.emit("trackEnd", { guildId: session.guildId, trackId: ended.trackId, reason: "stopped", elapsedMs });
+      this.emit("trackEnd", {
+        guildId: session.guildId,
+        trackId: ended.trackId,
+        reason: "stopped",
+        elapsedMs,
+      });
       return;
     }
     if (
@@ -729,11 +776,18 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
         await this.startTrack(session, ended.track, ended.attempt + 1);
         return;
       } catch (error) {
-        failure = error instanceof AudioError ? error.message : String(error instanceof Error ? error.message : error);
+        failure =
+          error instanceof AudioError
+            ? error.message
+            : String(error instanceof Error ? error.message : error);
       }
     }
     if (failure) {
-      log.warn("track failed", { guildId: session.guildId, track: ended.title, error: failure.slice(0, 200) });
+      log.warn("track failed", {
+        guildId: session.guildId,
+        track: ended.title,
+        error: failure.slice(0, 200),
+      });
       const raw = [failureDetail, stderrTail(exit?.stderr ?? "")].filter(Boolean).join("\n");
       this.emit("trackEnd", {
         guildId: session.guildId,
@@ -745,7 +799,12 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
       });
       return;
     }
-    this.emit("trackEnd", { guildId: session.guildId, trackId: ended.trackId, reason: "finished", elapsedMs });
+    this.emit("trackEnd", {
+      guildId: session.guildId,
+      trackId: ended.trackId,
+      reason: "finished",
+      elapsedMs,
+    });
   }
 
   private elapsedMs(session: GuildSession): number {
@@ -772,12 +831,14 @@ export class DiscordAudioBackend extends EventEmitter implements AudioBackend {
     if (!session) return false;
     const status = session.player.state.status;
     if (paused) {
-      if (status !== AudioPlayerStatus.Playing && status !== AudioPlayerStatus.Buffering) return false;
+      if (status !== AudioPlayerStatus.Playing && status !== AudioPlayerStatus.Buffering)
+        return false;
       session.player.pause();
       if (session.current) session.current.pausedAt = Date.now();
       return true;
     }
-    if (status !== AudioPlayerStatus.Paused && status !== AudioPlayerStatus.AutoPaused) return false;
+    if (status !== AudioPlayerStatus.Paused && status !== AudioPlayerStatus.AutoPaused)
+      return false;
     // Freeze the position clock across the pause.
     if (session.current?.pausedAt) {
       session.current.pausedFor += Date.now() - session.current.pausedAt;

@@ -30,17 +30,17 @@ both the user-facing routes and the bot-facing `/api/internal/*` routes:
 - **Backup** = `fetchCurrentDesign` → `SnapshotRecord{kind:"manual"}` +
   audit entry. Apply still records `pre-apply` / `post-apply` snapshots.
 - **Restore never touches Discord directly.** It stages the snapshot as the
-  caller's *draft* (`putDraft`) and sends them to the Server Designer, so the
+  caller's _draft_ (`putDraft`) and sends them to the Server Designer, so the
   normal validate → diff → confirm-destructive → apply pipeline runs. Before
   staging, `rebaseDesign` (@monarch/design-engine `compose.ts`) makes the
   snapshot applicable on top of the live server: ids that still exist are
-  kept (modify/rename/move), ids that vanished are *adopted* onto a live
+  kept (modify/rename/move), ids that vanished are _adopted_ onto a live
   entity of the same kind + name when one exists (so history isn't lost by a
   delete-and-recreate), and whatever is left becomes a `new_*` local id — a
   plain create — with parent links rewritten. Roles and designated channels
   always come from the live server.
 - **Export** = `detachDesign` → `TemplateEnvelope` (`format:
-  "monarch-template"`, `version: 1`). **Import** parses with
+"monarch-template"`, `version: 1`). **Import** parses with
   `parseServerTemplate`, forces every id to a local id (`localiseIds`, so a
   hand-edited file can't "modify" an unrelated live channel), then either
   appends under the current structure (`mergeDesigns`, "add") or replaces
@@ -80,7 +80,7 @@ parity.
 (`NULL` = the shared default `!`) and read/written through
 `GET|PUT /api/internal/guilds/:id/prefix` with the same `INTERNAL_API_TOKEN`
 as the other bot routes — the bot keeps no database of its own. The gateway
-side caches it for 60 s per guild, including *negative* entries (no custom
+side caches it for 60 s per guild, including _negative_ entries (no custom
 prefix), and a `peek()` sync read decides whether a message could be a command
 before anything is awaited; if the dashboard is unreachable the default prefix
 and @Monarch mentions keep working. Legality is decided in exactly one place,
@@ -235,7 +235,7 @@ not clobber it, which apps/dashboard/test/command-prefix.test.ts pins.
 ## Security model
 
 - Backend guards on every route: session → guild access → user `Manage
-  Server`/`Administrator` → bot installed → bot `Manage Channels` (for apply).
+Server`/`Administrator` → bot installed → bot `Manage Channels` (for apply).
   Frontend disabling is cosmetic only.
 - CSRF: mutating routes reject cross-site requests via `Sec-Fetch-Site`.
 - Secrets only via env; logger redacts token/secret-shaped keys.
@@ -244,25 +244,25 @@ not clobber it, which apps/dashboard/test/command-prefix.test.ts pins.
 
 ## API surface (dashboard route handlers)
 
-| Route | Purpose |
-|---|---|
-| `GET/POST /api/auth/*` | OAuth2 login/callback/logout (demo-aware) |
-| `GET /api/invite[?guild_id=]` | Redirect to Discord's bot install dialog (demo-aware) |
-| `GET /api/guilds` | Guild summaries (installed, permissions, members) |
-| `GET /api/guilds/:id/state` | Live structure + caller's draft |
-| `PUT/DELETE /api/guilds/:id/draft` | Autosave / discard draft |
-| `POST /api/guilds/:id/plan` | Validation + diff vs live state (read-only) |
-| `POST /api/guilds/:id/apply` | The only structural mutation (snapshot → execute → audit) |
-| `GET/POST /api/guilds/:id/snapshots` | Version history metadata / take a manual backup |
-| `POST /api/guilds/:id/snapshots/:snapshotId/restore` | Stage a snapshot as the caller's draft (rebase, no Discord writes) |
-| `GET/POST /api/guilds/:id/template` | Download the live structure as a template / import one as a draft (`mode: add\|replace`) |
-| `GET/PUT /api/guilds/:id/settings` | Designated channels |
-| `POST /api/guilds/:id/test-message` | Send Test through the Target Resolver |
-| `GET/PUT /api/guilds/:id/workspace` | Autosaved embed/message content designs |
-| `POST /api/guilds/:id/workspace/send` | Test/Publish a content design (validate → Target Resolver → render → send → audit) |
-| `GET/POST /api/internal/guilds/:id/workspace(+/send)` | Bot-facing counterparts, guarded by `INTERNAL_API_TOKEN` (Bearer) |
-| `GET/POST /api/internal/guilds/:id/backup` · `GET …/template` | Bot-facing backup list/create and template export (`/monarch backup`, `/monarch export`) |
-| `GET/PUT /api/internal/guilds/:id/prefix` | Bot-facing per-server command prefix (`!prefix` / `/monarch prefix`); `PUT {prefix: null}` resets to `!` |
+| Route                                                         | Purpose                                                                                                  |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `GET/POST /api/auth/*`                                        | OAuth2 login/callback/logout (demo-aware)                                                                |
+| `GET /api/invite[?guild_id=]`                                 | Redirect to Discord's bot install dialog (demo-aware)                                                    |
+| `GET /api/guilds`                                             | Guild summaries (installed, permissions, members)                                                        |
+| `GET /api/guilds/:id/state`                                   | Live structure + caller's draft                                                                          |
+| `PUT/DELETE /api/guilds/:id/draft`                            | Autosave / discard draft                                                                                 |
+| `POST /api/guilds/:id/plan`                                   | Validation + diff vs live state (read-only)                                                              |
+| `POST /api/guilds/:id/apply`                                  | The only structural mutation (snapshot → execute → audit)                                                |
+| `GET/POST /api/guilds/:id/snapshots`                          | Version history metadata / take a manual backup                                                          |
+| `POST /api/guilds/:id/snapshots/:snapshotId/restore`          | Stage a snapshot as the caller's draft (rebase, no Discord writes)                                       |
+| `GET/POST /api/guilds/:id/template`                           | Download the live structure as a template / import one as a draft (`mode: add\|replace`)                 |
+| `GET/PUT /api/guilds/:id/settings`                            | Designated channels                                                                                      |
+| `POST /api/guilds/:id/test-message`                           | Send Test through the Target Resolver                                                                    |
+| `GET/PUT /api/guilds/:id/workspace`                           | Autosaved embed/message content designs                                                                  |
+| `POST /api/guilds/:id/workspace/send`                         | Test/Publish a content design (validate → Target Resolver → render → send → audit)                       |
+| `GET/POST /api/internal/guilds/:id/workspace(+/send)`         | Bot-facing counterparts, guarded by `INTERNAL_API_TOKEN` (Bearer)                                        |
+| `GET/POST /api/internal/guilds/:id/backup` · `GET …/template` | Bot-facing backup list/create and template export (`/monarch backup`, `/monarch export`)                 |
+| `GET/PUT /api/internal/guilds/:id/prefix`                     | Bot-facing per-server command prefix (`!prefix` / `/monarch prefix`); `PUT {prefix: null}` resets to `!` |
 
 The API currently lives in Next.js route handlers; all business logic is in
 packages, so extracting a standalone `apps/api` service later is mechanical
@@ -292,7 +292,7 @@ clears the draft and rebases the editor onto fresh live state.
 
 ## Adding the next features (guidance)
 
-1. Model in `@monarch/schemas` (extend, don't fork).
+1. Model in `@monarch/schemas` (extend, dont fork).
 2. Limits/rules in `@monarch/validation`.
 3. Discord payloads in `@monarch/renderer`; new capabilities on
    `DiscordGateway` (implement in BOTH gateways).

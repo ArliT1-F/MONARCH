@@ -26,9 +26,7 @@ describe("parseStoredWorkspace", () => {
   });
 
   it("drops corrupt stored designs instead of throwing", () => {
-    expect(() =>
-      parseStoredWorkspace({ embed: { title: 123 }, message: "nope" }),
-    ).not.toThrow();
+    expect(() => parseStoredWorkspace({ embed: { title: 123 }, message: "nope" })).not.toThrow();
     expect(parseStoredWorkspace({ embed: { title: 123 }, message: "nope" })).toEqual({
       embed: null,
       message: null,

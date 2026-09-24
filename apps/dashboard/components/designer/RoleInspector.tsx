@@ -42,9 +42,8 @@ export function RoleInspector({
         <div className="mt-10 text-center">
           <p className="mb-1 text-xs font-medium text-ink-300">No role selected</p>
           <p className="text-[11px] leading-relaxed text-ink-400">
-            Pick a role on the left to edit its name, color, hoist and
-            mentionable settings, or its permissions. New roles land at
-            the bottom of the list.
+            Pick a role on the left to edit its name, color, hoist and mentionable settings, or its
+            permissions. New roles land at the bottom of the list.
           </p>
         </div>
         <IssueList validation={validation} />
@@ -59,13 +58,13 @@ export function RoleInspector({
       <div>
         <PanelTitle>Managed role</PanelTitle>
         <p className="mb-2 text-xs text-ink-300">
-          <span className="font-medium text-ink-100">{role.name}</span> is managed by a
-          bot or integration. Monarch can&apos;t rename or delete it, but you can keep
-          using the rest of the dashboard.
+          <span className="font-medium text-ink-100">{role.name}</span> is managed by a bot or
+          integration. Monarch can&apos;t rename or delete it, but you can keep using the rest of
+          the dashboard.
         </p>
         <p className="text-[11px] leading-relaxed text-ink-400">
-          Discord creates managed roles automatically (for example, for the MEE6 or
-          Carl-bot integrations). To change this role, edit it through that bot.
+          Discord creates managed roles automatically (for example, for the MEE6 or Carl-bot
+          integrations). To change this role, edit it through that bot.
         </p>
         <IssueList validation={validation} entityId={role.id} />
       </div>
@@ -148,8 +147,8 @@ export function RoleInspector({
           className={inputCls}
         />
         <p className="mt-1 text-[10px] text-ink-500">
-          0 is the highest position. Drag-reorder is a follow-up — for now, type the
-          number directly.
+          0 is the highest position. Drag-reorder is a follow-up — for now, type the number
+          directly.
         </p>
       </Field>
 
@@ -180,7 +179,11 @@ export function RoleInspector({
         <ActionButton
           danger
           onClick={() => {
-            if (confirm(`Delete role "${role.name}"? Members with only this role will lose it on Discord when you apply.`)) {
+            if (
+              confirm(
+                `Delete role "${role.name}"? Members with only this role will lose it on Discord when you apply.`,
+              )
+            ) {
               dispatch({ type: "DELETE_ROLE", id: role.id });
             }
           }}
@@ -449,8 +452,8 @@ function PermissionGrid({
           placeholder="0"
         />
         <p className="mt-1 text-[10px] text-ink-500">
-          Discord permission bitfield as a decimal string. Use the curated grid for the
-          common flags.
+          Discord permission bitfield as a decimal string. Use the curated grid for the common
+          flags.
         </p>
       </div>
     );
@@ -482,7 +485,9 @@ function PermissionGrid({
           const locked = adminOn && !isAdminRow;
           return (
             <li key={p.name}>
-              <label className={`flex items-start gap-2 text-xs text-ink-200 ${locked ? "opacity-60" : ""}`}>
+              <label
+                className={`flex items-start gap-2 text-xs text-ink-200 ${locked ? "opacity-60" : ""}`}
+              >
                 <input
                   type="checkbox"
                   checked={on}

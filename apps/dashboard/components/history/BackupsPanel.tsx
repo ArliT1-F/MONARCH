@@ -59,7 +59,10 @@ export function BackupsPanel({
       });
       const data = await readJsonSafe<{ snapshot?: { name: string } }>(res);
       if (!res.ok) {
-        setNotice({ tone: "error", text: apiErrorMessage(data, res, "Monarch couldn't save the backup.") });
+        setNotice({
+          tone: "error",
+          text: apiErrorMessage(data, res, "Monarch couldn't save the backup."),
+        });
       } else {
         setName("");
         setNotice({ tone: "ok", text: `Backup "${data?.snapshot?.name ?? "backup"}" saved.` });
@@ -80,10 +83,15 @@ export function BackupsPanel({
     setBusy(s.id);
     setNotice(null);
     try {
-      const res = await fetch(`/api/guilds/${guildId}/snapshots/${s.id}/restore`, { method: "POST" });
+      const res = await fetch(`/api/guilds/${guildId}/snapshots/${s.id}/restore`, {
+        method: "POST",
+      });
       const data = await readJsonSafe<{ recreated?: number; designerUrl?: string }>(res);
       if (!res.ok || !data?.designerUrl) {
-        setNotice({ tone: "error", text: apiErrorMessage(data, res, "Monarch couldn't stage the restore.") });
+        setNotice({
+          tone: "error",
+          text: apiErrorMessage(data, res, "Monarch couldn't stage the restore."),
+        });
         return;
       }
       const extra = data.recreated ? ` ${data.recreated} deleted item(s) will be recreated.` : "";
@@ -126,8 +134,9 @@ export function BackupsPanel({
             </button>
           </div>
           <p className="mt-2 text-[11px] text-ink-400">
-            Tip: <code className="rounded bg-ink-800 px-1 py-0.5 text-ink-200">/monarch backup</code> does the
-            same from Discord.
+            Tip:{" "}
+            <code className="rounded bg-ink-800 px-1 py-0.5 text-ink-200">/monarch backup</code>{" "}
+            does the same from Discord.
           </p>
         </div>
       )}
@@ -143,7 +152,10 @@ export function BackupsPanel({
         >
           {notice.text}
           {notice.designerUrl && (
-            <Link href={notice.designerUrl} className="ml-2 font-medium underline underline-offset-2">
+            <Link
+              href={notice.designerUrl}
+              className="ml-2 font-medium underline underline-offset-2"
+            >
               Open Server Designer →
             </Link>
           )}
@@ -154,8 +166,8 @@ export function BackupsPanel({
         <div className="rounded-2xl border border-ink-700 bg-ink-900 p-8 text-center sm:p-10">
           <p className="mb-1 text-sm font-medium text-ink-100">No snapshots yet</p>
           <p className="text-xs text-ink-400">
-            Save a backup above, or apply a design from the Server Designer and Monarch will
-            record the before/after here.
+            Save a backup above, or apply a design from the Server Designer and Monarch will record
+            the before/after here.
           </p>
         </div>
       ) : (
@@ -174,7 +186,9 @@ export function BackupsPanel({
                   <div className="min-w-0 flex-1">
                     <p className="flex flex-wrap items-center gap-2">
                       <span className="truncate text-sm text-ink-100">{s.name}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${kind.cls}`}>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${kind.cls}`}
+                      >
                         {kind.label}
                       </span>
                     </p>

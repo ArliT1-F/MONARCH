@@ -19,7 +19,13 @@ describe("BurgRegistry", () => {
   it("auto-releases a timed entry and notifies", () => {
     const onExpire = vi.fn();
     const registry = new BurgRegistry(onExpire);
-    registry.burg({ guildId: "g", userId: "u", until: Date.now() + 60_000, burgedBy: "mod", style: "cat" });
+    registry.burg({
+      guildId: "g",
+      userId: "u",
+      until: Date.now() + 60_000,
+      burgedBy: "mod",
+      style: "cat",
+    });
 
     vi.advanceTimersByTime(59_999);
     expect(registry.isBurg("g", "u")).toBe(true);

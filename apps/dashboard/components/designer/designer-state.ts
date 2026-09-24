@@ -11,10 +11,7 @@ import { createLocalId } from "@monarch/shared";
  *   don't spam history, DRAG_COMMIT finalizes (or DRAG_CANCEL restores).
  */
 
-export type Selection =
-  | { kind: "channel"; id: string }
-  | { kind: "category"; id: string }
-  | null;
+export type Selection = { kind: "channel"; id: string } | { kind: "category"; id: string } | null;
 
 export interface DesignerState {
   status: "loading" | "ready" | "error";
@@ -45,14 +42,24 @@ export type DesignerAction =
   | { type: "LOAD_ERROR"; message: string }
   | { type: "SELECT"; selection: Selection }
   | { type: "RENAME_CATEGORY"; id: string; name: string }
-  | { type: "UPDATE_CHANNEL"; id: string; patch: Partial<Pick<ChannelDesign, "name" | "topic" | "nsfw" | "slowmode">> }
+  | {
+      type: "UPDATE_CHANNEL";
+      id: string;
+      patch: Partial<Pick<ChannelDesign, "name" | "topic" | "nsfw" | "slowmode">>;
+    }
   | { type: "ADD_CATEGORY" }
   | { type: "ADD_CHANNEL"; kind: ChannelKind; parentId?: string }
   | { type: "DELETE_CHANNEL"; id: string }
   | { type: "DELETE_CATEGORY"; id: string }
   | { type: "DUPLICATE_CHANNEL"; id: string }
   | { type: "DUPLICATE_CATEGORY"; id: string }
-  | { type: "MOVE_CHANNEL"; id: string; parentId: string | undefined; index: number; transient?: boolean }
+  | {
+      type: "MOVE_CHANNEL";
+      id: string;
+      parentId: string | undefined;
+      index: number;
+      transient?: boolean;
+    }
   | { type: "MOVE_CATEGORY"; id: string; index: number; transient?: boolean }
   | { type: "DRAG_BEGIN" }
   | { type: "DRAG_COMMIT" }
@@ -173,9 +180,13 @@ function applyEdit(state: DesignerState, action: DesignerAction): DesignerState 
       });
     }
     case "DELETE_CHANNEL":
-      return mutate(state, () => reindex({ ...d, channels: d.channels.filter((c) => c.id !== action.id) }), {
-        selection: state.selection?.id === action.id ? null : state.selection,
-      });
+      return mutate(
+        state,
+        () => reindex({ ...d, channels: d.channels.filter((c) => c.id !== action.id) }),
+        {
+          selection: state.selection?.id === action.id ? null : state.selection,
+        },
+      );
     case "DELETE_CATEGORY": {
       // Channels inside a deleted category move to the top level (never silently deleted).
       return mutate(

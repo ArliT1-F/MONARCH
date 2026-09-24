@@ -24,17 +24,34 @@ vi.mock("discord.js", () => {
   return {
     AttachmentBuilder: vi.fn(),
     ChannelType: { GuildForum: 15, GuildMedia: 16 },
-    Client: vi.fn(() => ({ destroy: mocks.destroy, login: mocks.login, on: mocks.clientOn, once: mocks.clientOnce })),
-    Events: { ClientReady: "ready", InteractionCreate: "interactionCreate", MessageCreate: "messageCreate", Error: "error" },
+    Client: vi.fn(() => ({
+      destroy: mocks.destroy,
+      login: mocks.login,
+      on: mocks.clientOn,
+      once: mocks.clientOnce,
+    })),
+    Events: {
+      ClientReady: "ready",
+      InteractionCreate: "interactionCreate",
+      MessageCreate: "messageCreate",
+      Error: "error",
+    },
     GatewayIntentBits: { Guilds: 1, GuildMessages: 512, MessageContent: 32768 },
     InteractionContextType: { Guild: 0 },
     MessageFlags: { Ephemeral: 64 },
     Partials: { Channel: 1 },
-    PermissionFlagsBits: { Administrator: 8n, KickMembers: 2n, ManageGuild: 32n, ManageMessages: 8192n, ManageWebhooks: 536870912n },
+    PermissionFlagsBits: {
+      Administrator: 8n,
+      KickMembers: 2n,
+      ManageGuild: 32n,
+      ManageMessages: 8192n,
+      ManageWebhooks: 536870912n,
+    },
     REST: vi.fn(() => ({ setToken: () => ({ put: mocks.put }) })),
     Routes: {
       applicationCommands: (id: string) => `/applications/${id}/commands`,
-      applicationGuildCommands: (id: string, guildId: string) => `/applications/${id}/guilds/${guildId}/commands`,
+      applicationGuildCommands: (id: string, guildId: string) =>
+        `/applications/${id}/guilds/${guildId}/commands`,
     },
     SlashCommandBuilder: vi.fn(() => builder()),
   };
@@ -149,14 +166,20 @@ describe("bot startup", () => {
       "/applications/4242/guilds/9876543210/commands",
       expect.objectContaining({ body: expect.any(Array) }),
     );
-    expect(find("registered slash commands")).toMatchObject({ scope: "guild", guildId: "9876543210", count: 3 });
+    expect(find("registered slash commands")).toMatchObject({
+      scope: "guild",
+      guildId: "9876543210",
+      count: 3,
+    });
   });
 
   it("still logs in when slash command registration fails", async () => {
     mocks.put.mockRejectedValue(new Error("503: discord is having a day"));
     await boot();
 
-    expect(find("slash command registration failed — continuing with existing commands")).toBeDefined();
+    expect(
+      find("slash command registration failed — continuing with existing commands"),
+    ).toBeDefined();
     expect(mocks.login).toHaveBeenCalledWith("test-token");
     expect(exitSpy).not.toHaveBeenCalled();
   });
@@ -180,8 +203,12 @@ describe("bot startup", () => {
   it("warns when MONARCH_OWNER_USER_ID is missing (the uno-reverse is off)", async () => {
     await boot({ MONARCH_OWNER_USER_ID: undefined });
 
-    expect(find("MONARCH_OWNER_USER_ID is not set — the application owner can be burg'd and the uno-reverse is off. " +
-      "Set it to your Discord user id to protect yourself.")).toMatchObject({ level: "warn" });
+    expect(
+      find(
+        "MONARCH_OWNER_USER_ID is not set — the application owner can be burg'd and the uno-reverse is off. " +
+          "Set it to your Discord user id to protect yourself.",
+      ),
+    ).toMatchObject({ level: "warn" });
     expect(mocks.login).toHaveBeenCalledWith("test-token");
     expect(exitSpy).not.toHaveBeenCalled();
   });

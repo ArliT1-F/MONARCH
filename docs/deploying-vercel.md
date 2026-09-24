@@ -23,18 +23,18 @@ Vercel.
 
 ## What's already wired up in this repo
 
-| Piece | Where | Notes |
-|---|---|---|
-| Prisma schema (9 models) | `prisma/schema.prisma` | Prisma 7, `prisma-client` generator, output `apps/dashboard/lib/generated/prisma` (gitignored) |
-| CLI config | `prisma.config.ts` | Holds `DATABASE_URL` / `DIRECT_DATABASE_URL` for migrate (URLs no longer live in the schema) |
-| Initial migration | `prisma/migrations/20260902000000_init/` | Applied via `npm run db:migrate` |
-| Client generation | root `package.json` → `postinstall: prisma generate` | Runs on every `npm install` (local, Docker, Vercel) |
-| Runtime client | `apps/dashboard/lib/prisma.ts` | Engine-free client + `@prisma/adapter-pg`, `max: 1` per serverless instance, globalThis-cached across HMR |
-| Store swap | `apps/dashboard/lib/store.ts` `getStore()` | `DATABASE_URL` set → `PrismaStore`; unset → file store (demo/dev) |
-| Token encryption | `apps/dashboard/lib/secure-token.ts` | OAuth tokens AES-256-GCM encrypted at rest (`Session.accessTokenEnc`) |
-| Next config | `apps/dashboard/next.config.ts` | `serverExternalPackages: ["@prisma/client", "@prisma/adapter-pg", "pg"]` |
-| Vercel build | `apps/dashboard/vercel.json` | `prisma generate && next build` |
-| Tests | `apps/dashboard/test/prisma-store*.ts` | Full store contract verified against real Postgres (PGlite) |
+| Piece                    | Where                                                | Notes                                                                                                     |
+| ------------------------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Prisma schema (9 models) | `prisma/schema.prisma`                               | Prisma 7, `prisma-client` generator, output `apps/dashboard/lib/generated/prisma` (gitignored)            |
+| CLI config               | `prisma.config.ts`                                   | Holds `DATABASE_URL` / `DIRECT_DATABASE_URL` for migrate (URLs no longer live in the schema)              |
+| Initial migration        | `prisma/migrations/20260902000000_init/`             | Applied via `npm run db:migrate`                                                                          |
+| Client generation        | root `package.json` → `postinstall: prisma generate` | Runs on every `npm install` (local, Docker, Vercel)                                                       |
+| Runtime client           | `apps/dashboard/lib/prisma.ts`                       | Engine-free client + `@prisma/adapter-pg`, `max: 1` per serverless instance, globalThis-cached across HMR |
+| Store swap               | `apps/dashboard/lib/store.ts` `getStore()`           | `DATABASE_URL` set → `PrismaStore`; unset → file store (demo/dev)                                         |
+| Token encryption         | `apps/dashboard/lib/secure-token.ts`                 | OAuth tokens AES-256-GCM encrypted at rest (`Session.accessTokenEnc`)                                     |
+| Next config              | `apps/dashboard/next.config.ts`                      | `serverExternalPackages: ["@prisma/client", "@prisma/adapter-pg", "pg"]`                                  |
+| Vercel build             | `apps/dashboard/vercel.json`                         | `prisma generate && next build`                                                                           |
+| Tests                    | `apps/dashboard/test/prisma-store*.ts`               | Full store contract verified against real Postgres (PGlite)                                               |
 
 The Prisma 7 client ships **no Rust engine binaries** — the query compiler
 is WASM inside `@prisma/client` and connections go through the `pg` driver
@@ -107,7 +107,7 @@ DATABASE_URL="<pooled>" DIRECT_DATABASE_URL="<direct>" npm run db:migrate
 ```
 
 `prisma migrate deploy` is idempotent and safe to re-run; it applies any
-new committed migrations. (Migrations are a deploy-time concern — don't run
+new committed migrations. (Migrations are a deploy-time concern — dont run
 them from serverless functions.)
 
 <details>
@@ -116,7 +116,7 @@ them from serverless functions.)
 ```yaml
 # .github/workflows/migrate.yml
 name: migrate
-on: { workflow_dispatch: {} }   # run manually
+on: { workflow_dispatch: {} } # run manually
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -127,8 +127,8 @@ jobs:
       - run: npm ci
       - run: npm run db:migrate
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}          # pooled
-          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}  # direct
+          DATABASE_URL: ${{ secrets.DATABASE_URL }} # pooled
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }} # direct
 ```
 
 </details>
@@ -141,15 +141,15 @@ jobs:
    from the repo root, which triggers `prisma generate` via postinstall).
 3. Framework preset **Next.js**, build command comes from
    `apps/dashboard/vercel.json`: `npx prisma generate --schema
-   ../../prisma/schema.prisma && next build`.
+../../prisma/schema.prisma && next build`.
 4. Add environment variables (Production + Preview):
 
-| Variable | Value |
-|---|---|
-| `DATABASE_URL` | **pooled** connection string |
-| `SESSION_SECRET` | `openssl rand -hex 32` — signs cookies **and** encrypts OAuth tokens at rest |
-| `APP_URL` | `https://<your-app>.vercel.app` |
-| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` / `DISCORD_BOT_TOKEN` | from the Discord developer portal (omit all three for **demo mode**) |
+| Variable                                                            | Value                                                                        |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                      | **pooled** connection string                                                 |
+| `SESSION_SECRET`                                                    | `openssl rand -hex 32` — signs cookies **and** encrypts OAuth tokens at rest |
+| `APP_URL`                                                           | `https://<your-app>.vercel.app`                                              |
+| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` / `DISCORD_BOT_TOKEN` | from the Discord developer portal (omit all three for **demo mode**)         |
 
 5. Deploy.
 
@@ -245,7 +245,7 @@ put the bot token in browser-exposed `NEXT_PUBLIC_*` variables.
 In the Discord developer portal add
 `https://<your-app>.vercel.app/api/auth/callback` as an OAuth2 redirect,
 matching `APP_URL` exactly. Then sign in, pick a server (the bot must be
-installed with *Manage Channels*; *Manage Messages* is needed for
+installed with _Manage Channels_; _Manage Messages_ is needed for
 `/burg` — servers that installed Monarch before it was added to the invite must
 re-run the invite link or grant it manually), and design away.
 
@@ -271,7 +271,7 @@ re-run the invite link or grant it manually), and design away.
   step 2.
 - **`P1001: Can't reach database`** → check `DATABASE_URL` in the Vercel
   project (Production environment) and the provider's availability.
-- **Rotating `SESSION_SECRET`** invalidates cookie signatures *and*
+- **Rotating `SESSION_SECRET`** invalidates cookie signatures _and_
   renders stored OAuth tokens undecryptable (they are treated as absent —
   users just sign in again). Rotate deliberately.
 - **Connection limits:** each serverless instance holds at most **one**

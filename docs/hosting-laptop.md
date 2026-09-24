@@ -12,7 +12,7 @@ laptop (this worker)                     Vercel (unchanged)
   HTTPS ─────────────────────────────────────▶ /api/internal/*  ──▶ Postgres/Neon
 ```
 
-Nothing connects *to* the laptop. `apps/bot/src/index.ts` starts no HTTP
+Nothing connects _to_ the laptop. `apps/bot/src/index.ts` starts no HTTP
 listener, so there is no port forwarding, no DDNS, no TLS certificate, and your
 home IP stays private. That asymmetry is the whole reason self-hosting the
 worker is easy while self-hosting the dashboard is not.
@@ -20,13 +20,13 @@ worker is easy while self-hosting the dashboard is not.
 `deploy/laptop-install.sh` writes a **systemd user unit** — no sudo, no Docker
 daemon, no root — and checks your setup before it touches anything.
 
-| | Laptop 24/7 | Render worker |
-|---|---|---|
-| `/music` (UDP) | ✅ | ❌ silently broken |
-| Cost | ~2–4 €/month electricity | free tier |
-| Survives your ISP/power | ❌ (self-heals after) | ✅ |
-| Needs a public address | ❌ | ❌ |
-| Restarts on crash/boot | ✅ `Restart=always` | ✅ |
+|                         | Laptop 24/7              | Render worker      |
+| ----------------------- | ------------------------ | ------------------ |
+| `/music` (UDP)          | ✅                       | ❌ silently broken |
+| Cost                    | ~2–4 €/month electricity | free tier          |
+| Survives your ISP/power | ❌ (self-heals after)    | ✅                 |
+| Needs a public address  | ❌                       | ❌                 |
+| Restarts on crash/boot  | ✅ `Restart=always`      | ✅                 |
 
 ## 1. The machine, once
 
@@ -94,17 +94,17 @@ npm ci
 
 The four that actually matter for a laptop worker:
 
-| Key | Why it's different here |
-|---|---|
-| `DISCORD_BOT_TOKEN` | `start()` exits 1 without a login, so a wrong token = a restart loop every 10 s. Loud, not silent. |
-| `DISCORD_CLIENT_ID` | slash command registration happens at **every boot** |
-| `APP_URL` | must be the **deployed dashboard** (your Vercel URL). It is no longer "wherever the bot lives". `--check` warns if it still says `localhost`. |
+| Key                  | Why it's different here                                                                                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DISCORD_BOT_TOKEN`  | `start()` exits 1 without a login, so a wrong token = a restart loop every 10 s. Loud, not silent.                                                                              |
+| `DISCORD_CLIENT_ID`  | slash command registration happens at **every boot**                                                                                                                            |
+| `APP_URL`            | must be the **deployed dashboard** (your Vercel URL). It is no longer "wherever the bot lives". `--check` warns if it still says `localhost`.                                   |
 | `INTERNAL_API_TOKEN` | the bot has no database of its own; `/monarch backup`, `export`, `embed`, `test`, `!prefix set` and confessions are HTTP calls to `APP_URL`. Must match Vercel's value exactly. |
 
 `MONARCH_OWNER_USER_ID` is worth setting while you're in the file (the
 `/burg` uno-reverse). Add `--headless` to the installer if the laptop will run
 **lid closed** — it also refuses lid-close suspend, which is what you want on a
-shelf and *not* what you want before the laptop goes into a bag:
+shelf and _not_ what you want before the laptop goes into a bag:
 
 ```bash
 systemctl --user status monarch-bot          # is it up?
@@ -180,23 +180,23 @@ looks like from here:
   player logs `elapsed vs expected` and says so instead of going quiet; skip
   or re-queue the track, and check `journalctl` for the yt-dlp stderr tail.
 - `Couldn't run yt-dlp` / `isn't installed` → the binary vanished (a `git
-  clean` that took `.monarch/bin` with it, or a read-only filesystem the
+clean` that took `.monarch/bin` with it, or a read-only filesystem the
   auto-download couldn't write to). `npm run music:setup`, or set
   `YTDLP_PATH`/`YTDLP_BIN_DIR`. A single failing track while others play is
   just that video (blocked/removed) — not the worker.
 
 ## Day 2
 
-| I want to | command |
-|---|---|
-| read logs since boot | `journalctl --user -u monarch-bot -b` |
-| stop it (before travel!) | `systemctl --user stop monarch-bot` |
-| start it again | `systemctl --user start monarch-bot` |
-| change an env value | edit `.env`, then `systemctl --user restart monarch-bot` |
-| update the bot | `cd ~/MONARCH && git pull && npm ci && systemctl --user restart monarch-bot` |
-| full re-check + reinstall | `./deploy/laptop-install.sh --check && ./deploy/laptop-install.sh` |
-| remove it entirely | `./deploy/laptop-install.sh --uninstall` |
-| confirm it starts at boot | `systemctl --user is-enabled monarch-bot && ls /var/lib/systemd/linger/` |
+| I want to                 | command                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------- |
+| read logs since boot      | `journalctl --user -u monarch-bot -b`                                        |
+| stop it (before travel!)  | `systemctl --user stop monarch-bot`                                          |
+| start it again            | `systemctl --user start monarch-bot`                                         |
+| change an env value       | edit `.env`, then `systemctl --user restart monarch-bot`                     |
+| update the bot            | `cd ~/MONARCH && git pull && npm ci && systemctl --user restart monarch-bot` |
+| full re-check + reinstall | `./deploy/laptop-install.sh --check && ./deploy/laptop-install.sh`           |
+| remove it entirely        | `./deploy/laptop-install.sh --uninstall`                                     |
+| confirm it starts at boot | `systemctl --user is-enabled monarch-bot && ls /var/lib/systemd/linger/`     |
 
 `git pull` mid-song drops the voice connection (the process dies, ffmpeg with
 it). Say `!music stop` first, or tell your friends the bot restarts when the
@@ -206,16 +206,16 @@ registration becomes instant.
 
 ## If it misbehaves
 
-| Symptom | What it actually is |
-|---|---|
-| works all day, dead at 3 am, logs just stop | the laptop slept. `journalctl -b -1 -n 40` will end mid-sentence. The `systemd-inhibit` lock covers idle suspend; `--headless` covers the lid; masking the targets covers everything. |
-| bot joins, plays nothing, logs `signalling` | Discord voice now requires **DAVE**. This repo pins `@discordjs/voice@0.19.2` + `@snazzah/davey` — don't downgrade it, and don't blame your network until step 1 above passes. |
-| "no suitable opus encoder" | only the PCM path needs one (ffmpeg → PCM → Opus, which is what makes volume work). `opusscript` is in `apps/bot/package.json`; a missing one means `npm ci` didn't run, and playback would silently fall back to Opus passthrough. `npm run music:check` reports which encoder was found. |
-| `/burg` or `!help` do nothing, slash works | Message Content intent off in the developer portal. The bot falls back to Guilds+VoiceStates instead of crash-looping, and says so at boot. |
-| unit `failed` with exit 1, repeats every 10 s | bad token, or Discord unreachable at boot. `--check` first, then `journalctl -n 30`. |
-| 100 % CPU on one core while playing | `opusscript` is JS. Fine for a handful of guilds; for more, `npm i @discordjs/opus -w @monarch/bot` (needs `build-essential python3`), or run the alpine image where it must compile — see below. |
-| only works while your terminal is open | lingering is off: `sudo loginctl enable-linger $USER` |
-| replies arrive twice | there are two workers (Render). See step 3. |
+| Symptom                                       | What it actually is                                                                                                                                                                                                                                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| works all day, dead at 3 am, logs just stop   | the laptop slept. `journalctl -b -1 -n 40` will end mid-sentence. The `systemd-inhibit` lock covers idle suspend; `--headless` covers the lid; masking the targets covers everything.                                                                                                      |
+| bot joins, plays nothing, logs `signalling`   | Discord voice now requires **DAVE**. This repo pins `@discordjs/voice@0.19.2` + `@snazzah/davey` — don't downgrade it, and don't blame your network until step 1 above passes.                                                                                                             |
+| "no suitable opus encoder"                    | only the PCM path needs one (ffmpeg → PCM → Opus, which is what makes volume work). `opusscript` is in `apps/bot/package.json`; a missing one means `npm ci` didn't run, and playback would silently fall back to Opus passthrough. `npm run music:check` reports which encoder was found. |
+| `/burg` or `!help` do nothing, slash works    | Message Content intent off in the developer portal. The bot falls back to Guilds+VoiceStates instead of crash-looping, and says so at boot.                                                                                                                                                |
+| unit `failed` with exit 1, repeats every 10 s | bad token, or Discord unreachable at boot. `--check` first, then `journalctl -n 30`.                                                                                                                                                                                                       |
+| 100 % CPU on one core while playing           | `opusscript` is JS. Fine for a handful of guilds; for more, `npm i @discordjs/opus -w @monarch/bot` (needs `build-essential python3`), or run the alpine image where it must compile — see below.                                                                                          |
+| only works while your terminal is open        | lingering is off: `sudo loginctl enable-linger $USER`                                                                                                                                                                                                                                      |
+| replies arrive twice                          | there are two workers (Render). See step 3.                                                                                                                                                                                                                                                |
 
 ## Prefer Docker on the laptop?
 
@@ -251,7 +251,7 @@ these is true:
 - the laptop needs to travel, or you notice you're afraid to `apt upgrade`.
 
 And the reason to leave Render forever: `render.yaml` will run everything about
-Monarch *except* voice. No amount of config changes that — it's a missing
+Monarch _except_ voice. No amount of config changes that — it's a missing
 protocol, not a missing setting.
 
 ## Which hosts carry `/music`
@@ -259,17 +259,16 @@ protocol, not a missing setting.
 The gateway and every non-voice command work anywhere long-lived. Voice is the
 outlier, because `@discordjs/voice` speaks **UDP only**:
 
-| Host | Outbound UDP | `/music` | Notes |
-|---|---|---|---|
-| your own box, `deploy/laptop-install.sh` | ✅ | ✅ | free, and this page |
-| Fly.io | ✅ | ✅ | no `[http_service]` in `fly.toml` — the worker listens on nothing |
-| Railway, a VPS, Hetzner/DO droplet | ✅ | ✅ | same unit, same `.env` |
-| Docker Compose on any server | ✅ | ✅ | `docker/bot.Dockerfile`, no `postgres` container needed |
-| **Render** | ❌ | ❌ | everything else works; joins the channel, then times out |
-| Vercel / Netlify / Cloudflare Workers | ❌ | ❌ | serverless can't hold a gateway connection at all |
-| Oracle "always free" VM | ✅ | ✅ | it works; it just costs a card and an account you didn't want |
+| Host                                     | Outbound UDP | `/music` | Notes                                                             |
+| ---------------------------------------- | ------------ | -------- | ----------------------------------------------------------------- |
+| your own box, `deploy/laptop-install.sh` | ✅           | ✅       | free, and this page                                               |
+| Fly.io                                   | ✅           | ✅       | no `[http_service]` in `fly.toml` — the worker listens on nothing |
+| Railway, a VPS, Hetzner/DO droplet       | ✅           | ✅       | same unit, same `.env`                                            |
+| Docker Compose on any server             | ✅           | ✅       | `docker/bot.Dockerfile`, no `postgres` container needed           |
+| **Render**                               | ❌           | ❌       | everything else works; joins the channel, then times out          |
+| Vercel / Netlify / Cloudflare Workers    | ❌           | ❌       | serverless can't hold a gateway connection at all                 |
+| Oracle "always free" VM                  | ✅           | ✅       | it works; it just costs a card and an account you didn't want     |
 
 If you ever go back to Render on purpose, leave `SPOTIFY_*` and the voice
 commands alone and know they'll fail — a `DISCORD_BOT_TOKEN`-less Render service
 is the tidier version of that.
-

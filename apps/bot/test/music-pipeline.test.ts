@@ -7,7 +7,12 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 import { AudioPlayerStatus, VoiceConnectionStatus } from "@discordjs/voice";
 import type { Track } from "@monarch/music";
 import { DiscordAudioBackend, type AudioBackendOptions } from "../src/music/audio.js";
-import { ytdlpCapabilityArgs, ytdlpCommonArgs, ytdlpExtraArgs, resetYtdlpCapabilities } from "../src/music/ytdlp.js";
+import {
+  ytdlpCapabilityArgs,
+  ytdlpCommonArgs,
+  ytdlpExtraArgs,
+  resetYtdlpCapabilities,
+} from "../src/music/ytdlp.js";
 
 /**
  * The parts of the audio path that only show up when YouTube is being difficult:
@@ -54,7 +59,10 @@ describe("binary capabilities", () => {
   /** A stand-in yt-dlp whose `--help` says whatever we want it to. */
   function fakeBinary(help: string): string {
     const file = path.join(dir, `yt-dlp-${Math.random().toString(36).slice(2, 8)}`);
-    writeFileSync(file, `#!/bin/sh\nif [ "$1" = "--help" ]; then\n  echo "${help}"\n  exit 0\nfi\nexit 1\n`);
+    writeFileSync(
+      file,
+      `#!/bin/sh\nif [ "$1" = "--help" ]; then\n  echo "${help}"\n  exit 0\nfi\nexit 1\n`,
+    );
     chmodSync(file, 0o755);
     return file;
   }
@@ -63,13 +71,19 @@ describe("binary capabilities", () => {
 
   itOrSkip("hands yt-dlp this very Node when its build supports --js-runtimes", async () => {
     resetYtdlpCapabilities();
-    const args = await ytdlpCapabilityArgs(fakeBinary("  --js-runtimes RUNTIME[:PATH]  Additional JavaScript runtime"));
+    const args = await ytdlpCapabilityArgs(
+      fakeBinary("  --js-runtimes RUNTIME[:PATH]  Additional JavaScript runtime"),
+    );
     expect(args).toEqual(["--js-runtimes", `node:${process.execPath}`]);
   });
 
   itOrSkip("stays quiet for an old build that has never heard of a JS runtime", async () => {
     resetYtdlpCapabilities();
-    expect(await ytdlpCapabilityArgs(fakeBinary("  --no-check-certificate  Suppress certificate verification"))).toEqual([]);
+    expect(
+      await ytdlpCapabilityArgs(
+        fakeBinary("  --no-check-certificate  Suppress certificate verification"),
+      ),
+    ).toEqual([]);
   });
 });
 
@@ -173,7 +187,9 @@ function harness(pipes: ReturnType<typeof deadPipe>[]) {
   };
   const backend = new DiscordAudioBackend(options);
   const events: { reason: string; error?: string; elapsedMs: number }[] = [];
-  backend.on("trackEnd", (event: { reason: string; error?: string; elapsedMs: number }) => events.push(event));
+  backend.on("trackEnd", (event: { reason: string; error?: string; elapsedMs: number }) =>
+    events.push(event),
+  );
   return { backend, player, openPipe, events, ffmpegs };
 }
 
@@ -183,7 +199,10 @@ describe("a track that never gets going", () => {
       deadPipe(1, "ERROR: unable to download webpage: <urlopen error timed out>"),
       deadPipe(1, "ERROR: unable to download webpage: <urlopen error timed out>"),
     ]);
-    await backend.join("guild", { id: "chan", guild: { id: "guild", voiceAdapterCreator: () => () => {} } });
+    await backend.join("guild", {
+      id: "chan",
+      guild: { id: "guild", voiceAdapterCreator: () => () => {} },
+    });
     await backend.play("guild", track());
 
     player.emitIdle(); // yt-dlp died immediately
@@ -201,8 +220,13 @@ describe("a track that never gets going", () => {
   });
 
   it("does not retry a track that says why it can't play", async () => {
-    const { backend, player, openPipe, events } = harness([deadPipe(1, "ERROR: Private video. Sign in if you've been granted access")]);
-    await backend.join("guild", { id: "chan", guild: { id: "guild", voiceAdapterCreator: () => () => {} } });
+    const { backend, player, openPipe, events } = harness([
+      deadPipe(1, "ERROR: Private video. Sign in if you've been granted access"),
+    ]);
+    await backend.join("guild", {
+      id: "chan",
+      guild: { id: "guild", voiceAdapterCreator: () => () => {} },
+    });
     await backend.play("guild", track());
 
     player.emitIdle();
@@ -216,7 +240,10 @@ describe("a track that never gets going", () => {
 describe("skipping a transcoded track", () => {
   it("survives the EPIPE ffmpeg's stdin raises when a skip kills it mid-write", async () => {
     const { backend, player, ffmpegs } = harness([deadPipe(0, "")]);
-    await backend.join("guild", { id: "chan", guild: { id: "guild", voiceAdapterCreator: () => () => {} } });
+    await backend.join("guild", {
+      id: "chan",
+      guild: { id: "guild", voiceAdapterCreator: () => () => {} },
+    });
     await backend.play("guild", track());
     expect(ffmpegs).toHaveLength(1);
 

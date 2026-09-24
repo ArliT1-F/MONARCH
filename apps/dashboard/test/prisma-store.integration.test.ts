@@ -17,7 +17,9 @@ import { PrismaStore } from "@/lib/prisma-store";
 // native loader instead and works everywhere.
 async function loadSocketServer() {
   const resolved = createRequire(import.meta.url).resolve("@electric-sql/pglite-socket");
-  const mod = (await import(pathToFileURL(resolved).href)) as typeof import("@electric-sql/pglite-socket");
+  const mod = (await import(
+    pathToFileURL(resolved).href
+  )) as typeof import("@electric-sql/pglite-socket");
   return mod.PGLiteSocketServer;
 }
 
@@ -40,7 +42,7 @@ beforeAll(async () => {
   const migrationDir = path.resolve(__dirname, "../../../prisma/migrations");
   const lock = readFileSync(path.join(migrationDir, "migration_lock.toml"), "utf8");
   expect(lock).toContain("postgresql");
-  // Apply every committed migration in order so new tables (e.g.
+  // Apply every commited migration in order so new tables (e.g.
   // GuildWorkspace) are covered, not just the initial schema.
   const dirs = readdirSync(migrationDir, { withFileTypes: true })
     .filter((d) => d.isDirectory())
@@ -48,7 +50,10 @@ beforeAll(async () => {
     .sort();
   for (const dir of dirs) {
     const sql = readFileSync(path.join(migrationDir, dir, "migration.sql"), "utf8");
-    for (const stmt of sql.split(";").map((s) => s.replace(/--[^\n]*/g, "").trim()).filter(Boolean)) {
+    for (const stmt of sql
+      .split(";")
+      .map((s) => s.replace(/--[^\n]*/g, "").trim())
+      .filter(Boolean)) {
       await pglite.exec(stmt);
     }
   }
@@ -106,7 +111,9 @@ describe("PrismaStore against PostgreSQL (PGlite)", () => {
       VALUES ('sess_expired', 'expired-user', NOW() - INTERVAL '1 day');
     `);
     expect(await store.getSession("sess_expired")).toBeNull();
-    const rows = await pglite.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM "Session" WHERE id = 'sess_expired'`);
+    const rows = await pglite.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM "Session" WHERE id = 'sess_expired'`,
+    );
     expect(rows.rows[0]!.n).toBe(0);
     await store.deleteSession("sess_expired"); // idempotent
   });
@@ -133,9 +140,13 @@ describe("PrismaStore against PostgreSQL (PGlite)", () => {
       baseDesign: design2,
       updatedAt: "2026-09-02T13:00:00.000Z",
     });
-    const drafts = await pglite.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM "DesignDraft"`);
+    const drafts = await pglite.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM "DesignDraft"`,
+    );
     expect(drafts.rows[0]!.n).toBe(1); // upsert, not duplicate
-    expect((await store.getDraft("987654321", "123456789012345678"))!.updatedAt).toBe("2026-09-02T13:00:00.000Z");
+    expect((await store.getDraft("987654321", "123456789012345678"))!.updatedAt).toBe(
+      "2026-09-02T13:00:00.000Z",
+    );
 
     await store.deleteDraft("987654321", "123456789012345678");
     expect(await store.getDraft("987654321", "123456789012345678")).toBeNull();
@@ -143,10 +154,34 @@ describe("PrismaStore against PostgreSQL (PGlite)", () => {
   });
 
   it("lists snapshots newest-first", async () => {
-    const base = { id: "", guildId: "987654321", name: "", kind: "manual" as const, design: emptyServerDesign("987654321", "Monarch HQ"), createdAt: "" };
-    await store.addSnapshot({ ...base, id: "snap_old", name: "manual", createdAt: "2026-09-01T00:00:00.000Z" });
-    await store.addSnapshot({ ...base, id: "snap_pre", name: "before apply", kind: "pre-apply", createdAt: "2026-09-02T00:00:00.000Z" });
-    await store.addSnapshot({ ...base, id: "snap_post", name: "after apply", kind: "post-apply", createdAt: "2026-09-03T00:00:00.000Z" });
+    const base = {
+      id: "",
+      guildId: "987654321",
+      name: "",
+      kind: "manual" as const,
+      design: emptyServerDesign("987654321", "Monarch HQ"),
+      createdAt: "",
+    };
+    await store.addSnapshot({
+      ...base,
+      id: "snap_old",
+      name: "manual",
+      createdAt: "2026-09-01T00:00:00.000Z",
+    });
+    await store.addSnapshot({
+      ...base,
+      id: "snap_pre",
+      name: "before apply",
+      kind: "pre-apply",
+      createdAt: "2026-09-02T00:00:00.000Z",
+    });
+    await store.addSnapshot({
+      ...base,
+      id: "snap_post",
+      name: "after apply",
+      kind: "post-apply",
+      createdAt: "2026-09-03T00:00:00.000Z",
+    });
 
     const snapshots = await store.listSnapshots("987654321");
     expect(snapshots.map((s) => s.id)).toEqual(["snap_post", "snap_pre", "snap_old"]);
@@ -154,7 +189,10 @@ describe("PrismaStore against PostgreSQL (PGlite)", () => {
   });
 
   it("defaults guild settings to empty and persists designated channels", async () => {
-    expect(await store.getGuildSettings("987654321")).toEqual({ guildId: "987654321", designatedChannels: {} });
+    expect(await store.getGuildSettings("987654321")).toEqual({
+      guildId: "987654321",
+      designatedChannels: {},
+    });
 
     await store.putGuildSettings({
       guildId: "987654321",
@@ -167,7 +205,10 @@ describe("PrismaStore against PostgreSQL (PGlite)", () => {
 
     // clearing channels clears columns
     await store.putGuildSettings({ guildId: "987654321", designatedChannels: {} });
-    expect(await store.getGuildSettings("987654321")).toEqual({ guildId: "987654321", designatedChannels: {} });
+    expect(await store.getGuildSettings("987654321")).toEqual({
+      guildId: "987654321",
+      designatedChannels: {},
+    });
   });
 
   it("records and lists audit entries newest-first with a limit", async () => {
@@ -183,7 +224,10 @@ describe("PrismaStore against PostgreSQL (PGlite)", () => {
     }
     const all = await store.listAudit("987654321");
     expect(all.map((a) => a.id)).toEqual(["audit_4", "audit_3", "audit_2", "audit_1", "audit_0"]);
-    expect((await store.listAudit("987654321", 2)).map((a) => a.id)).toEqual(["audit_4", "audit_3"]);
+    expect((await store.listAudit("987654321", 2)).map((a) => a.id)).toEqual([
+      "audit_4",
+      "audit_3",
+    ]);
   });
 
   it("persists demo-mode mock Discord state as a singleton", async () => {
@@ -203,7 +247,9 @@ describe("PrismaStore against PostgreSQL (PGlite)", () => {
     };
     await store.putMockState(state);
     expect(await store.getMockState()).toEqual(state);
-    const rows = await pglite.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM "MockDiscordState"`);
+    const rows = await pglite.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM "MockDiscordState"`,
+    );
     expect(rows.rows[0]!.n).toBe(1);
   });
 
@@ -263,6 +309,9 @@ describe("PrismaStore against PostgreSQL (PGlite)", () => {
     await pglite.exec(`DELETE FROM "Guild" WHERE id = '987654321'`);
     expect(await store.listSnapshots("987654321")).toEqual([]);
     expect((await store.listAudit("987654321")).length).toBe(0);
-    expect(await store.getGuildSettings("987654321")).toEqual({ guildId: "987654321", designatedChannels: {} });
+    expect(await store.getGuildSettings("987654321")).toEqual({
+      guildId: "987654321",
+      designatedChannels: {},
+    });
   });
 });

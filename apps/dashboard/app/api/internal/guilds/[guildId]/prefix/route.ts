@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { DEFAULT_COMMAND_PREFIX, MAX_COMMAND_PREFIX_LENGTH, parseCommandPrefix } from "@monarch/shared";
+import {
+  DEFAULT_COMMAND_PREFIX,
+  MAX_COMMAND_PREFIX_LENGTH,
+  parseCommandPrefix,
+} from "@monarch/shared";
 import { jsonError, jsonStorageError } from "@/lib/api";
 import { assertInternalAuth } from "@/lib/internal-auth";
 import { getStore } from "@/lib/store";
@@ -18,10 +22,7 @@ import { getStore } from "@/lib/store";
  * way a prefix survives a restart. Prefixes are validated here *and* in the
  * bot (same shared rule) so a malformed value can't be stored by either side.
  */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const unauthorized = assertInternalAuth(req);
   if (unauthorized) return unauthorized;
   const { guildId } = await params;
@@ -41,10 +42,7 @@ export async function GET(
 
 const Body = z.object({ prefix: z.union([z.string(), z.null()]) });
 
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const unauthorized = assertInternalAuth(req);
   if (unauthorized) return unauthorized;
   const { guildId } = await params;

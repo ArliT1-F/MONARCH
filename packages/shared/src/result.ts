@@ -2,16 +2,14 @@
  * A lightweight Result type used across Monarch so services can return
  * human-readable failures instead of throwing raw API errors upward.
  */
-export type Result<T, E = MonarchError> =
-  | { ok: true; value: T }
-  | { ok: false; error: E };
+export type Result<T, E = MonarchError> = { ok: true; value: T } | { ok: false; error: E };
 
 export interface MonarchError {
   /** Stable machine-readable code, e.g. "discord.hierarchy" */
   code: string;
   /** Short human-readable summary ("Monarch couldn't move this role.") */
   message: string;
-  /** Why it happened, in plain language. */
+  /** Why it happend, in plain language. */
   reason?: string;
   /** What the user can do about it. */
   fix?: string;

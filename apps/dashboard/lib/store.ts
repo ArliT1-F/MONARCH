@@ -82,8 +82,7 @@ export interface ConfessionCooldownRecord {
  * bot can tell them when they are back instead of guessing.
  */
 export type ConfessionCooldownClaim =
-  | { claimed: true; nextAllowedAt: string }
-  | { claimed: false; nextAllowedAt: string };
+  { claimed: true; nextAllowedAt: string } | { claimed: false; nextAllowedAt: string };
 
 /** How a caller may override the confession window (tests; the route never does). */
 export interface ConfessionCooldownWindow {
@@ -194,7 +193,10 @@ export interface MonarchStore {
    * failed — a deleted channel must not lock somebody out for six hours.
    */
   getConfessionCooldown(userId: string): Promise<ConfessionCooldownRecord>;
-  claimConfessionCooldown(userId: string, window?: ConfessionCooldownWindow): Promise<ConfessionCooldownClaim>;
+  claimConfessionCooldown(
+    userId: string,
+    window?: ConfessionCooldownWindow,
+  ): Promise<ConfessionCooldownClaim>;
   releaseConfessionCooldown(userId: string): Promise<void>;
 
   /**
@@ -214,7 +216,8 @@ export interface MonarchStore {
 // ── File store implementation ────────────────────────────────────────
 
 /** Override with MONARCH_DATA_DIR (tests point it at a temp directory). */
-const DATA_DIR = process.env.MONARCH_DATA_DIR ?? path.join(process.cwd(), "..", "..", ".monarch-data");
+const DATA_DIR =
+  process.env.MONARCH_DATA_DIR ?? path.join(process.cwd(), "..", "..", ".monarch-data");
 
 async function readJson<T>(file: string): Promise<T | null> {
   try {
@@ -257,7 +260,7 @@ async function readCooldowns(): Promise<Record<string, string>> {
 }
 
 /**
- * Write back with the expired windows dropped, so the file can't grow forever
+ * Write back with the expired windows dropped, so the file cant grow forever
  * (every confessor ever would otherwise leave a row behind).
  */
 async function writeCooldowns(all: Record<string, string>, now: Date): Promise<void> {
@@ -313,7 +316,9 @@ class FileStore implements MonarchStore {
 
   async listSnapshots(guildId: string) {
     const all = (await readJson<SnapshotRecord[]>("snapshots.json")) ?? [];
-    return all.filter((s) => s.guildId === guildId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return all
+      .filter((s) => s.guildId === guildId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
   async getSnapshot(guildId: string, id: string) {
     const all = (await readJson<SnapshotRecord[]>("snapshots.json")) ?? [];
@@ -395,9 +400,10 @@ class FileStore implements MonarchStore {
   }
 
   async getConfessionChannels(guildId: string): Promise<ConfessionChannelRecord> {
-    const all = (await readJson<Record<string, { channelId?: string; logChannelId?: string }>>(
-      "confession-channels.json",
-    )) ?? {};
+    const all =
+      (await readJson<Record<string, { channelId?: string; logChannelId?: string }>>(
+        "confession-channels.json",
+      )) ?? {};
     const row = all[guildId];
     return {
       guildId,
@@ -406,9 +412,10 @@ class FileStore implements MonarchStore {
     };
   }
   async putConfessionChannels(guildId: string, channels: ConfessionChannelRecord): Promise<void> {
-    const all = (await readJson<Record<string, { channelId?: string; logChannelId?: string }>>(
-      "confession-channels.json",
-    )) ?? {};
+    const all =
+      (await readJson<Record<string, { channelId?: string; logChannelId?: string }>>(
+        "confession-channels.json",
+      )) ?? {};
     if (channels.channelId === null && channels.logChannelId === null) {
       delete all[guildId];
     } else {

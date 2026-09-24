@@ -86,7 +86,10 @@ export function hasStaffPermissions(permissions: bigint): boolean {
 /** Should this member's `/music skip` force-skip instead of starting a vote? */
 export function canForceSkip(input: ForceSkipInput): ForceSkipResult {
   const config = input.config ?? {};
-  if (config.djRolesEnabled !== false && hasNamedRole(input.roleNames, config.djRoleNames ?? DEFAULT_DJ_ROLE_NAMES)) {
+  if (
+    config.djRolesEnabled !== false &&
+    hasNamedRole(input.roleNames, config.djRoleNames ?? DEFAULT_DJ_ROLE_NAMES)
+  ) {
     return { allowed: true, reason: "dj" };
   }
   if (hasNamedRole(input.roleNames, config.staffRoleNames ?? DEFAULT_STAFF_ROLE_NAMES)) {

@@ -107,11 +107,21 @@ export async function renameTemplate(opts: {
   const store = getStore();
   const existing = await store.getTemplate(opts.ownerId, opts.templateId);
   if (!existing) {
-    return { ok: false, status: 404, code: "template.not-found", message: "That template doesn't exist in your library." };
+    return {
+      ok: false,
+      status: 404,
+      code: "template.not-found",
+      message: "That template doesn't exist in your library.",
+    };
   }
   const name = opts.name.trim().slice(0, 100);
   if (!name) {
-    return { ok: false, status: 400, code: "template.name", message: "Template names need at least one character." };
+    return {
+      ok: false,
+      status: 400,
+      code: "template.name",
+      message: "Template names need at least one character.",
+    };
   }
   const updated: TemplateRecord = { ...existing, name, updatedAt: new Date().toISOString() };
   await store.putTemplate(updated);
@@ -125,7 +135,12 @@ export async function duplicateTemplate(opts: {
   const store = getStore();
   const existing = await store.getTemplate(opts.ownerId, opts.templateId);
   if (!existing) {
-    return { ok: false, status: 404, code: "template.not-found", message: "That template doesn't exist in your library." };
+    return {
+      ok: false,
+      status: 404,
+      code: "template.not-found",
+      message: "That template doesn't exist in your library.",
+    };
   }
   const now = new Date().toISOString();
   const copy: TemplateRecord = {
@@ -140,8 +155,7 @@ export async function duplicateTemplate(opts: {
 }
 
 export type LibraryDeleteOutcome =
-  | { ok: true; id: string }
-  | { ok: false; status: number; code: string; message: string };
+  { ok: true; id: string } | { ok: false; status: number; code: string; message: string };
 
 export async function deleteTemplate(opts: {
   ownerId: string;
@@ -150,7 +164,12 @@ export async function deleteTemplate(opts: {
   const store = getStore();
   const existing = await store.getTemplate(opts.ownerId, opts.templateId);
   if (!existing) {
-    return { ok: false, status: 404, code: "template.not-found", message: "That template doesn't exist in your library." };
+    return {
+      ok: false,
+      status: 404,
+      code: "template.not-found",
+      message: "That template doesn't exist in your library.",
+    };
   }
   await store.deleteTemplate(opts.ownerId, opts.templateId);
   return { ok: true, id: opts.templateId };
@@ -161,7 +180,9 @@ export async function deleteTemplate(opts: {
  * Parse it back before sending so a row written by an older/buggier
  * version degrades to a clear 404-style error instead of a corrupt file.
  */
-export function templateEnvelope(record: TemplateRecord):
+export function templateEnvelope(
+  record: TemplateRecord,
+):
   | { ok: true; template: ServerTemplate; fileName: string }
   | { ok: false; status: number; code: string; message: string } {
   const envelope = {
@@ -196,7 +217,11 @@ export function templateMeta(record: TemplateRecord): TemplateMeta {
   return { ...meta, ...counts };
 }
 
-export function templateCounts(record: TemplateRecord): { categories: number; channels: number; roles: number } {
+export function templateCounts(record: TemplateRecord): {
+  categories: number;
+  channels: number;
+  roles: number;
+} {
   const list = (key: string): unknown[] => {
     const value = record.data[key];
     return Array.isArray(value) ? value : [];

@@ -7,7 +7,10 @@ import { usePathname } from "next/navigation";
  * Global navigation. Sections mirror the product IA; features not yet built
  * link to a phase-labelled placeholder instead of dead-ends.
  */
-const SECTIONS: { label: string | null; items: { name: string; slug: string; soon?: boolean }[] }[] = [
+const SECTIONS: {
+  label: string | null;
+  items: { name: string; slug: string; soon?: boolean }[];
+}[] = [
   { label: null, items: [{ name: "Overview", slug: "" }] },
   {
     label: "Design",
@@ -40,7 +43,7 @@ const SECTIONS: { label: string | null; items: { name: string; slug: string; soo
   },
   {
     label: "Help",
-    items: [{name: "Commands & Help", slug: "help"}],
+    items: [{ name: "Commands & Help", slug: "help" }],
   },
 ];
 

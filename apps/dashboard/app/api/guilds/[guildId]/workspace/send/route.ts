@@ -16,10 +16,7 @@ const Body = z.object({
  * Test-send / publish the saved (or in-memory) embed/message design through
  * the Target Resolver — never a guessed channel.
  */
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const csrf = assertSameOrigin(req);
   if (csrf) return csrf;
   const { guildId } = await params;

@@ -77,7 +77,11 @@ export function BuilderApp({ guildId, kind }: { guildId: string; kind: ContentKi
       </header>
 
       {/* mobile pane switch */}
-      <div className="flex border-b border-ink-800 bg-ink-900/40 md:hidden" role="tablist" aria-label="Builder panes">
+      <div
+        className="flex border-b border-ink-800 bg-ink-900/40 md:hidden"
+        role="tablist"
+        aria-label="Builder panes"
+      >
         {(["editor", "preview"] as const).map((pane) => (
           <button
             key={pane}
@@ -85,7 +89,9 @@ export function BuilderApp({ guildId, kind }: { guildId: string; kind: ContentKi
             aria-selected={mobilePane === pane}
             onClick={() => setMobilePane(pane)}
             className={`flex-1 py-2 text-xs font-medium capitalize transition ${
-              mobilePane === pane ? "border-b-2 border-royal-400 text-royal-400" : "text-ink-400 hover:text-ink-200"
+              mobilePane === pane
+                ? "border-b-2 border-royal-400 text-royal-400"
+                : "text-ink-400 hover:text-ink-200"
             }`}
           >
             {pane}
@@ -122,14 +128,22 @@ export function BuilderApp({ guildId, kind }: { guildId: string; kind: ContentKi
           {w.sendResult.ok ? (
             <span>
               ✓ Sent to #{w.sendResult.channelName} — check the channel!
-              <button className="ml-2 text-ink-400 hover:text-ink-200" onClick={w.clearSendResult}>✕</button>
+              <button className="ml-2 text-ink-400 hover:text-ink-200" onClick={w.clearSendResult}>
+                ✕
+              </button>
             </span>
           ) : (
             <span className="block">
               {w.sendResult.error?.message}
-              {w.sendResult.error?.reason && <span className="text-ink-300"> {w.sendResult.error.reason}</span>}
-              {w.sendResult.error?.fix && <em className="text-ink-400"> {w.sendResult.error.fix}</em>}
-              <button className="ml-2 text-ink-400 hover:text-ink-200" onClick={w.clearSendResult}>✕</button>
+              {w.sendResult.error?.reason && (
+                <span className="text-ink-300"> {w.sendResult.error.reason}</span>
+              )}
+              {w.sendResult.error?.fix && (
+                <em className="text-ink-400"> {w.sendResult.error.fix}</em>
+              )}
+              <button className="ml-2 text-ink-400 hover:text-ink-200" onClick={w.clearSendResult}>
+                ✕
+              </button>
             </span>
           )}
         </div>
@@ -138,7 +152,9 @@ export function BuilderApp({ guildId, kind }: { guildId: string; kind: ContentKi
       {w.loadError ? (
         <div className="flex flex-1 items-center justify-center px-8">
           <div className="max-w-sm rounded-2xl border border-danger-400/30 bg-danger-400/5 p-6 text-center">
-            <p className="mb-2 text-sm font-medium text-danger-400">Couldn&apos;t open the {title.toLowerCase()}</p>
+            <p className="mb-2 text-sm font-medium text-danger-400">
+              Couldn&apos;t open the {title.toLowerCase()}
+            </p>
             <p className="text-xs text-ink-300">{w.loadError}</p>
           </div>
         </div>

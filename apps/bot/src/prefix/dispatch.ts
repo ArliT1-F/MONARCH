@@ -1,4 +1,5 @@
 import type { Message } from "discord.js";
+import { runEra } from "../era.js";
 import type { MonarchCommands } from "../monarch-commands.js";
 import { canReplyIn, PrefixCommandContext } from "./context.js";
 import { extractPrefixCommand, matchCommand, type PrefixInvocation } from "./parse.js";
@@ -37,7 +38,10 @@ export interface PrefixDispatcherDeps {
 }
 
 /** True when this message was handled as a prefix command. */
-export async function handlePrefixMessage(message: Message<true>, deps: PrefixDispatcherDeps): Promise<boolean> {
+export async function handlePrefixMessage(
+  message: Message<true>,
+  deps: PrefixDispatcherDeps,
+): Promise<boolean> {
   if (!deps.enabled()) return false;
 
   const content = message.content ?? "";
@@ -74,7 +78,12 @@ export async function handlePrefixMessage(message: Message<true>, deps: PrefixDi
   // one, whether this message arrived through it, through the default, or
   // through an @Monarch mention (which has no typable form at all).
   const prefix = await deps.prefixes.get(message.guildId);
-  const ctx = new PrefixCommandContext(message, invocation, prefix, match.kind === "command" ? match.args : []);
+  const ctx = new PrefixCommandContext(
+    message,
+    invocation,
+    prefix,
+    match.kind === "command" ? match.args : [],
+  );
 
   try {
     switch (match.kind) {
@@ -94,13 +103,19 @@ export async function handlePrefixMessage(message: Message<true>, deps: PrefixDi
     deps.log.error("prefix command failed", {
       guildId: message.guildId,
       channelId: message.channelId,
-      command: match.kind === "command" ? `${match.surface} ${"sub" in match ? match.sub : ""}`.trim() : match.kind,
+      command:
+        match.kind === "command"
+          ? `${match.surface} ${"sub" in match ? match.sub : ""}`.trim()
+          : match.kind,
       error: String(e),
     });
     if (!ctx.answered) {
-      await ctx
-        .replyHidden(`❌ Something went wrong running that command — try again, or use the slash version (\`/${match.kind === "command" ? match.surface : "monarch"}\`).`)
-        .catch(() => {});
+      // `era` has no slash counterpart — it's a prefix-only easter egg.
+      const hint =
+        match.kind === "command" && match.surface !== "era"
+          ? ` — try again, or use the slash version (\`/${match.surface}\`)`
+          : " — try again";
+      await ctx.replyHidden(`❌ Something went wrong running that command${hint}.`).catch(() => {});
     }
     return true;
   }
@@ -124,6 +139,9 @@ async function runCommand(
       return;
     case "music":
       await deps.music().run(ctx, match.sub);
+      return;
+    case "era":
+      await runEra(ctx, match.sub);
       return;
   }
 }

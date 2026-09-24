@@ -34,6 +34,8 @@ export type PrefixMatch =
   | { kind: "command"; surface: "monarch"; sub: string; args: string[]; viaMention: boolean }
   | { kind: "command"; surface: "burg"; args: string[]; viaMention: boolean }
   | { kind: "command"; surface: "music"; sub: string; args: string[]; viaMention: boolean }
+  /** `!era zhvishu` — an unlisted easter egg, not part of the documented catalog. */
+  | { kind: "command"; surface: "era"; sub: string; args: string[]; viaMention: boolean }
   /**
    * The prefix (or a bare mention) with nothing after it. Only mentions get
    * an answer — a lone `!` in a busy channel must stay silent.
@@ -77,7 +79,7 @@ export const MONARCH_PREFIX_ALIASES: Readonly<Record<string, readonly string[]>>
 };
 
 /** Roots that mean "the next word is a subcommand". */
-const GROUP_ROOTS = new Set(["monarch", "music"]);
+const GROUP_ROOTS = new Set(["monarch", "music", "era"]);
 
 /** Every short alias, used to tell command words from arguments. */
 const ALIAS_WORDS = new Set<string>([
@@ -108,8 +110,9 @@ const MENTION_TO_ID = /<@!?(\d{15,25})>|<#(\d{15,25})>|<@&(\d{15,25})>/g;
  * quotes just run to the end of the line (people type on phones).
  */
 export function parseArgs(input: string): string[] {
-  const text = input.replace(MENTION_TO_ID, (_m, user?: string, channel?: string, role?: string) =>
-    user ?? channel ?? role ?? "",
+  const text = input.replace(
+    MENTION_TO_ID,
+    (_m, user?: string, channel?: string, role?: string) => user ?? channel ?? role ?? "",
   );
   const tokens: string[] = [];
   let current = "";
@@ -229,31 +232,53 @@ export function matchCommand(invocation: PrefixInvocation): PrefixMatch {
   if (tokens.length === 0) {
     const word = /^([^\s"]+)/u.exec(invocation.content.trim())?.[1];
     if (!word) return { kind: "bare", viaMention };
-    return viaMention ? { kind: "unknown", token: word.toLowerCase(), viaMention } : { kind: "ignore" };
+    return viaMention
+      ? { kind: "unknown", token: word.toLowerCase(), viaMention }
+      : { kind: "ignore" };
   }
 
   const [head, second] = tokens as [string, string | undefined];
 
-  if (head === "burg") return { kind: "command", surface: "burg", args: second ? [second, ...args] : args, viaMention };
+  if (head === "burg")
+    return {
+      kind: "command",
+      surface: "burg",
+      args: second ? [second, ...args] : args,
+      viaMention,
+    };
 
   if (GROUP_ROOTS.has(head!)) {
     if (!second) return { kind: "unknown", token: head!, viaMention };
     const rest = args;
-    return head === "music"
-      ? { kind: "command", surface: "music", sub: second, args: rest, viaMention }
-      : { kind: "command", surface: "monarch", sub: second, args: rest, viaMention };
+    if (head === "music")
+      return { kind: "command", surface: "music", sub: second, args: rest, viaMention };
+    if (head === "era")
+      return { kind: "command", surface: "era", sub: second, args: rest, viaMention };
+    return { kind: "command", surface: "monarch", sub: second, args: rest, viaMention };
   }
 
   // Short aliases. `prefix` and `burg` are their own words; everything else
   // maps onto a monarch or music subcommand.
   for (const [sub, aliases] of Object.entries(MONARCH_PREFIX_ALIASES)) {
     if (aliases.includes(head!)) {
-      return { kind: "command", surface: "monarch", sub, args: second ? [second, ...args] : args, viaMention };
+      return {
+        kind: "command",
+        surface: "monarch",
+        sub,
+        args: second ? [second, ...args] : args,
+        viaMention,
+      };
     }
   }
   for (const [sub, aliases] of Object.entries(MUSIC_PREFIX_ALIASES)) {
     if (aliases.includes(head!)) {
-      return { kind: "command", surface: "music", sub, args: second ? [second, ...args] : args, viaMention };
+      return {
+        kind: "command",
+        surface: "music",
+        sub,
+        args: second ? [second, ...args] : args,
+        viaMention,
+      };
     }
   }
 

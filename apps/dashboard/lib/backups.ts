@@ -16,7 +16,12 @@ import { getStore, newId, type SnapshotRecord } from "./store";
 const log = createLogger("backups");
 
 export type BackupOutcome =
-  | { ok: true; snapshot: Omit<SnapshotRecord, "design">; channelCount: number; categoryCount: number }
+  | {
+      ok: true;
+      snapshot: Omit<SnapshotRecord, "design">;
+      channelCount: number;
+      categoryCount: number;
+    }
   | { ok: false; status: number; code: string; message: string };
 
 /** Take a manual snapshot of the live structure. */
@@ -38,7 +43,8 @@ export async function createBackup(opts: {
   const snapshot: SnapshotRecord = {
     id: newId("snap"),
     guildId: opts.guildId,
-    name: opts.name?.trim() || `Backup · ${new Date().toISOString().slice(0, 16).replace("T", " ")}`,
+    name:
+      opts.name?.trim() || `Backup · ${new Date().toISOString().slice(0, 16).replace("T", " ")}`,
     kind: "manual",
     design: current,
     createdAt: new Date().toISOString(),
@@ -89,11 +95,21 @@ export async function stageRestore(opts: {
   const store = getStore();
   const snapshot = await store.getSnapshot(opts.guildId, opts.snapshotId);
   if (!snapshot) {
-    return { ok: false, status: 404, code: "snapshot.not-found", message: "That snapshot doesn't exist." };
+    return {
+      ok: false,
+      status: 404,
+      code: "snapshot.not-found",
+      message: "That snapshot doesn't exist.",
+    };
   }
   const current = await fetchCurrentDesign(opts.guildId);
   if (!current) {
-    return { ok: false, status: 502, code: "guild.state", message: "Monarch couldn't read this server's structure." };
+    return {
+      ok: false,
+      status: 502,
+      code: "guild.state",
+      message: "Monarch couldn't read this server's structure.",
+    };
   }
   const { design, recreated, adopted } = rebaseDesign(current, snapshot.design);
   await store.putDraft(opts.userId, {
@@ -110,17 +126,36 @@ export async function stageRestore(opts: {
     summary: `Restore of "${snapshot.name}" staged as a draft${recreated ? ` (${recreated} deleted item(s) will be recreated)` : ""}`,
     createdAt: new Date().toISOString(),
   });
-  log.info("restore staged", { guildId: opts.guildId, userId: opts.userId, id: snapshot.id, recreated, adopted });
-  return { ok: true, snapshot: withoutDesign(snapshot), recreated, designerUrl: `/s/${opts.guildId}/designer` };
+  log.info("restore staged", {
+    guildId: opts.guildId,
+    userId: opts.userId,
+    id: snapshot.id,
+    recreated,
+    adopted,
+  });
+  return {
+    ok: true,
+    snapshot: withoutDesign(snapshot),
+    recreated,
+    designerUrl: `/s/${opts.guildId}/designer`,
+  };
 }
 
 /** Portable template of the live structure (ids detached, guild-specific bits removed). */
-export async function exportTemplate(guildId: string): Promise<
-  { ok: true; template: ServerTemplate; fileName: string } | { ok: false; status: number; code: string; message: string }
+export async function exportTemplate(
+  guildId: string,
+): Promise<
+  | { ok: true; template: ServerTemplate; fileName: string }
+  | { ok: false; status: number; code: string; message: string }
 > {
   const current = await fetchCurrentDesign(guildId);
   if (!current) {
-    return { ok: false, status: 502, code: "guild.state", message: "Monarch couldn't read this server's structure." };
+    return {
+      ok: false,
+      status: 502,
+      code: "guild.state",
+      message: "Monarch couldn't read this server's structure.",
+    };
   }
   return { ok: true, template: buildTemplate(current), fileName: templateFileName(current.name) };
 }
@@ -184,7 +219,12 @@ export async function stageImport(opts: {
   }
   const current = await fetchCurrentDesign(opts.guildId);
   if (!current) {
-    return { ok: false, status: 502, code: "guild.state", message: "Monarch couldn't read this server's structure." };
+    return {
+      ok: false,
+      status: 502,
+      code: "guild.state",
+      message: "Monarch couldn't read this server's structure.",
+    };
   }
   // A template is portable structure only: never let it smuggle in another
   // server's roles or designated channels.

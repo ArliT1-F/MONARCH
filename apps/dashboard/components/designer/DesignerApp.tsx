@@ -5,10 +5,7 @@ import type { GuildSummary, ServerDesign } from "@monarch/schemas";
 import { diffServerDesign } from "@monarch/design-engine";
 import { validateServerDesign } from "@monarch/validation";
 import { apiErrorMessage, networkErrorMessage, readJsonSafe } from "@/lib/fetch-json";
-import {
-  designerReducer,
-  initialDesignerState,
-} from "./designer-state";
+import { designerReducer, initialDesignerState } from "./designer-state";
 import { StructureTree } from "./StructureTree";
 import { Inspector } from "./Inspector";
 import { ReviewModal } from "./ReviewModal";
@@ -138,7 +135,9 @@ export function DesignerApp({ guildId }: { guildId: string }) {
     return (
       <div className="flex h-[70vh] items-center justify-center px-8">
         <div className="max-w-sm rounded-2xl border border-danger-400/30 bg-danger-400/5 p-6 text-center">
-          <p className="mb-2 text-sm font-medium text-danger-400">Couldn&apos;t load the designer</p>
+          <p className="mb-2 text-sm font-medium text-danger-400">
+            Couldn&apos;t load the designer
+          </p>
           <p className="mb-4 text-xs text-ink-300">{state.errorMessage}</p>
           <button
             onClick={() => void load()}
@@ -152,7 +151,11 @@ export function DesignerApp({ guildId }: { guildId: string }) {
   }
 
   const changeCount = diff
-    ? diff.creates.length + diff.modifies.length + diff.renames.length + diff.moves.length + diff.deletes.length
+    ? diff.creates.length +
+      diff.modifies.length +
+      diff.renames.length +
+      diff.moves.length +
+      diff.deletes.length
     : 0;
 
   return (
@@ -196,7 +199,9 @@ export function DesignerApp({ guildId }: { guildId: string }) {
                 <span className="h-1.5 w-1.5 rounded-full bg-gold-400" />
                 <span className="hidden sm:inline">Unsaved changes</span>
                 <span className="sm:hidden">Unsaved</span>
-                {saveState === "saving" && <span className="hidden sm:inline"> · saving draft…</span>}
+                {saveState === "saving" && (
+                  <span className="hidden sm:inline"> · saving draft…</span>
+                )}
                 {saveState === "saved" && <span className="hidden sm:inline"> · draft saved</span>}
                 {saveState === "error" && (
                   <span className="text-danger-400"> · draft save failed</span>
@@ -231,7 +236,11 @@ export function DesignerApp({ guildId }: { guildId: string }) {
       </header>
 
       {/* ── mobile pane switch ── */}
-      <div className="flex border-b border-ink-800 bg-ink-900/40 md:hidden" role="tablist" aria-label="Designer panes">
+      <div
+        className="flex border-b border-ink-800 bg-ink-900/40 md:hidden"
+        role="tablist"
+        aria-label="Designer panes"
+      >
         {(["canvas", "inspector"] as const).map((pane) => (
           <button
             key={pane}
@@ -246,7 +255,9 @@ export function DesignerApp({ guildId }: { guildId: string }) {
           >
             {pane === "canvas" ? "Structure" : "Inspector"}
             {pane === "inspector" && validation && validation.issues.length > 0 && (
-              <span className={`ml-1.5 rounded-full px-1.5 text-[10px] ${validation.errors.length > 0 ? "bg-danger-400/15 text-danger-400" : "bg-warn-400/15 text-warn-400"}`}>
+              <span
+                className={`ml-1.5 rounded-full px-1.5 text-[10px] ${validation.errors.length > 0 ? "bg-danger-400/15 text-danger-400" : "bg-warn-400/15 text-warn-400"}`}
+              >
                 {validation.issues.length}
               </span>
             )}

@@ -28,7 +28,12 @@ const info = (m) => console.log(`    ${m}`);
 function run(bin, args, timeout = 30_000) {
   try {
     const result = spawnSync(bin, args, { encoding: "utf8", timeout });
-    return { ok: !result.error && result.status === 0, code: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    return {
+      ok: !result.error && result.status === 0,
+      code: result.status,
+      stdout: result.stdout ?? "",
+      stderr: result.stderr ?? "",
+    };
   } catch (error) {
     return { ok: false, code: null, stdout: "", stderr: String(error) };
   }
@@ -55,7 +60,9 @@ for (const candidate of candidates) {
       const released = new Date(`${age[1]}-${age[2]}-${age[3]}T00:00:00Z`).getTime();
       const days = Math.floor((Date.now() - released) / 86_400_000);
       if (days > 90) {
-        info(`this build is ${days} days old — YouTube changes often: \`yt-dlp -U\` (or re-run npm run music:setup)`);
+        info(
+          `this build is ${days} days old — YouTube changes often: \`yt-dlp -U\` (or re-run npm run music:setup)`,
+        );
       }
     }
     break;
@@ -118,7 +125,9 @@ try {
     voice = await import(botRequire.resolve("@discordjs/voice"));
   }
   const report = voice.generateDependencyReport();
-  const field = (name) => new RegExp(`^- ${name.replace(/[/@.\-]/g, "\\$&")}: (.+)$`, "m").exec(report)?.[1]?.trim() ?? null;
+  const field = (name) =>
+    new RegExp(`^- ${name.replace(/[/@.\-]/g, "\\$&")}: (.+)$`, "m").exec(report)?.[1]?.trim() ??
+    null;
   const opus = field("opusscript");
   const native = field("@discordjs/opus");
   const dave = field("@snazzah/davey");
@@ -141,10 +150,13 @@ try {
     info("fix: npm install @snazzah/davey");
   }
 
-  if (aes && aes !== "yes") bad("no native aes-256-gcm — reinstall Node, or voice encryption will fail");
+  if (aes && aes !== "yes")
+    bad("no native aes-256-gcm — reinstall Node, or voice encryption will fail");
   else ok("voice encryption: native aes-256-gcm");
 } catch (error) {
-  bad(`could not load @discordjs/voice (${error instanceof Error ? error.message : String(error)})`);
+  bad(
+    `could not load @discordjs/voice (${error instanceof Error ? error.message : String(error)})`,
+  );
   info("fix: npm install");
 }
 
@@ -163,10 +175,14 @@ if (ytdlpBin) {
 
 // ── 5. throttling defences ───────────────────────────────────────────────────
 if (ytdlpBin) {
-  ok("download: 16 KiB chunks + 5 retries per download (YouTube throttles connections, not accounts)");
+  ok(
+    "download: 16 KiB chunks + 5 retries per download (YouTube throttles connections, not accounts)",
+  );
   const runtime = process.env.YTDLP_JS_RUNTIME?.trim();
   if (runtime?.toLowerCase() === "none") {
-    warn("JavaScript runtime disabled — YouTube's n/signature challenge goes unsolved, which shows up as tracks dying early");
+    warn(
+      "JavaScript runtime disabled — YouTube's n/signature challenge goes unsolved, which shows up as tracks dying early",
+    );
   } else if (runtime) {
     ok(`challenge solver: ${runtime}`);
   } else {
@@ -180,7 +196,11 @@ if (ytdlpBin) {
 // ── 6. can it actually reach YouTube? ────────────────────────────────────────
 if (probe && ytdlpBin) {
   console.log("\n  Probing YouTube with `yt-dlp -J 'ytsearch1:monarch'` …");
-  const result = run(ytdlpBin, ["--no-warnings", "--no-playlist", "-J", "ytsearch1:monarch", "--flat-playlist"], 90_000);
+  const result = run(
+    ytdlpBin,
+    ["--no-warnings", "--no-playlist", "-J", "ytsearch1:monarch", "--flat-playlist"],
+    90_000,
+  );
   if (result.ok) {
     try {
       const data = JSON.parse(result.stdout.trim().split("\n").pop());
@@ -195,11 +215,17 @@ if (probe && ytdlpBin) {
     const stderr = (result.stderr ?? "").trim().split("\n").slice(-4).join("\n    ");
     if (stderr) info(stderr);
     if (/sign in to confirm|not a bot|confirm your age/i.test(result.stderr)) {
-      info("YouTube wants cookies. Export a cookies.txt from a browser and set YTDLP_COOKIES=/path/cookies.txt");
+      info(
+        "YouTube wants cookies. Export a cookies.txt from a browser and set YTDLP_COOKIES=/path/cookies.txt",
+      );
     } else if (/HTTP Error 403/i.test(result.stderr)) {
-      info("A 403 on a datacenter IP is usually the bot check arriving early: cookies (above) are the fix");
+      info(
+        "A 403 on a datacenter IP is usually the bot check arriving early: cookies (above) are the fix",
+      );
     } else if (/SSL|tls|connection|timed out/i.test(result.stderr)) {
-      info("This looks like a network/DNS/TLS problem (firewall, VPN, or a blocked IP) — not a broken bot.");
+      info(
+        "This looks like a network/DNS/TLS problem (firewall, VPN, or a blocked IP) — not a broken bot.",
+      );
     }
   }
 } else if (probe) {

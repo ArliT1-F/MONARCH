@@ -25,9 +25,12 @@ export async function GET(_req: NextRequest, { params }: Params) {
 }
 
 const PutBody = z.object({
-  checkId: z.string().min(1).refine((id) => CHECKS.some((c) => c.id === id), {
-    message: "Unknown analyzer check id.",
-  }),
+  checkId: z
+    .string()
+    .min(1)
+    .refine((id) => CHECKS.some((c) => c.id === id), {
+      message: "Unknown analyzer check id.",
+    }),
   dismissed: z.boolean(),
 });
 

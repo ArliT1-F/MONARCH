@@ -10,10 +10,7 @@ const PutBody = z.object({
 });
 
 /** PUT: autosave the caller's draft. DELETE: discard it. */
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const csrf = assertSameOrigin(req);
   if (csrf) return csrf;
   const { guildId } = await params;

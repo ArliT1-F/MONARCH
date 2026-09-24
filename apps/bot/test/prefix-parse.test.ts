@@ -35,8 +35,16 @@ describe("parseArgs", () => {
   });
 
   it("keeps quoted spans together", () => {
-    expect(parseArgs('backup "before summer cleanup"')).toEqual(["backup", "before summer cleanup"]);
-    expect(parseArgs('burg 123 "10m" "spam in general"')).toEqual(["burg", "123", "10m", "spam in general"]);
+    expect(parseArgs('backup "before summer cleanup"')).toEqual([
+      "backup",
+      "before summer cleanup",
+    ]);
+    expect(parseArgs('burg 123 "10m" "spam in general"')).toEqual([
+      "burg",
+      "123",
+      "10m",
+      "spam in general",
+    ]);
   });
 
   it("treats an unbalanced quote as running to the end", () => {
@@ -46,7 +54,11 @@ describe("parseArgs", () => {
   it("rewrites user, channel and role mentions to snowflakes", () => {
     expect(parseArgs("burg <@111111111111111> 10m")).toEqual(["burg", "111111111111111", "10m"]);
     expect(parseArgs("<@!333333333333333> hi")).toEqual(["333333333333333", "hi"]);
-    expect(parseArgs("test message <#222222222222222>")).toEqual(["test", "message", "222222222222222"]);
+    expect(parseArgs("test message <#222222222222222>")).toEqual([
+      "test",
+      "message",
+      "222222222222222",
+    ]);
     expect(parseArgs("<@&444444444444444>")).toEqual(["444444444444444"]);
   });
 
@@ -86,8 +98,14 @@ describe("extractPrefixCommand", () => {
 
   it("stops the command path at the first non-word argument", () => {
     // `!play daft punk …` must keep its whole search phrase.
-    expect(invoke("!play https://youtu.be/abc")).toMatchObject({ tokens: ["play"], args: ["https://youtu.be/abc"] });
-    expect(invoke("!burg <@111111111111111>")).toMatchObject({ tokens: ["burg"], args: ["111111111111111"] });
+    expect(invoke("!play https://youtu.be/abc")).toMatchObject({
+      tokens: ["play"],
+      args: ["https://youtu.be/abc"],
+    });
+    expect(invoke("!burg <@111111111111111>")).toMatchObject({
+      tokens: ["burg"],
+      args: ["111111111111111"],
+    });
     expect(invoke("!volume 80")).toMatchObject({ tokens: ["volume"], args: ["80"] });
   });
 
@@ -138,17 +156,30 @@ describe("matchCommand", () => {
   };
 
   it("routes short aliases to the right surface", () => {
-    expect(match("!help")).toMatchObject({ kind: "command", surface: "monarch", sub: "help", args: [] });
+    expect(match("!help")).toMatchObject({
+      kind: "command",
+      surface: "monarch",
+      sub: "help",
+      args: [],
+    });
     expect(match("!burged")).toMatchObject({
       kind: "command",
       surface: "monarch",
       sub: "burged",
       args: [],
     });
-    expect(match("!prefix set ?")).toMatchObject({ surface: "monarch", sub: "prefix", args: ["set", "?"] });
+    expect(match("!prefix set ?")).toMatchObject({
+      surface: "monarch",
+      sub: "prefix",
+      args: ["set", "?"],
+    });
     expect(match("!invite")).toMatchObject({ surface: "monarch", sub: "invite", args: [] });
     expect(match("!add")).toMatchObject({ surface: "monarch", sub: "invite" });
-    expect(match("!play daft punk")).toMatchObject({ surface: "music", sub: "play", args: ["daft", "punk"] });
+    expect(match("!play daft punk")).toMatchObject({
+      surface: "music",
+      sub: "play",
+      args: ["daft", "punk"],
+    });
     expect(match("!np")).toMatchObject({ surface: "music", sub: "nowplaying" });
     expect(match("!q 2")).toMatchObject({ surface: "music", sub: "queue", args: ["2"] });
     expect(match("!leave")).toMatchObject({ surface: "music", sub: "stop" });
@@ -161,7 +192,11 @@ describe("matchCommand", () => {
 
   it("routes the mirrored slash tree", () => {
     expect(match("!monarch burged")).toMatchObject({ surface: "monarch", sub: "burged" });
-    expect(match("!monarch prefix m!")).toMatchObject({ surface: "monarch", sub: "prefix", args: ["m!"] });
+    expect(match("!monarch prefix m!")).toMatchObject({
+      surface: "monarch",
+      sub: "prefix",
+      args: ["m!"],
+    });
     expect(match("!monarch invite")).toMatchObject({ surface: "monarch", sub: "invite" });
     expect(match("!music play around the world")).toMatchObject({
       surface: "music",
@@ -176,6 +211,17 @@ describe("matchCommand", () => {
     expect(match(">>help", [">>"])).toMatchObject({ surface: "monarch", sub: "help" });
   });
 
+  it("routes the era easter egg like any other group root", () => {
+    expect(match("!era zhvishu")).toMatchObject({
+      kind: "command",
+      surface: "era",
+      sub: "zhvishu",
+      args: [],
+    });
+    // A bare root still answers (the handler is what says "not a thing").
+    expect(match("!era")).toEqual({ kind: "unknown", token: "era", viaMention: false });
+  });
+
   it("silently ignores unknown !words — other bots' prefixes are not ours", () => {
     expect(match("!ban @user")).toEqual({ kind: "ignore" });
     expect(match("!ping")).toEqual({ kind: "ignore" });
@@ -187,10 +233,15 @@ describe("matchCommand", () => {
   });
 
   it("answers when Monarch is addressed directly", () => {
-    expect(match(`<@${BOT_ID}> frobnicate`)).toEqual({ kind: "unknown", token: "frobnicate", viaMention: true });
+    expect(match(`<@${BOT_ID}> frobnicate`)).toEqual({
+      kind: "unknown",
+      token: "frobnicate",
+      viaMention: true,
+    });
     expect(match(`<@${BOT_ID}>`)).toEqual({ kind: "bare", viaMention: true });
     expect(match("!monarch")).toEqual({ kind: "unknown", token: "monarch", viaMention: false });
     expect(match("!music")).toEqual({ kind: "unknown", token: "music", viaMention: false });
+    expect(match("!era")).toEqual({ kind: "unknown", token: "era", viaMention: false });
   });
 });
 
@@ -245,7 +296,9 @@ describe("alias table ⇄ shared command catalog", () => {
       const prefixTail = prefixForm.slice(DEFAULT_COMMAND_PREFIX.length);
       expect(prefixTail.startsWith(slashTail.split(" ")[0]!)).toBe(true);
       const optionCount = (text: string) => (text.match(/[[<]/g) ?? []).length;
-      expect(optionCount(prefixForm), `${doc.name}: option count differs`).toBe(optionCount(doc.usage));
+      expect(optionCount(prefixForm), `${doc.name}: option count differs`).toBe(
+        optionCount(doc.usage),
+      );
     }
   });
 

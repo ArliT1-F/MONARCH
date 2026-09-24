@@ -65,7 +65,13 @@ describe("validateServerDesign", () => {
     const d = emptyServerDesign("g", "G");
     d.channels = [
       { id: "a", name: "chat", type: "text", position: 0, parentId: "ghost" },
-      { id: "b", name: "info", type: "text", position: 1, topic: "y".repeat(DiscordLimits.channel.topicMax + 1) },
+      {
+        id: "b",
+        name: "info",
+        type: "text",
+        position: 1,
+        topic: "y".repeat(DiscordLimits.channel.topicMax + 1),
+      },
     ];
     const report = validateServerDesign(d);
     const codes = report.errors.map((e) => e.code);

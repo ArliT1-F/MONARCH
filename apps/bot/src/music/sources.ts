@@ -99,7 +99,8 @@ export function isDownloaderFailure(error: unknown): boolean {
 function isYoutubeEntry(entry: YtdlpEntry): boolean {
   const key = `${entry.extractor ?? ""} ${entry.ie_key ?? ""}`.toLowerCase();
   if (key.includes("youtube")) return true;
-  if (entry.webpage_url?.includes("youtube.com") || entry.webpage_url?.includes("youtu.be")) return true;
+  if (entry.webpage_url?.includes("youtube.com") || entry.webpage_url?.includes("youtu.be"))
+    return true;
   // Flat playlist/search entries carry no extractor key, just an 11-char id
   // and a watch URL.
   return Boolean(entry.id && /^[A-Za-z0-9_-]{11}$/.test(entry.id) && !entry.extractor);
@@ -127,8 +128,12 @@ export function entryToTrack(
   if (!title || !url) return null;
 
   const youtube = isYoutubeEntry(entry);
-  const duration = typeof entry.duration === "number" && entry.duration > 0 ? Math.round(entry.duration * 1000) : null;
-  const thumbnail = entry.thumbnail ?? entry.thumbnails?.at(-1)?.url ?? (youtube ? youtubeThumbnail(id) : null);
+  const duration =
+    typeof entry.duration === "number" && entry.duration > 0
+      ? Math.round(entry.duration * 1000)
+      : null;
+  const thumbnail =
+    entry.thumbnail ?? entry.thumbnails?.at(-1)?.url ?? (youtube ? youtubeThumbnail(id) : null);
 
   return {
     id: randomUUID(),
@@ -166,7 +171,8 @@ interface SpotifyTrackMeta {
 
 /** The sentence a failed Web API call turns into. */
 function spotifyHttpMessage(status: number): string {
-  if (status === 401) return "Spotify rejected the bot's credentials — check SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET.";
+  if (status === 401)
+    return "Spotify rejected the bot's credentials — check SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET.";
   if (status === 403) {
     return (
       "Spotify refused that request (HTTP 403) — since their February 2026 API change an app may only read " +
@@ -174,7 +180,8 @@ function spotifyHttpMessage(status: number): string {
     );
   }
   if (status === 404) return "That Spotify link doesn't exist (or was removed).";
-  if (status === 429) return "Spotify is rate-limiting the bot right now — try that again in a few minutes.";
+  if (status === 429)
+    return "Spotify is rate-limiting the bot right now — try that again in a few minutes.";
   return `Spotify API error (HTTP ${status}).`;
 }
 
@@ -202,7 +209,10 @@ class SpotifyClient {
       });
       if (!res.ok) throw new SourceError(`Spotify authentication failed (HTTP ${res.status}).`);
       const data = (await res.json()) as { access_token: string; expires_in: number };
-      this.token = { value: data.access_token, expiresAt: Date.now() + (data.expires_in - 60) * 1000 };
+      this.token = {
+        value: data.access_token,
+        expiresAt: Date.now() + (data.expires_in - 60) * 1000,
+      };
     }
     return `Bearer ${this.token.value}`;
   }
@@ -239,7 +249,12 @@ class SpotifyClient {
       external_urls: { spotify: string };
       images?: { url: string }[];
       tracks: {
-        items: { name: string; duration_ms: number; artists: { name: string }[]; external_urls?: { spotify: string } }[];
+        items: {
+          name: string;
+          duration_ms: number;
+          artists: { name: string }[];
+          external_urls?: { spotify: string };
+        }[];
         next: string | null;
       };
     }>(`/albums/${id}`);
@@ -278,7 +293,8 @@ class SpotifyClient {
     cap: number,
   ): Promise<{ name: string; tracks: SpotifyTrackMeta[]; unavailable: number }> {
     const viaApi = await this.playlistFromApi(id, cap);
-    if (viaApi.ok) return { name: viaApi.name, tracks: viaApi.tracks, unavailable: viaApi.unavailable };
+    if (viaApi.ok)
+      return { name: viaApi.name, tracks: viaApi.tracks, unavailable: viaApi.unavailable };
 
     // The API wouldn't hand it over — withheld contents, the 404 Spotify
     // answers for its own editorial playlists, a dead endpoint. The public embed
@@ -294,7 +310,11 @@ class SpotifyClient {
     if (embedded && embedded.tracks.length > 0) {
       const tracks = embedded.tracks.slice(0, cap);
       const name = embedded.name ?? viaApi.name ?? "that playlist";
-      log.info("read a Spotify playlist from its public embed page", { id, name, tracks: tracks.length });
+      log.info("read a Spotify playlist from its public embed page", {
+        id,
+        name,
+        tracks: tracks.length,
+      });
       const listed = viaApi.total ?? embedded.listed;
       return { name, tracks, unavailable: Math.max(0, listed - tracks.length) };
     }
@@ -314,20 +334,29 @@ class SpotifyClient {
     | { ok: false; name: string | null; total: number | null; rows: number; error: SourceError }
   > {
     try {
-      const data = await this.get<{ name: string; items?: unknown; tracks?: unknown }>(`/playlists/${id}`);
+      const data = await this.get<{ name: string; items?: unknown; tracks?: unknown }>(
+        `/playlists/${id}`,
+      );
       const page = playlistPage(data);
       const rows = page?.items ?? [];
       // A playlist holds more than songs: podcast episodes and local files come
       // back in the same list. They have no `artists`, so treating one as a track
       // used to throw and take the whole import down with it — they are counted
       // as unavailable instead.
-      const songs = rows.map(playlistTrack).filter((track): track is PlaylistItem => track !== null);
-      const items = await this.paged<PlaylistItem>({ items: songs, next: page?.next ?? null }, cap, playlistTrack, {
-        // Spotify keeps handing out legacy `/tracks` cursors, and that endpoint
-        // is gone (403) since the rename.
-        nextUrl: playlistItemsUrl,
-        partial: true,
-      });
+      const songs = rows
+        .map(playlistTrack)
+        .filter((track): track is PlaylistItem => track !== null);
+      const items = await this.paged<PlaylistItem>(
+        { items: songs, next: page?.next ?? null },
+        cap,
+        playlistTrack,
+        {
+          // Spotify keeps handing out legacy `/tracks` cursors, and that endpoint
+          // is gone (403) since the rename.
+          nextUrl: playlistItemsUrl,
+          partial: true,
+        },
+      );
       const declared = page?.total ?? playlistTotal(data);
       const tracks = items.map(playlistMeta);
 
@@ -372,7 +401,9 @@ class SpotifyClient {
           album?: { images?: { url: string }[] };
         }[];
       };
-    }>(`/search?type=track&limit=${Math.min(10, Math.max(1, limit))}&q=${encodeURIComponent(query)}`);
+    }>(
+      `/search?type=track&limit=${Math.min(10, Math.max(1, limit))}&q=${encodeURIComponent(query)}`,
+    );
     return data.tracks.items.map((item) => ({
       name: item.name,
       artists: item.artists.map((a) => a.name).join(", "),
@@ -398,7 +429,8 @@ class SpotifyClient {
     unwrap: (raw: unknown) => T | null = (raw) => raw as T,
     options: { nextUrl?: (url: string) => string; partial?: boolean } = {},
   ): Promise<T[]> {
-    const collect = (raw: unknown[]): T[] => raw.map(unwrap).filter((item): item is T => item !== null);
+    const collect = (raw: unknown[]): T[] =>
+      raw.map(unwrap).filter((item): item is T => item !== null);
     const out: T[] = collect(first.items);
     let next = first.next;
     let guard = 0;
@@ -461,7 +493,9 @@ function spotifyPage(value: unknown): SpotifyPage | null {
  * owns itself, and that must never be mistaken for an empty playlist.
  */
 function playlistPage(data: { items?: unknown; tracks?: unknown }): SpotifyPage | null {
-  const pages = [spotifyPage(data.items), spotifyPage(data.tracks)].filter((page): page is SpotifyPage => page !== null);
+  const pages = [spotifyPage(data.items), spotifyPage(data.tracks)].filter(
+    (page): page is SpotifyPage => page !== null,
+  );
   return pages.find((page) => page.items.length > 0) ?? pages[0] ?? null;
 }
 
@@ -492,7 +526,11 @@ function playlistRowObject(entry: unknown): Record<string, unknown> | null {
   if (!entry || typeof entry !== "object") return null;
   const row = entry as Record<string, unknown>;
   for (const candidate of [row.item, row.track, entry]) {
-    if (candidate && typeof candidate === "object" && typeof (candidate as { name?: unknown }).name === "string") {
+    if (
+      candidate &&
+      typeof candidate === "object" &&
+      typeof (candidate as { name?: unknown }).name === "string"
+    ) {
       return candidate as Record<string, unknown>;
     }
   }
@@ -511,7 +549,9 @@ function playlistMeta(item: PlaylistItem): SpotifyTrackMeta {
     name: item.name,
     artists: (item.artists ?? []).map((artist) => artist.name).join(", "),
     durationMs: typeof item.duration_ms === "number" ? item.duration_ms : null,
-    url: item.external_urls?.spotify ?? (item.id ? `https://open.spotify.com/track/${item.id}` : item.name),
+    url:
+      item.external_urls?.spotify ??
+      (item.id ? `https://open.spotify.com/track/${item.id}` : item.name),
     thumbnail: item.album?.images?.at(-1)?.url ?? null,
   };
 }
@@ -569,8 +609,14 @@ async function spotifyEmbedPlaylist(
   const entity = payload ? findTrackList(payload) : null;
   if (!entity) return null;
 
-  const tracks = entity.list.map(embedTrack).filter((track): track is SpotifyTrackMeta => track !== null);
-  return { name: textField(entity.owner.name) ?? textField(entity.owner.title), tracks, listed: tracks.length };
+  const tracks = entity.list
+    .map(embedTrack)
+    .filter((track): track is SpotifyTrackMeta => track !== null);
+  return {
+    name: textField(entity.owner.name) ?? textField(entity.owner.title),
+    tracks,
+    listed: tracks.length,
+  };
 }
 
 /** The JSON blob an embed page carries: `__NEXT_DATA__`, or a `resource=` attribute. */
@@ -613,12 +659,16 @@ function safeDecodeURIComponent(value: string): string | null {
 }
 
 /** The first track list anywhere in an embed payload, with the object holding it. */
-function findTrackList(value: unknown, depth = 0): { owner: Record<string, unknown>; list: unknown[] } | null {
+function findTrackList(
+  value: unknown,
+  depth = 0,
+): { owner: Record<string, unknown>; list: unknown[] } | null {
   if (depth > 12 || !value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   for (const key of ["trackList", "tracklist", "tracks", "items"]) {
     const list = record[key];
-    if (Array.isArray(list) && list.some((entry) => embedTrack(entry) !== null)) return { owner: record, list };
+    if (Array.isArray(list) && list.some((entry) => embedTrack(entry) !== null))
+      return { owner: record, list };
   }
   for (const child of Object.values(record)) {
     const found = findTrackList(child, depth + 1);
@@ -663,7 +713,10 @@ export function getSpotify(): SpotifyClient {
       "Spotify isn't configured on this bot. Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET (free at developer.spotify.com/dashboard) to enable Spotify links.",
     );
   }
-  spotifyClient ??= new SpotifyClient(process.env.SPOTIFY_CLIENT_ID!, process.env.SPOTIFY_CLIENT_SECRET!);
+  spotifyClient ??= new SpotifyClient(
+    process.env.SPOTIFY_CLIENT_ID!,
+    process.env.SPOTIFY_CLIENT_SECRET!,
+  );
   return spotifyClient;
 }
 
@@ -708,33 +761,52 @@ export async function resolveQuery(
     case "youtube-video": {
       const url = source.url ?? `https://www.youtube.com/watch?v=${source.id}`;
       const entry = await downloader(() => ytdlpJson(url));
-      if (entryIsLive(entry)) throw new SourceError("That's a live stream — wait for it to end before queueing it.");
+      if (entryIsLive(entry))
+        throw new SourceError("That's a live stream — wait for it to end before queueing it.");
       const track = entryToTrack(entry, requestedBy, requestedByName);
-      if (!track) throw new SourceError("That video is unavailable (private, removed, or age-restricted).");
+      if (!track)
+        throw new SourceError("That video is unavailable (private, removed, or age-restricted).");
       return { kind: source.kind, origin: track.title, tracks: [track], skipped: 0 };
     }
 
     case "youtube-playlist": {
       const url = source.url ?? `https://www.youtube.com/playlist?list=${source.id}`;
-      const { title, tracks, skipped } = await expandPlaylist(url, cap, requestedBy, requestedByName);
-      if (tracks.length === 0) throw new SourceError(`The playlist “${title}” has no playable videos.`);
+      const { title, tracks, skipped } = await expandPlaylist(
+        url,
+        cap,
+        requestedBy,
+        requestedByName,
+      );
+      if (tracks.length === 0)
+        throw new SourceError(`The playlist “${title}” has no playable videos.`);
       return { kind: source.kind, origin: title, tracks, skipped };
     }
 
     case "spotify-track": {
       const meta = await getSpotify().track(source.id!);
-      return { kind: source.kind, origin: meta.name, tracks: [spotifyTrack(meta, requestedBy, requestedByName)], skipped: 0 };
+      return {
+        kind: source.kind,
+        origin: meta.name,
+        tracks: [spotifyTrack(meta, requestedBy, requestedByName)],
+        skipped: 0,
+      };
     }
 
     case "spotify-album": {
       const { name, tracks } = await getSpotify().album(source.id!, cap);
       if (tracks.length === 0) throw new SourceError(`The album “${name}” has no playable tracks.`);
-      return { kind: source.kind, origin: name, tracks: tracks.map((t) => spotifyTrack(t, requestedBy, requestedByName)), skipped: 0 };
+      return {
+        kind: source.kind,
+        origin: name,
+        tracks: tracks.map((t) => spotifyTrack(t, requestedBy, requestedByName)),
+        skipped: 0,
+      };
     }
 
     case "spotify-playlist": {
       const { name, tracks, unavailable } = await getSpotify().playlist(source.id!, cap);
-      if (tracks.length === 0) throw new SourceError(`The playlist “${name}” has no playable tracks.`);
+      if (tracks.length === 0)
+        throw new SourceError(`The playlist “${name}” has no playable tracks.`);
       return {
         kind: source.kind,
         origin: name,
@@ -745,7 +817,8 @@ export async function resolveQuery(
 
     default: {
       const text = source.query?.trim();
-      if (!text) throw new SourceError("Tell me what to play — a YouTube/Spotify link or a search phrase.");
+      if (!text)
+        throw new SourceError("Tell me what to play — a YouTube/Spotify link or a search phrase.");
 
       // The user explicitly asked for Spotify search → hit Spotify's API first,
       // then match to a YouTube track lazily at play time (same as Spotify links).
@@ -763,7 +836,10 @@ export async function resolveQuery(
           throw new SourceError(`No Spotify track matched “${text}”. Try YouTube search instead.`);
         }
         const first = spotifyMeta[0]!;
-        log.info("spotify search resolved", { query: text, result: `${first.artists} – ${first.name}` });
+        log.info("spotify search resolved", {
+          query: text,
+          result: `${first.artists} – ${first.name}`,
+        });
         return {
           kind: "spotify-track",
           origin: first.name,
@@ -795,13 +871,16 @@ export async function resolveQuery(
 async function downloader<T>(run: () => Promise<T>): Promise<T> {
   try {
     const probe = await ensureYtdlp();
-    if (!probe.available) throw new SourceError(downloaderFailureMessage(probe.detail ?? "not installed"));
+    if (!probe.available)
+      throw new SourceError(downloaderFailureMessage(probe.detail ?? "not installed"));
     return await run();
   } catch (error) {
     if (error instanceof SourceError) throw error;
     if (error instanceof YtdlpError) throw new SourceError(error.message);
     log.warn("downloader call failed", { error: String(error).slice(0, 300) });
-    throw new SourceError(`The downloader failed: ${String(error instanceof Error ? error.message : error).slice(0, 200)}`);
+    throw new SourceError(
+      `The downloader failed: ${String(error instanceof Error ? error.message : error).slice(0, 200)}`,
+    );
   }
 }
 
@@ -858,7 +937,12 @@ async function loadDirectly(
   try {
     const flat = await ytdlpJson(url, { flat: true, limit: cap });
     if (flat._type === "playlist" || Array.isArray(flat.entries)) {
-      const { title, tracks, skipped } = await expandPlaylist(url, cap, requestedBy, requestedByName);
+      const { title, tracks, skipped } = await expandPlaylist(
+        url,
+        cap,
+        requestedBy,
+        requestedByName,
+      );
       if (tracks.length === 0) return null;
       log.info("loaded a playlist through the downloader", { url, title, tracks: tracks.length });
       return { kind: "search", origin: title, tracks, skipped };
@@ -868,10 +952,17 @@ async function loadDirectly(
     const entry = await ytdlpJson(url);
     const track = entryToTrack(entry, requestedBy, requestedByName);
     if (!track) return null;
-    log.info("loaded a non-YouTube URL through the downloader", { url, source: track.sourceName, title: track.title });
+    log.info("loaded a non-YouTube URL through the downloader", {
+      url,
+      source: track.sourceName,
+      title: track.title,
+    });
     return { kind: "search", origin: track.title, tracks: [track], skipped: 0 };
   } catch (error) {
-    log.info("direct URL load failed, falling back to search", { url, error: String(error).slice(0, 200) });
+    log.info("direct URL load failed, falling back to search", {
+      url,
+      error: String(error).slice(0, 200),
+    });
     return null;
   }
 }
@@ -905,7 +996,11 @@ export async function ensurePlayable(track: Track): Promise<Track> {
   track.sourceName = match.sourceName;
   track.durationMs = track.durationMs ?? match.durationMs;
   track.thumbnail = track.thumbnail ?? match.thumbnail;
-  log.info("spotify track matched on YouTube", { track: track.title, videoId: track.videoId, phrase });
+  log.info("spotify track matched on YouTube", {
+    track: track.title,
+    videoId: track.videoId,
+    phrase,
+  });
   return track;
 }
 

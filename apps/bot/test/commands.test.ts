@@ -66,7 +66,9 @@ describe("monarch command manifest", () => {
     expect(group.options?.map((o) => o.name)).toEqual(["setup", "disable"]);
     const setup = group.options?.find((o) => o.name === "setup");
     expect(setup?.options?.map((o) => o.name)).toEqual(["channel", "logs"]);
-    expect(setup?.options?.every((o) => o.required === undefined || o.required === false)).toBe(true);
+    expect(setup?.options?.every((o) => o.required === undefined || o.required === false)).toBe(
+      true,
+    );
     expect(group.options?.find((o) => o.name === "disable")?.options ?? []).toHaveLength(0);
   });
 
@@ -88,7 +90,11 @@ describe("/burg command manifest", () => {
   it("is a guild-only top-level command with a required user", () => {
     expect(json.name).toBe("burg");
     expect(json.contexts).toEqual([0]);
-    const options = json.options as { name: string; required?: boolean; choices?: { value: string }[] }[];
+    const options = json.options as {
+      name: string;
+      required?: boolean;
+      choices?: { value: string }[];
+    }[];
     expect(options.find((option) => option.name === "user")?.required).toBe(true);
     expect(options.map((option) => option.name)).toEqual(["user", "duration", "style", "reason"]);
   });
@@ -97,7 +103,12 @@ describe("/burg command manifest", () => {
     const style = (json.options as { name: string; choices?: { value: string }[] }[]).find(
       (option) => option.name === "style",
     );
-    expect(style?.choices?.map((choice) => choice.value)).toEqual(["random", "soft", "cat", "chaotic"]);
+    expect(style?.choices?.map((choice) => choice.value)).toEqual([
+      "random",
+      "soft",
+      "cat",
+      "chaotic",
+    ]);
   });
 });
 

@@ -85,7 +85,8 @@ export const COMMAND_GROUPS: CommandGroup[] = [
   {
     id: "music",
     label: "Music player",
-    description: "Play YouTube and Spotify tracks and playlists in voice channels, with a shared queue and vote-skip.",
+    description:
+      "Play YouTube and Spotify tracks and playlists in voice channels, with a shared queue and vote-skip.",
     icon: "🎵",
   },
 ];
@@ -94,8 +95,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch help",
     usage: "/monarch help",
-  prefixUsage: "!monarch help",
-  prefixAliases: ["help", "commands"],
+    prefixUsage: "!monarch help",
+    prefixAliases: ["help", "commands"],
     group: "general",
     summary: "List every Monarch command.",
     who: "everyone",
@@ -105,12 +106,13 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch dashboard",
     usage: "/monarch dashboard",
-  prefixUsage: "!monarch dashboard",
-  prefixAliases: ["dashboard"],
+    prefixUsage: "!monarch dashboard",
+    prefixAliases: ["dashboard"],
     group: "general",
     summary: "Open this server in the Monarch design studio.",
     who: "everyone",
-    details: "Replies with a direct link to this server's dashboard so you don't have to dig through the server picker.",
+    details:
+      "Replies with a direct link to this server's dashboard so you don't have to dig through the server picker.",
   },
   {
     name: "/monarch invite",
@@ -131,8 +133,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch status",
     usage: "/monarch status",
-  prefixUsage: "!monarch status",
-  prefixAliases: ["status"],
+    prefixUsage: "!monarch status",
+    prefixAliases: ["status"],
     group: "general",
     summary: "Show Monarch's status for this server.",
     who: "everyone",
@@ -166,22 +168,27 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch backup",
     usage: "/monarch backup [name]",
-  prefixUsage: "!monarch backup [name]",
-  prefixAliases: ["backup"],
+    prefixUsage: "!monarch backup [name]",
+    prefixAliases: ["backup"],
     group: "design",
     summary: "Save a snapshot of the server's categories and channels.",
     who: "Manage Server or Administrator",
     details:
       "Captures the live structure (categories, channels and their settings) as a named snapshot. Restore any snapshot from the dashboard's Backups & History page: it loads as a draft, deleted channels come back as creates, and everything is reviewed through the normal diff preview before it touches Discord.",
-    args: [{ name: "name", description: "Optional name for the backup (defaults to a timestamped label)." }],
+    args: [
+      {
+        name: "name",
+        description: "Optional name for the backup (defaults to a timestamped label).",
+      },
+    ],
     examples: ["/monarch backup", "/monarch backup before summer cleanup"],
     notes: ["Needs INTERNAL_API_TOKEN set in both the dashboard and the bot."],
   },
   {
     name: "/monarch export",
     usage: "/monarch export",
-  prefixUsage: "!monarch export",
-  prefixAliases: ["export"],
+    prefixUsage: "!monarch export",
+    prefixAliases: ["export"],
     group: "design",
     summary: "Download the server layout as a portable Monarch template (.json).",
     who: "Manage Server or Administrator",
@@ -192,8 +199,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch embed",
     usage: "/monarch embed",
-  prefixUsage: "!monarch embed",
-  prefixAliases: ["embed"],
+    prefixUsage: "!monarch embed",
+    prefixAliases: ["embed"],
     group: "design",
     summary: "Open the Embed Builder (and show the saved embed).",
     who: "everyone",
@@ -203,8 +210,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch test",
     usage: "/monarch test kind:<embed|message> [mode] [channel]",
-  prefixUsage: "!monarch test <embed|message> [test|publish] [#channel]",
-  prefixAliases: ["test"],
+    prefixUsage: "!monarch test <embed|message> [test|publish] [#channel]",
+    prefixAliases: ["test"],
     group: "design",
     summary: "Test-send or publish the saved embed/message design.",
     who: "Manage Server or Administrator",
@@ -244,8 +251,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   {
     name: "/monarch burged",
     usage: "/monarch burged",
-  prefixUsage: "!monarch burged",
-  prefixAliases: ["burged"],
+    prefixUsage: "!monarch burged",
+    prefixAliases: ["burged"],
     group: "moderation",
     summary: "List who is currently burg'd in this server.",
     who: "Administrator or Kick Members",
@@ -265,7 +272,8 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     args: [
       {
         name: "channel",
-        description: "Where confessions are posted — omit to use the channel where you run the command.",
+        description:
+          "Where confessions are posted — omit to use the channel where you run the command.",
       },
       {
         name: "logs",
@@ -294,8 +302,8 @@ export const BURG_COMMANDS: CommandDoc[] = [
   {
     name: "/burg",
     usage: "/burg @user [duration] [style] [reason]",
-  prefixUsage: "!burg @user [duration] [style] [reason]",
-  prefixAliases: ["burg"],
+    prefixUsage: "!burg @user [duration] [style] [reason]",
+    prefixAliases: ["burg"],
     group: "moderation",
     summary: "Delete a member's messages and re-post them as cute uwu/owo text.",
     who: "Administrator or Kick Members",
@@ -303,19 +311,18 @@ export const BURG_COMMANDS: CommandDoc[] = [
       "Toggles a playful burg relay for the selected member. Their messages are deleted and re-posted through a webhook with their display name and avatar, using readable uwu/owo spelling plus random cute flourishes such as uwu, nya, >w< and cat faces. Run /burg on the same member again to turn it off. The style can be fixed or left random for a different cute variation on every message.",
     args: [
       { name: "user", description: "Who to burg.", required: true },
-      { name: "duration", description: "e.g. 10m, 2h, 1d, 1h30m — empty = until toggled off with /burg." },
+      {
+        name: "duration",
+        description: "e.g. 10m, 2h, 1d, 1h30m — empty = until toggled off with /burg.",
+      },
       { name: "style", description: "random, soft, cat or chaotic — omitted = random." },
       { name: "reason", description: "Shown in the confirmation only." },
     ],
-    examples: [
-      "/burg @icy404 10m",
-      "/burg @icy404 style:cat",
-      "/burg @icy404",
-    ],
+    examples: ["/burg @icy404 10m", "/burg @icy404 style:cat", "/burg @icy404"],
     notes: [
       "Uses duration parsing (30s–28d), role hierarchy checks and moderation permissions (Administrator or Kick Members).",
       "Needs the privileged Message Content gateway intent and the Manage Messages permission.",
-      "Running /burg again with no options turns it off; running it with options updates the timer and style."
+      "Running /burg again with no options turns it off; running it with options updates the timer and style.",
     ],
   },
 ];
@@ -324,8 +331,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music play",
     usage: "/music play <link or search> [source:youtube|spotify]",
-  prefixUsage: "!music play <link or search> [youtube|spotify]",
-  prefixAliases: ["play", "p"],
+    prefixUsage: "!music play <link or search> [youtube|spotify]",
+    prefixAliases: ["play", "p"],
     group: "music",
     summary: "Play or queue a song, playlist or album (pick YouTube or Spotify).",
     who: "everyone in a voice channel",
@@ -333,7 +340,10 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
       "Joins your voice channel (or queues if something is already playing) and starts playback. Accepts YouTube video links, YouTube playlist links, Spotify track/album/playlist links and plain search text. Search text and Spotify tracks are matched against YouTube at play time. If the bot is paused, /music play also unpauses. Use source to force where a plain search looks: youtube (default) searches YouTube, spotify searches Spotify first (needs Spotify API configured) and then plays via YouTube. Links are always honored regardless of source.",
     args: [
       { name: "query", description: "A YouTube/Spotify link or a search phrase.", required: true },
-      { name: "source", description: "Where to search: youtube (default) or spotify. Links ignore this." },
+      {
+        name: "source",
+        description: "Where to search: youtube (default) or spotify. Links ignore this.",
+      },
     ],
     examples: [
       "/music play https://www.youtube.com/watch?v=dQw4w9WgXcQ",
@@ -357,18 +367,19 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music pause",
     usage: "/music pause",
-  prefixUsage: "!music pause",
-  prefixAliases: ["pause"],
+    prefixUsage: "!music pause",
+    prefixAliases: ["pause"],
     group: "music",
     summary: "Pause the current song.",
     who: "everyone in the bot's voice channel",
-    details: "Freezes playback where it is. The queue is kept, so /music resume continues exactly here.",
+    details:
+      "Freezes playback where it is. The queue is kept, so /music resume continues exactly here.",
   },
   {
     name: "/music resume",
     usage: "/music resume",
-  prefixUsage: "!music resume",
-  prefixAliases: ["resume"],
+    prefixUsage: "!music resume",
+    prefixAliases: ["resume"],
     group: "music",
     summary: "Resume after a pause.",
     who: "everyone in the bot's voice channel",
@@ -377,8 +388,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music skip",
     usage: "/music skip",
-  prefixUsage: "!music skip",
-  prefixAliases: ["skip", "voteskip"],
+    prefixUsage: "!music skip",
+    prefixAliases: ["skip", "voteskip"],
     group: "music",
     summary: "Skip the current song — instantly with a DJ/staff role, otherwise by vote.",
     who: "everyone (voting) · DJ, Moderator/Staff and the requester (instant)",
@@ -392,8 +403,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music queue",
     usage: "/music queue [page]",
-  prefixUsage: "!music queue [page]",
-  prefixAliases: ["queue", "q"],
+    prefixUsage: "!music queue [page]",
+    prefixAliases: ["queue", "q"],
     group: "music",
     summary: "Show the queue and what's playing.",
     who: "everyone",
@@ -405,8 +416,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music nowplaying",
     usage: "/music nowplaying",
-  prefixUsage: "!music nowplaying",
-  prefixAliases: ["nowplaying", "np"],
+    prefixUsage: "!music nowplaying",
+    prefixAliases: ["nowplaying", "np"],
     group: "music",
     summary: "Show the current track with a progress bar and skip status.",
     who: "everyone",
@@ -416,20 +427,21 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music volume",
     usage: "/music volume [0-150]",
-  prefixUsage: "!music volume [0-150]",
-  prefixAliases: ["volume", "vol"],
+    prefixUsage: "!music volume [0-150]",
+    prefixAliases: ["volume", "vol"],
     group: "music",
     summary: "Show or set the playback volume.",
     who: "everyone in the bot's voice channel",
-    details: "Without an argument it shows the current volume. 100 is normal loudness; 150 is the ceiling.",
+    details:
+      "Without an argument it shows the current volume. 100 is normal loudness; 150 is the ceiling.",
     args: [{ name: "level", description: "0–150." }],
     examples: ["/music volume", "/music volume 80"],
   },
   {
     name: "/music loop",
     usage: "/music loop [off|track|queue]",
-  prefixUsage: "!music loop [off|track|queue]",
-  prefixAliases: ["loop"],
+    prefixUsage: "!music loop [off|track|queue]",
+    prefixAliases: ["loop"],
     group: "music",
     summary: "Loop the current track, the whole queue, or nothing.",
     who: "everyone in the bot's voice channel",
@@ -441,18 +453,19 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music shuffle",
     usage: "/music shuffle",
-  prefixUsage: "!music shuffle",
-  prefixAliases: ["shuffle"],
+    prefixUsage: "!music shuffle",
+    prefixAliases: ["shuffle"],
     group: "music",
     summary: "Shuffle the upcoming tracks.",
     who: "everyone in the bot's voice channel",
-    details: "Randomizes the play order of everything that is queued. The track that's playing is left alone.",
+    details:
+      "Randomizes the play order of everything that is queued. The track that's playing is left alone.",
   },
   {
     name: "/music remove",
     usage: "/music remove <position>",
-  prefixUsage: "!music remove <position>",
-  prefixAliases: ["remove"],
+    prefixUsage: "!music remove <position>",
+    prefixAliases: ["remove"],
     group: "music",
     summary: "Remove one track from the queue.",
     who: "everyone in the bot's voice channel",
@@ -463,8 +476,8 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music clear",
     usage: "/music clear",
-  prefixUsage: "!music clear",
-  prefixAliases: ["clear"],
+    prefixUsage: "!music clear",
+    prefixAliases: ["clear"],
     group: "music",
     summary: "Empty the queue but keep playing.",
     who: "everyone in the bot's voice channel",
@@ -473,17 +486,22 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
   {
     name: "/music stop",
     usage: "/music stop",
-  prefixUsage: "!music stop",
-  prefixAliases: ["stop", "leave"],
+    prefixUsage: "!music stop",
+    prefixAliases: ["stop", "leave"],
     group: "music",
     summary: "Stop playback, clear the queue and leave the voice channel.",
     who: "everyone in the bot's voice channel",
-    details: "The full reset: playback stops, the queue and any pending skip votes are cleared, and the bot disconnects.",
+    details:
+      "The full reset: playback stops, the queue and any pending skip votes are cleared, and the bot disconnects.",
   },
 ];
 
 /** Every command, in display order. */
-export const COMMAND_CATALOG: CommandDoc[] = [...MONARCH_COMMANDS, ...BURG_COMMANDS, ...MUSIC_COMMANDS];
+export const COMMAND_CATALOG: CommandDoc[] = [
+  ...MONARCH_COMMANDS,
+  ...BURG_COMMANDS,
+  ...MUSIC_COMMANDS,
+];
 
 export function commandsByGroup(group: CommandGroupId): CommandDoc[] {
   return COMMAND_CATALOG.filter((c) => c.group === group);

@@ -21,7 +21,7 @@ export class FakeAudioBackend extends EventEmitter implements AudioBackend {
   calls: RecordedCall[] = [];
   /** Overridable per test: make `play` fail, hang, etc. */
   playHandler: (guildId: string, track: Track) => Promise<void> = async () => undefined;
-  /** Null while the bot isn't in a channel. */
+  /** Null while the bot isnt in a channel. */
   channelId: string | null = null;
   connected = false;
   paused = false;
@@ -147,11 +147,16 @@ export function fakeGuild(id = "guild"): FakeGuild {
 
 /** A voice channel the manager can count listeners in. */
 export function fakeVoiceChannelState(id: string, memberIds: string[] = []) {
-  const members = new Map(memberIds.map((memberId) => [memberId, { id: memberId, user: { id: memberId, bot: false } }]));
+  const members = new Map(
+    memberIds.map((memberId) => [memberId, { id: memberId, user: { id: memberId, bot: false } }]),
+  );
   return { id, isVoiceBased: () => true, members };
 }
 
-export function fakeClient(guild: FakeGuild, userId = "bot-user"): Client & { channels: { cache: Map<string, unknown> } } {
+export function fakeClient(
+  guild: FakeGuild,
+  userId = "bot-user",
+): Client & { channels: { cache: Map<string, unknown> } } {
   const guilds = new Map<string, Guild>();
   guilds.set(guild.id, guild as unknown as Guild);
   return {

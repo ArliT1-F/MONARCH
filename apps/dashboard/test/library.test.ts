@@ -60,7 +60,16 @@ describe("template library store", () => {
   it("round-trips a template and lists newest-first", async () => {
     const now = new Date().toISOString();
     const store = getStore();
-    const older = { id: "tpl_a", ownerId: "u1", name: "Older", type: "server", format: 1, data: {}, createdAt: "2026-01-01T00:00:00Z", updatedAt: now };
+    const older = {
+      id: "tpl_a",
+      ownerId: "u1",
+      name: "Older",
+      type: "server",
+      format: 1,
+      data: {},
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: now,
+    };
     const newer = { ...older, id: "tpl_b", name: "Newer", createdAt: "2026-02-01T00:00:00Z" };
     await store.putTemplate(older);
     await store.putTemplate(newer);
@@ -72,7 +81,16 @@ describe("template library store", () => {
 
   it("scopes reads, overwrites and deletes by owner", async () => {
     const store = getStore();
-    const record = { id: "tpl_owner", ownerId: "u1", name: "Mine", type: "server", format: 1, data: { categories: [] }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const record = {
+      id: "tpl_owner",
+      ownerId: "u1",
+      name: "Mine",
+      type: "server",
+      format: 1,
+      data: { categories: [] },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     await store.putTemplate(record);
 
     // Another user sees nothing, cannot overwrite, cannot delete.
@@ -95,7 +113,12 @@ describe("template library store", () => {
 
 describe("saveTemplateFromGuild", () => {
   it("saves a detached copy of the live structure and audits it", async () => {
-    const outcome = await saveTemplateFromGuild({ guildId: "900", userId: "svc", username: "Ada", name: "  My layout  " });
+    const outcome = await saveTemplateFromGuild({
+      guildId: "900",
+      userId: "svc",
+      username: "Ada",
+      name: "  My layout  ",
+    });
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.template.name).toBe("My layout");
@@ -172,25 +195,49 @@ describe("saveTemplateFromUpload", () => {
 
 describe("rename / duplicate / delete service", () => {
   it("renames only owned templates", async () => {
-    const saved = await saveTemplateFromGuild({ guildId: "900", userId: "svc-rename", username: "Ada" });
+    const saved = await saveTemplateFromGuild({
+      guildId: "900",
+      userId: "svc-rename",
+      username: "Ada",
+    });
     if (!saved.ok) throw new Error("should be ok");
 
-    const foreign = await renameTemplate({ ownerId: "someone-else", templateId: saved.template.id, name: "Stolen" });
+    const foreign = await renameTemplate({
+      ownerId: "someone-else",
+      templateId: saved.template.id,
+      name: "Stolen",
+    });
     expect(foreign.ok).toBe(false);
 
-    const renamed = await renameTemplate({ ownerId: "svc-rename", templateId: saved.template.id, name: "  Better  " });
+    const renamed = await renameTemplate({
+      ownerId: "svc-rename",
+      templateId: saved.template.id,
+      name: "  Better  ",
+    });
     expect(renamed.ok).toBe(true);
     if (!renamed.ok) return;
     expect(renamed.template.name).toBe("Better");
 
-    const empty = await renameTemplate({ ownerId: "svc-rename", templateId: saved.template.id, name: "   " });
+    const empty = await renameTemplate({
+      ownerId: "svc-rename",
+      templateId: saved.template.id,
+      name: "   ",
+    });
     expect(empty.ok).toBe(false);
   });
 
   it("duplicates with a new id and '(copy)' suffix", async () => {
-    const saved = await saveTemplateFromGuild({ guildId: "900", userId: "svc-duplicate", username: "Ada", name: "Original" });
+    const saved = await saveTemplateFromGuild({
+      guildId: "900",
+      userId: "svc-duplicate",
+      username: "Ada",
+      name: "Original",
+    });
     if (!saved.ok) throw new Error("should be ok");
-    const copy = await duplicateTemplate({ ownerId: "svc-duplicate", templateId: saved.template.id });
+    const copy = await duplicateTemplate({
+      ownerId: "svc-duplicate",
+      templateId: saved.template.id,
+    });
     expect(copy.ok).toBe(true);
     if (!copy.ok) return;
     expect(copy.template.id).not.toBe(saved.template.id);
@@ -200,9 +247,15 @@ describe("rename / duplicate / delete service", () => {
   });
 
   it("deletes only owned templates", async () => {
-    const saved = await saveTemplateFromGuild({ guildId: "900", userId: "svc-delete", username: "Ada" });
+    const saved = await saveTemplateFromGuild({
+      guildId: "900",
+      userId: "svc-delete",
+      username: "Ada",
+    });
     if (!saved.ok) throw new Error("should be ok");
-    expect((await deleteTemplate({ ownerId: "someone-else", templateId: saved.template.id })).ok).toBe(false);
+    expect(
+      (await deleteTemplate({ ownerId: "someone-else", templateId: saved.template.id })).ok,
+    ).toBe(false);
     const gone = await deleteTemplate({ ownerId: "svc-delete", templateId: saved.template.id });
     expect(gone.ok).toBe(true);
     expect(await getStore().getTemplate("u1", saved.template.id)).toBeNull();
@@ -211,7 +264,12 @@ describe("rename / duplicate / delete service", () => {
 
 describe("templateEnvelope", () => {
   it("rebuilds a parseable monarch-template envelope with a file name", async () => {
-    const saved = await saveTemplateFromGuild({ guildId: "900", userId: "env", username: "Ada", name: "Cool Layout" });
+    const saved = await saveTemplateFromGuild({
+      guildId: "900",
+      userId: "env",
+      username: "Ada",
+      name: "Cool Layout",
+    });
     if (!saved.ok) throw new Error("should be ok");
     const envelope = templateEnvelope(saved.template);
     expect(envelope.ok).toBe(true);
@@ -254,12 +312,22 @@ describe("library meta", () => {
 
 describe("install into a guild", () => {
   it("hands off to stageImport: staged as a draft, live ids untouched", async () => {
-    const saved = await saveTemplateFromGuild({ guildId: "900", userId: "inst", username: "Ada", name: "Installer" });
+    const saved = await saveTemplateFromGuild({
+      guildId: "900",
+      userId: "inst",
+      username: "Ada",
+      name: "Installer",
+    });
     if (!saved.ok) throw new Error("should be ok");
     const envelope = templateEnvelope(saved.template);
     if (!envelope.ok) throw new Error("envelope should parse");
 
-    const outcome = await stageImport({ guildId: "900", userId: "inst", json: envelope.template, mode: "add" });
+    const outcome = await stageImport({
+      guildId: "900",
+      userId: "inst",
+      json: envelope.template,
+      mode: "add",
+    });
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.templateName).toBe("Installer");

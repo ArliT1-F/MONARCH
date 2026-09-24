@@ -79,7 +79,9 @@ export class PrefixCommandContext implements CommandContext {
    */
   private readonly commandWord: string | null;
 
-  private sent: { edit(payload: { content?: string; embeds?: APIEmbed[] }): Promise<unknown> } | null = null;
+  private sent: {
+    edit(payload: { content?: string; embeds?: APIEmbed[] }): Promise<unknown>;
+  } | null = null;
   private responded = false;
 
   constructor(
@@ -141,7 +143,12 @@ export class PrefixCommandContext implements CommandContext {
     this.responded = true;
     return this.channel.send({
       content,
-      files: files.map((file) => new AttachmentBuilder(Buffer.from(file.body, "utf8"), { name: file.name })),
+      files: files.map(
+        (file) =>
+          new AttachmentBuilder(Buffer.from(file.body, file.encoding ?? "utf8"), {
+            name: file.name,
+          }),
+      ),
       allowedMentions: allowedMentionsFor(),
     });
   }
@@ -207,7 +214,8 @@ export class PrefixCommandContext implements CommandContext {
 
   async resolveMember(userId: string): Promise<GuildMember | null> {
     if (!/^\d{15,25}$/.test(userId)) return null;
-    const cached = this.message.mentions.members?.get(userId) ?? this.guild.members.cache.get(userId);
+    const cached =
+      this.message.mentions.members?.get(userId) ?? this.guild.members.cache.get(userId);
     if (cached) return cached;
     try {
       return await this.guild.members.fetch(userId);
@@ -256,5 +264,7 @@ export function canReplyIn(message: Message<true>): boolean {
   const me = message.guild.members.me;
   if (!me) return false;
   const perms = message.channel.permissionsFor(me);
-  return Boolean(perms?.has(PermissionFlagsBits.SendMessages) && perms?.has(PermissionFlagsBits.ViewChannel));
+  return Boolean(
+    perms?.has(PermissionFlagsBits.SendMessages) && perms?.has(PermissionFlagsBits.ViewChannel),
+  );
 }

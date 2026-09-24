@@ -29,8 +29,7 @@ export function EmbedEditor({
   const setField = (i: number, patch: Partial<EmbedField>) =>
     set({ fields: embed.fields.map((f, idx) => (idx === i ? { ...f, ...patch } : f)) });
 
-  const removeField = (i: number) =>
-    set({ fields: embed.fields.filter((_, idx) => idx !== i) });
+  const removeField = (i: number) => set({ fields: embed.fields.filter((_, idx) => idx !== i) });
 
   const moveField = (i: number, dir: -1 | 1) => {
     const fields = [...embed.fields];
@@ -44,7 +43,11 @@ export function EmbedEditor({
     set({
       fields: [
         ...embed.fields,
-        { name: "Field name", value: "Field value — use {user} or {server} for dynamic content.", inline: false },
+        {
+          name: "Field name",
+          value: "Field value — use {user} or {server} for dynamic content.",
+          inline: false,
+        },
       ],
     });
 
@@ -54,7 +57,9 @@ export function EmbedEditor({
         <SectionTitle>Embed</SectionTitle>
         <div className="space-y-3">
           <div>
-            <FieldLabel hint={<Counter value={embed.title?.length ?? 0} max={256} />}>Title</FieldLabel>
+            <FieldLabel hint={<Counter value={embed.title?.length ?? 0} max={256} />}>
+              Title
+            </FieldLabel>
             <TextInput
               value={embed.title ?? ""}
               maxLength={256}
@@ -63,7 +68,9 @@ export function EmbedEditor({
             />
           </div>
           <div>
-            <FieldLabel hint={<Counter value={embed.url?.length ?? 0} max={2000} />}>URL (title link)</FieldLabel>
+            <FieldLabel hint={<Counter value={embed.url?.length ?? 0} max={2000} />}>
+              URL (title link)
+            </FieldLabel>
             <TextInput
               value={embed.url ?? ""}
               mono
@@ -128,7 +135,15 @@ export function EmbedEditor({
               maxLength={256}
               placeholder="e.g. {server} Staff"
               onChange={(name) =>
-                set({ author: name ? { name, ...(embed.author?.url ? { url: embed.author.url } : {}), ...(embed.author?.iconUrl ? { iconUrl: embed.author.iconUrl } : {}) } : undefined })
+                set({
+                  author: name
+                    ? {
+                        name,
+                        ...(embed.author?.url ? { url: embed.author.url } : {}),
+                        ...(embed.author?.iconUrl ? { iconUrl: embed.author.iconUrl } : {}),
+                      }
+                    : undefined,
+                })
               }
             />
           </div>
@@ -151,7 +166,8 @@ export function EmbedEditor({
                 mono
                 placeholder="https://…"
                 onChange={(iconUrl) =>
-                  embed.author && set({ author: { ...embed.author, iconUrl: iconUrl || undefined } })
+                  embed.author &&
+                  set({ author: { ...embed.author, iconUrl: iconUrl || undefined } })
                 }
               />
             </div>
@@ -162,7 +178,13 @@ export function EmbedEditor({
               value={embed.footer?.text ?? ""}
               maxLength={2048}
               placeholder="Small line under the embed"
-              onChange={(text) => set({ footer: text ? { text, ...(embed.footer?.iconUrl ? { iconUrl: embed.footer.iconUrl } : {}) } : undefined })}
+              onChange={(text) =>
+                set({
+                  footer: text
+                    ? { text, ...(embed.footer?.iconUrl ? { iconUrl: embed.footer.iconUrl } : {}) }
+                    : undefined,
+                })
+              }
             />
           </div>
           <div>
@@ -209,7 +231,9 @@ export function EmbedEditor({
       </section>
 
       <section>
-        <SectionTitle>Fields {embed.fields.length > 0 && `(${embed.fields.length}/25)`}</SectionTitle>
+        <SectionTitle>
+          Fields {embed.fields.length > 0 && `(${embed.fields.length}/25)`}
+        </SectionTitle>
         <div className="space-y-2.5">
           {embed.fields.map((f, i) => (
             <div key={i} className="space-y-2 rounded-xl border border-ink-700 bg-ink-900/50 p-3">
@@ -227,9 +251,7 @@ export function EmbedEditor({
                   placeholder="Field name"
                   onChange={(name) => setField(i, { name })}
                 />
-                <SmallButton onClick={() => moveField(i, -1)}>
-                  ↑
-                </SmallButton>
+                <SmallButton onClick={() => moveField(i, -1)}>↑</SmallButton>
                 <SmallButton onClick={() => moveField(i, 1)}>↓</SmallButton>
                 <SmallButton tone="danger" onClick={() => removeField(i)}>
                   ✕

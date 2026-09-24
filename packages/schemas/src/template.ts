@@ -27,9 +27,9 @@ export const ServerTemplateSchema = TemplateEnvelopeSchema.extend({
 });
 export type ServerTemplate = z.infer<typeof ServerTemplateSchema>;
 
-export function parseServerTemplate(json: unknown):
-  | { ok: true; template: ServerTemplate }
-  | { ok: false; error: string } {
+export function parseServerTemplate(
+  json: unknown,
+): { ok: true; template: ServerTemplate } | { ok: false; error: string } {
   const envelope = TemplateEnvelopeSchema.safeParse(json);
   if (!envelope.success) {
     return { ok: false, error: "This file is not a Monarch template." };

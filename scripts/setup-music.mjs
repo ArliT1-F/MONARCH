@@ -47,7 +47,12 @@ function platformAsset() {
   if (platform === "win32") return arch === "arm64" ? "yt-dlp_arm64.exe" : "yt-dlp.exe";
   if (platform === "darwin") return "yt-dlp_macos";
   if (platform === "linux") {
-    if (musl) return arch === "x64" ? "yt-dlp_musllinux" : arch === "arm64" ? "yt-dlp_musllinux_aarch64" : null;
+    if (musl)
+      return arch === "x64"
+        ? "yt-dlp_musllinux"
+        : arch === "arm64"
+          ? "yt-dlp_musllinux_aarch64"
+          : null;
     if (arch === "x64") return "yt-dlp_linux";
     if (arch === "arm64") return "yt-dlp_linux_aarch64";
     if (arch === "arm") return "yt-dlp_linux_armv7l";
@@ -95,7 +100,8 @@ async function installYtdlp() {
     const response = await fetch(url, { redirect: "follow" });
     if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
     const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.byteLength < 1_000_000) throw new Error(`suspicious size (${buffer.byteLength} bytes)`);
+    if (buffer.byteLength < 1_000_000)
+      throw new Error(`suspicious size (${buffer.byteLength} bytes)`);
     mkdirSync(binDir, { recursive: true });
     const tmp = `${target}.tmp`;
     writeFileSync(tmp, buffer);
@@ -107,7 +113,9 @@ async function installYtdlp() {
   } catch (error) {
     rmSync(`${target}.tmp`, { force: true });
     warn(`could not download yt-dlp: ${error instanceof Error ? error.message : String(error)}`);
-    console.log(`    Download it by hand and set YTDLP_PATH, or put it at ${path.relative(root, target)}.`);
+    console.log(
+      `    Download it by hand and set YTDLP_PATH, or put it at ${path.relative(root, target)}.`,
+    );
     return false;
   }
 }
@@ -145,12 +153,16 @@ function reportFfmpeg() {
     // not installed (or installed with --no-optional)
   }
 
-  warn("no ffmpeg: playback works (Opus passthrough) but volume control and non-Opus sources don't");
+  warn(
+    "no ffmpeg: playback works (Opus passthrough) but volume control and non-Opus sources don't",
+  );
   console.log("    install one with:");
   if (process.platform === "darwin") console.log("      brew install ffmpeg");
   else if (process.platform === "win32") console.log("      winget install Gyan.FFmpeg");
   else console.log("      sudo apt install ffmpeg    # or: apk add ffmpeg");
-  console.log("    …or `npm install` without --no-optional to get the bundled @ffmpeg-installer/ffmpeg.");
+  console.log(
+    "    …or `npm install` without --no-optional to get the bundled @ffmpeg-installer/ffmpeg.",
+  );
   console.log("    Then set FFMPEG_PATH if it isn't on the PATH.");
 }
 
@@ -158,6 +170,10 @@ console.log("\nMonarch · music setup\n");
 const ytdlp = await installYtdlp();
 reportFfmpeg();
 console.log("");
-console.log(ytdlp ? "Music is ready. Try /music play in Discord, then `npm run music:check`." : "yt-dlp is still missing — see above.");
+console.log(
+  ytdlp
+    ? "Music is ready. Try /music play in Discord, then `npm run music:check`."
+    : "yt-dlp is still missing — see above.",
+);
 console.log("");
 process.exit(ytdlp ? 0 : 1);

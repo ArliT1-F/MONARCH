@@ -26,8 +26,8 @@ model User {
   avatarUrl String?
   createdAt DateTime @default(now())
 
-  sessions    Session[]
-  drafts      DesignDraft[]
+  sessions     Session[]
+  drafts       DesignDraft[]
   auditEntries AuditEntry[]
 }
 
@@ -49,10 +49,10 @@ model Guild {
   iconUrl   String?
   createdAt DateTime @default(now())
 
-  settings  GuildSettings?
-  workspace GuildWorkspace?
-  drafts    DesignDraft[]
-  versions  DesignVersion[]
+  settings     GuildSettings?
+  workspace    GuildWorkspace?
+  drafts       DesignDraft[]
+  versions     DesignVersion[]
   auditEntries AuditEntry[]
 }
 
@@ -69,9 +69,9 @@ model GuildSettings {
   guildId            String @id
   guild              Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
   // Designated channels for the Target Resolver
-  welcomeChannelId        String?
-  announcementsChannelId  String?
-  testingChannelId        String?
+  welcomeChannelId         String?
+  announcementsChannelId   String?
+  testingChannelId         String?
   templateTestingChannelId String?
   // Design Analyzer (FEATURE 9): check ids the guild marked "intentional".
   // JSON array of stable analyzer check ids; managed by
@@ -80,7 +80,7 @@ model GuildSettings {
   // Prefix commands: the guild's text-command prefix (null = the shared
   // default "!"). Managed by getCommandPrefix/putCommandPrefix through the
   // bot's internal API (NOT by the designated-channels settings form).
-  commandPrefix    String?
+  commandPrefix String?
   // Confessions: the guild's anonymous confession channel (null = off) and
   // its optional staff-only log channel (full "who/when/link" entries).
   // Managed by getConfessionChannels/putConfessionChannels through the

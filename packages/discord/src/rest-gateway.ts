@@ -130,8 +130,14 @@ export class RestDiscordGateway implements DiscordGateway {
       const guild = (await this.rest.get(Routes.guild(guildId))) as APIGuild;
       const channels = (await this.rest.get(Routes.guildChannels(guildId))) as APIChannel[];
       const roles = (await this.rest.get(Routes.guildRoles(guildId))) as {
-        id: string; name: string; color: number; position: number; managed: boolean;
-        hoist: boolean; mentionable: boolean; permissions: string;
+        id: string;
+        name: string;
+        color: number;
+        position: number;
+        managed: boolean;
+        hoist: boolean;
+        mentionable: boolean;
+        permissions: string;
       }[];
 
       const design = emptyServerDesign(guildId, guild.name);
@@ -185,7 +191,15 @@ export class RestDiscordGateway implements DiscordGateway {
 
   async createChannel(
     guildId: string,
-    payload: { name: string; kind: string; topic?: string; parentId?: string; nsfw?: boolean; slowmode?: number; position?: number },
+    payload: {
+      name: string;
+      kind: string;
+      topic?: string;
+      parentId?: string;
+      nsfw?: boolean;
+      slowmode?: number;
+      position?: number;
+    },
   ) {
     try {
       const body: Record<string, unknown> = {
@@ -198,7 +212,8 @@ export class RestDiscordGateway implements DiscordGateway {
       if (payload.nsfw !== undefined) body.nsfw = payload.nsfw;
       if (payload.slowmode) body.rate_limit_per_user = payload.slowmode;
       const created = (await this.rest.post(Routes.guildChannels(guildId), { body })) as {
-        id: string; name: string;
+        id: string;
+        name: string;
       };
       return ok<CreatedChannel>({ id: created.id, name: created.name });
     } catch (e) {
@@ -209,7 +224,14 @@ export class RestDiscordGateway implements DiscordGateway {
   async modifyChannel(
     _guildId: string,
     channelId: string,
-    payload: { name?: string; topic?: string | null; nsfw?: boolean; slowmode?: number; parentId?: string | null; position?: number },
+    payload: {
+      name?: string;
+      topic?: string | null;
+      nsfw?: boolean;
+      slowmode?: number;
+      parentId?: string | null;
+      position?: number;
+    },
   ) {
     try {
       const body: Record<string, unknown> = {};
@@ -265,7 +287,14 @@ export class RestDiscordGateway implements DiscordGateway {
 
   async createRole(
     guildId: string,
-    payload: { name: string; color?: string; hoist?: boolean; mentionable?: boolean; permissions?: string; position?: number },
+    payload: {
+      name: string;
+      color?: string;
+      hoist?: boolean;
+      mentionable?: boolean;
+      permissions?: string;
+      position?: number;
+    },
   ) {
     try {
       const body: Record<string, unknown> = { name: payload.name };
@@ -274,7 +303,10 @@ export class RestDiscordGateway implements DiscordGateway {
       if (payload.mentionable !== undefined) body.mentionable = payload.mentionable;
       if (payload.permissions) body.permissions = payload.permissions;
       if (payload.position !== undefined) body.position = payload.position;
-      const created = (await this.rest.post(Routes.guildRoles(guildId), { body })) as { id: string; name: string };
+      const created = (await this.rest.post(Routes.guildRoles(guildId), { body })) as {
+        id: string;
+        name: string;
+      };
       return ok<CreatedChannel>({ id: created.id, name: created.name });
     } catch (e) {
       return err(translateDiscordError(e, `create role "${payload.name}"`));
@@ -284,7 +316,14 @@ export class RestDiscordGateway implements DiscordGateway {
   async modifyRole(
     guildId: string,
     roleId: string,
-    payload: { name?: string; color?: string | null; hoist?: boolean; mentionable?: boolean; permissions?: string; position?: number },
+    payload: {
+      name?: string;
+      color?: string | null;
+      hoist?: boolean;
+      mentionable?: boolean;
+      permissions?: string;
+      position?: number;
+    },
   ) {
     try {
       const body: Record<string, unknown> = {};

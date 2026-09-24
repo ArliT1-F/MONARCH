@@ -1,0 +1,11 @@
+node_modules
+.next
+dist
+out
+build
+coverage
+.turbo
+.monarch
+.monarch-data
+package-lock.json
+prisma/migrations

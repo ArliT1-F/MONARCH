@@ -13,10 +13,7 @@ import { getStore } from "@/lib/store";
  * GET  → the guild's snapshot list (metadata only).
  * POST → take a manual backup now.
  */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const unauthorized = assertInternalAuth(req);
   if (unauthorized) return unauthorized;
   const { guildId } = await params;
@@ -41,10 +38,7 @@ const Body = z.object({
   userId: z.string().min(1).max(32).default("bot"),
 });
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const unauthorized = assertInternalAuth(req);
   if (unauthorized) return unauthorized;
   const { guildId } = await params;
@@ -54,7 +48,8 @@ export async function POST(
   }
   try {
     const outcome = await createBackup({ guildId, userId: body.data.userId, name: body.data.name });
-    if (!outcome.ok) return jsonError(outcome.status, { code: outcome.code, message: outcome.message });
+    if (!outcome.ok)
+      return jsonError(outcome.status, { code: outcome.code, message: outcome.message });
     return NextResponse.json(outcome);
   } catch (error) {
     return jsonStorageError(error, "Monarch couldn't save the backup.");

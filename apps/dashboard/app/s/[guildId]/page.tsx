@@ -182,7 +182,11 @@ export default async function GuildOverviewPage({
 }
 
 function Code({ children }: { children: React.ReactNode }) {
-  return <code className="rounded bg-ink-800 px-1.5 py-0.5 font-mono text-[11px] text-ink-100">{children}</code>;
+  return (
+    <code className="rounded bg-ink-800 px-1.5 py-0.5 font-mono text-[11px] text-ink-100">
+      {children}
+    </code>
+  );
 }
 
 function relativeTime(iso: string): string {

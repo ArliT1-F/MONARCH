@@ -21,7 +21,12 @@ describe("template envelope", () => {
   });
 
   it("rejects future versions", () => {
-    const res = parseServerTemplate({ format: TEMPLATE_FORMAT, version: 99, type: "server", data: {} });
+    const res = parseServerTemplate({
+      format: TEMPLATE_FORMAT,
+      version: 99,
+      type: "server",
+      data: {},
+    });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toMatch(/newer/);
   });

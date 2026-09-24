@@ -59,7 +59,13 @@ describe("rebaseDesign (restore)", () => {
     // #general was deleted and recreated by hand (new snowflake), then a
     // second category with a same-named channel exists elsewhere.
     current.channels = current.channels.map((c) => (c.id === "ch2" ? { ...c, id: "ch2b" } : c));
-    current.channels.push({ id: "ch9", name: "general", type: "text", position: 0, parentId: "cat1" });
+    current.channels.push({
+      id: "ch9",
+      name: "general",
+      type: "text",
+      position: 0,
+      parentId: "cat1",
+    });
 
     const { design, recreated, adopted } = rebaseDesign(current, snapshot());
     expect(recreated).toBe(0);

@@ -50,7 +50,9 @@ describe("classifySource", () => {
     });
     expect(classifySource("").kind).toBe("search");
     expect(classifySource("https://example.com/song").kind).toBe("search");
-    expect(classifySource("https://open.spotify.com/show/4rOoJ6Egrf8K2IrywzwOMk").kind).toBe("search");
+    expect(classifySource("https://open.spotify.com/show/4rOoJ6Egrf8K2IrywzwOMk").kind).toBe(
+      "search",
+    );
   });
 
   it("does not crash on malformed links", () => {

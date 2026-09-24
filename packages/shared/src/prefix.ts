@@ -27,9 +27,7 @@ export const MAX_COMMAND_PREFIX_LENGTH = 4;
 export const COMMAND_PREFIX_CHARS = "!?.-_+*%&=<>~^:;";
 
 /** Result of validating a candidate prefix. */
-export type CommandPrefixResult =
-  | { ok: true; prefix: string }
-  | { ok: false; message: string };
+export type CommandPrefixResult = { ok: true; prefix: string } | { ok: false; message: string };
 
 function show(value: string): string {
   return `\`${value}\``;

@@ -66,8 +66,22 @@ describe("analyzeServerDesign — determinism & shape", () => {
         { id: "c2", name: "COMMUNITY", position: 1 },
       ],
       channels: [
-        { id: "ch1", name: "welcome", type: "text", position: 0, parentId: "c1", topic: "Start here" },
-        { id: "ch2", name: "rules", type: "text", position: 1, parentId: "c1", topic: "Read first" },
+        {
+          id: "ch1",
+          name: "welcome",
+          type: "text",
+          position: 0,
+          parentId: "c1",
+          topic: "Start here",
+        },
+        {
+          id: "ch2",
+          name: "rules",
+          type: "text",
+          position: 1,
+          parentId: "c1",
+          topic: "Read first",
+        },
         { id: "ch3", name: "general", type: "text", position: 0, parentId: "c2", topic: "Chat" },
         { id: "ch4", name: "Lounge", type: "voice", position: 1, parentId: "c2" },
       ],
@@ -244,7 +258,17 @@ describe("analyzer — role checks", () => {
   });
 
   it("gives no credit beyond eight distinct colors", () => {
-    const colors = ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff", "#800000", "#008000", "#800080"];
+    const colors = [
+      "#ff0000",
+      "#00ff00",
+      "#0000ff",
+      "#ffff00",
+      "#ff00ff",
+      "#00ffff",
+      "#800000",
+      "#008000",
+      "#800080",
+    ];
     const design = designWith({
       roles: colors.map((color, i) => ({ id: `r${i}`, name: `Role ${i}`, color, position: i })),
     });
@@ -372,7 +396,13 @@ describe("analyzer — dismissals (mark as intentional)", () => {
     expect(orgBefore.score).toBeLessThan(100);
 
     const after = analyzeServerDesign(design, {
-      dismissed: ["org.has-structure", "org.channels-categorized", "org.empty-categories", "org.topics", "org.clutter"],
+      dismissed: [
+        "org.has-structure",
+        "org.channels-categorized",
+        "org.empty-categories",
+        "org.topics",
+        "org.clutter",
+      ],
     });
     const orgAfter = after.categories.find((c) => c.id === "organization")!;
     expect(orgAfter.score).toBe(100);

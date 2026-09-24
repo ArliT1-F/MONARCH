@@ -33,7 +33,9 @@ describe("buildBotInviteUrl", () => {
   });
 
   it("pre-selects a server when one is given, and ignores junk ids", () => {
-    const selected = new URL(buildBotInviteUrl({ clientId: CLIENT_ID, guildId: "800000000000000001" })!);
+    const selected = new URL(
+      buildBotInviteUrl({ clientId: CLIENT_ID, guildId: "800000000000000001" })!,
+    );
     expect(selected.searchParams.get("guild_id")).toBe("800000000000000001");
     expect(selected.searchParams.get("disable_guild_select")).toBe("true");
 

@@ -26,10 +26,7 @@ const Body = z.object({
  * pre-apply snapshot → execute plan → post-apply snapshot → audit →
  * clear draft (on success).
  */
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const csrf = assertSameOrigin(req);
   if (csrf) return csrf;
   const { guildId } = await params;
@@ -66,7 +63,10 @@ export async function POST(
   }
   const desired = body.data.design;
   if (desired.guildId !== guildId) {
-    return jsonError(400, { code: "apply.wrong-guild", message: "This design belongs to a different server." });
+    return jsonError(400, {
+      code: "apply.wrong-guild",
+      message: "This design belongs to a different server.",
+    });
   }
 
   const validation = validateServerDesign(desired);
@@ -81,25 +81,27 @@ export async function POST(
   // Always diff against FRESH Discord state right before applying.
   const current = await fetchCurrentDesign(guildId);
   if (!current) {
-    return jsonError(502, { code: "guild.state", message: "Monarch couldn't read this server's structure." });
+    return jsonError(502, {
+      code: "guild.state",
+      message: "Monarch couldn't read this server's structure.",
+    });
   }
   const diff = diffServerDesign(current, desired);
   if (diff.isEmpty) {
-    return NextResponse.json({ ok: true, applied: false, message: "No changes to apply.", steps: [] });
+    return NextResponse.json({
+      ok: true,
+      applied: false,
+      message: "No changes to apply.",
+      steps: [],
+    });
   }
 
   // Role mutations require Manage Roles. We only block when we POSITIVELY
   // know it's missing; an unknown-permissions bot tries anyway and Discord
   // enforces at the role step (translated, human-readable error from the
   // executor — same pattern as the channel check above).
-  const hasRoleChanges = diff.entries.some(
-    (e) => e.resource === "role" && e.op !== "unsupported",
-  );
-  if (
-    hasRoleChanges &&
-    botPermissions &&
-    !hasPermission(botPermissions, Permission.ManageRoles)
-  ) {
+  const hasRoleChanges = diff.entries.some((e) => e.resource === "role" && e.op !== "unsupported");
+  if (hasRoleChanges && botPermissions && !hasPermission(botPermissions, Permission.ManageRoles)) {
     return jsonError(409, {
       code: "bot.permissions",
       message: "Monarch can't manage roles in this server.",
@@ -191,10 +193,9 @@ function applySummary(
     },
     { created: 0, changed: 0, deleted: 0 },
   );
-  const prefix =
-    result.ok
-      ? "Applied"
-      : `Partially applied (${done.length} of ${plan.steps.length} steps)`;
+  const prefix = result.ok
+    ? "Applied"
+    : `Partially applied (${done.length} of ${plan.steps.length} steps)`;
   return (
     `${prefix}: +${totals.created} ~${totals.changed} -${totals.deleted}` +
     ` (channels ${breakdown("channel")} · roles ${breakdown("role")})`

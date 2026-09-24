@@ -33,7 +33,10 @@ const channelNames: Rule<ServerDesign> = (design) => {
   const issues: ValidationIssue[] = [];
   for (const ch of design.channels) {
     const name = ch.name.trim();
-    if (name.length < DiscordLimits.channel.nameMin || name.length > DiscordLimits.channel.nameMax) {
+    if (
+      name.length < DiscordLimits.channel.nameMin ||
+      name.length > DiscordLimits.channel.nameMax
+    ) {
       issues.push({
         severity: "error",
         code: "channel.name.length",

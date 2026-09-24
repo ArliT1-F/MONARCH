@@ -17,7 +17,14 @@ function memoryStore(initial: Record<string, string> = {}) {
       else data.set(guildId, prefix);
     }),
   };
-  return { store, data, calls: { load: store.load as ReturnType<typeof vi.fn>, save: store.save as ReturnType<typeof vi.fn> } };
+  return {
+    store,
+    data,
+    calls: {
+      load: store.load as ReturnType<typeof vi.fn>,
+      save: store.save as ReturnType<typeof vi.fn>,
+    },
+  };
 }
 
 describe("PrefixRegistry", () => {
@@ -100,9 +107,19 @@ describe("PrefixRegistry", () => {
 
   it("degrades to the default prefix when the store fails — and backs off", async () => {
     const warn = vi.fn();
-    const store: PrefixStore = { load: vi.fn(async () => { throw new Error("503") }), save: vi.fn() };
+    const store: PrefixStore = {
+      load: vi.fn(async () => {
+        throw new Error("503");
+      }),
+      save: vi.fn(),
+    };
     let now = 0;
-    const registry = new PrefixRegistry({ store, ttlMs: 100, now: () => now, log: { info: vi.fn(), warn } });
+    const registry = new PrefixRegistry({
+      store,
+      ttlMs: 100,
+      now: () => now,
+      log: { info: vi.fn(), warn },
+    });
 
     expect(await registry.get("g1")).toBe(DEFAULT_COMMAND_PREFIX);
     expect(warn).toHaveBeenCalledOnce();
@@ -169,7 +186,9 @@ describe("PrefixRegistry", () => {
   it("reports a failing save without leaking the request", async () => {
     const store: PrefixStore = {
       load: vi.fn(async () => null),
-      save: vi.fn(async () => { throw new Error("prefix update failed (500)") }),
+      save: vi.fn(async () => {
+        throw new Error("prefix update failed (500)");
+      }),
     };
     const registry = new PrefixRegistry({ store });
     const result = await registry.set("g1", "?");
@@ -193,9 +212,12 @@ describe("internalPrefixStore", () => {
     const store = internalPrefixStore("https://monarch.example", "secret-token");
 
     expect(await store.load("g1")).toBe("m!");
-    expect(fetchMock).toHaveBeenCalledWith("https://monarch.example/api/internal/guilds/g1/prefix", {
-      headers: { Authorization: "Bearer secret-token" },
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://monarch.example/api/internal/guilds/g1/prefix",
+      {
+        headers: { Authorization: "Bearer secret-token" },
+      },
+    );
   });
 
   it("treats a missing or illegal stored value as 'default'", async () => {

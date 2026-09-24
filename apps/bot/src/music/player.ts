@@ -10,7 +10,14 @@ import {
   type Track,
 } from "@monarch/music";
 import { createLogger } from "@monarch/shared";
-import type { APIEmbed, Client, Guild, GuildMember, VoiceBasedChannel, VoiceState } from "discord.js";
+import type {
+  APIEmbed,
+  Client,
+  Guild,
+  GuildMember,
+  VoiceBasedChannel,
+  VoiceState,
+} from "discord.js";
 import {
   AudioError,
   DiscordAudioBackend,
@@ -57,7 +64,10 @@ export interface MusicManagerConfig {
 
 export function musicManagerConfigFromEnv(): MusicManagerConfig {
   const list = (name: string, fallback: readonly string[]): string[] => {
-    const raw = (process.env[name] ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const raw = (process.env[name] ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
     return raw.length > 0 ? raw : [...fallback];
   };
   return {
@@ -142,7 +152,12 @@ export class MusicManager {
       // Ignore the tail of a track we already moved on from (a failure event
       // arriving after the next track started, for example).
       if (current && trackId && trackId !== current.id) {
-        log.info("ignoring a stale track end", { guildId, reason, stale: trackId, current: current.id });
+        log.info("ignoring a stale track end", {
+          guildId,
+          reason,
+          stale: trackId,
+          current: current.id,
+        });
         return;
       }
       s.playing = false;
@@ -224,8 +239,7 @@ export class MusicManager {
       s.failStreak += 1;
       this.announceFailure(
         guildId,
-        error ??
-          `**${finishedTrack?.title ?? "That track"}** couldn't be played — skipping ahead.`,
+        error ?? `**${finishedTrack?.title ?? "That track"}** couldn't be played — skipping ahead.`,
         raw,
       );
       if (s.failStreak >= MAX_CONSECUTIVE_FAILURES) {
@@ -239,7 +253,8 @@ export class MusicManager {
 
     // `finished`.
     const elapsed = Math.round(elapsedMs);
-    const wasPremature = expected !== null && elapsed > 0 && elapsed + PREMATURE_EARLY_MS < expected;
+    const wasPremature =
+      expected !== null && elapsed > 0 && elapsed + PREMATURE_EARLY_MS < expected;
     if (finishedTrack) {
       if (wasPremature) {
         log.warn("track ended prematurely", {
@@ -327,7 +342,10 @@ export class MusicManager {
             // match, a slow voice join). Drop this one track and move on — a
             // skip should never be swallowed, and never take more than the
             // track it was aimed at.
-            log.info("skip landed while a track was being prepared", { guildId, track: track.title });
+            log.info("skip landed while a track was being prepared", {
+              guildId,
+              track: track.title,
+            });
             s.skipping = false;
             skipFailed = true;
             continue;
@@ -337,7 +355,11 @@ export class MusicManager {
         } catch (e) {
           if (s.stopping || this.sessions.get(guildId) !== s) return;
           s.failStreak += 1;
-          log.warn("track could not be played", { guildId, track: track.title, error: String(e).slice(0, 300) });
+          log.warn("track could not be played", {
+            guildId,
+            track: track.title,
+            error: String(e).slice(0, 300),
+          });
           const message =
             e instanceof SourceError || e instanceof AudioError
               ? e.message
@@ -444,7 +466,8 @@ export class MusicManager {
   async connect(guildId: string, channel: VoiceBasedChannel): Promise<void> {
     const s = this.session(guildId);
     this.cancelLeaveTimer(s);
-    if (this.connectedChannelId(guildId) === channel.id && this.backend.isConnected(guildId)) return;
+    if (this.connectedChannelId(guildId) === channel.id && this.backend.isConnected(guildId))
+      return;
 
     s.voiceChannelId = channel.id;
     try {
@@ -461,9 +484,11 @@ export class MusicManager {
    */
   private async ensureVoice(guildId: string, s: GuildPlayback): Promise<void> {
     if (this.backend.isConnected(guildId)) return;
-    if (!s.voiceChannelId) throw new SourceError("I'm not in a voice channel — join one and run the command again.");
+    if (!s.voiceChannelId)
+      throw new SourceError("I'm not in a voice channel — join one and run the command again.");
     const channel = this.channel(guildId);
-    if (!channel) throw new SourceError("I lost sight of that voice channel — join one and try again.");
+    if (!channel)
+      throw new SourceError("I lost sight of that voice channel — join one and try again.");
     try {
       await this.backend.join(guildId, channel);
     } catch (error) {
@@ -475,7 +500,9 @@ export class MusicManager {
 
   /** The voice channel the bot is (or is about to be) in for this guild. */
   connectedChannelId(guildId: string): string | null {
-    return this.backend.connectedChannelId(guildId) ?? this.sessions.get(guildId)?.voiceChannelId ?? null;
+    return (
+      this.backend.connectedChannelId(guildId) ?? this.sessions.get(guildId)?.voiceChannelId ?? null
+    );
   }
 
   /** Is anything playing or queued here? */
@@ -578,7 +605,7 @@ export class MusicManager {
     return true;
   }
 
-  /** Records the volume. Returns false when the pipeline can't apply it. */
+  /** Records the volume. Returns false when the pipeline cant apply it. */
   setVolume(guildId: string, percent: number): boolean {
     const s = this.session(guildId);
     s.volume = percent;
@@ -619,7 +646,10 @@ export class MusicManager {
   }
 
   /** Can this member force-skip (DJ / staff / requester)? */
-  canForceSkip(member: GuildMember, currentTrack: Track | null): { allowed: boolean; reason?: ForceSkipReason } {
+  canForceSkip(
+    member: GuildMember,
+    currentTrack: Track | null,
+  ): { allowed: boolean; reason?: ForceSkipReason } {
     return canForceSkip({
       roleNames: member.roles.cache.map((r) => r.name),
       permissions: member.permissions.bitfield.valueOf(),
@@ -675,7 +705,8 @@ export class MusicManager {
     }
 
     // Someone joined/left the bot's channel — watch for an empty room.
-    const involved = oldState.channelId === s.voiceChannelId || newState.channelId === s.voiceChannelId;
+    const involved =
+      oldState.channelId === s.voiceChannelId || newState.channelId === s.voiceChannelId;
     if (!involved) return;
 
     const listeners = this.listenerIds(guildId);
@@ -760,7 +791,8 @@ export function queueEmbed(
     ? `**[${snapshot.current.title}](${snapshot.current.url})** · \`${progressBar(positionMs, snapshot.current.durationMs ?? 0)} \`${positionLabel(positionMs, snapshot.current.durationMs)} · ${snapshot.paused ? "⏸ paused" : "▶️ playing"}`
     : "Nothing playing.";
 
-  const total = snapshot.upcomingDurationMs === null ? null : formatDuration(snapshot.upcomingDurationMs);
+  const total =
+    snapshot.upcomingDurationMs === null ? null : formatDuration(snapshot.upcomingDurationMs);
   return {
     color: MUSIC_COLOR,
     title: `🎵 Queue — ${guild.name}`,
@@ -768,10 +800,16 @@ export function queueEmbed(
     fields: [
       {
         name: `Up next — ${snapshot.upcoming.length} track${snapshot.upcoming.length === 1 ? "" : "s"}${total ? ` · ${total}` : ""} · vol ${volume}%`,
-        value: lines.length > 0 ? lines.join("\n").slice(0, 1024) : "_The queue is empty — add something with `/music play`._",
+        value:
+          lines.length > 0
+            ? lines.join("\n").slice(0, 1024)
+            : "_The queue is empty — add something with `/music play`._",
       },
     ],
-    footer: pages > 1 ? { text: `Page ${current}/${pages} — browse with /music queue <page>` } : undefined,
+    footer:
+      pages > 1
+        ? { text: `Page ${current}/${pages} — browse with /music queue <page>` }
+        : undefined,
   };
 }
 
@@ -800,7 +838,14 @@ export function nowPlayingDetailed(
       { name: "Requested by", value: track.requestedByName, inline: true },
       { name: "Loop", value: loopMode, inline: true },
       { name: "Volume", value: `${volume}%`, inline: true },
-      { name: "Skip votes", value: skip.required > 0 ? `${skip.votes}/${skip.required} — DJ, staff and the requester skip instantly` : "—", inline: false },
+      {
+        name: "Skip votes",
+        value:
+          skip.required > 0
+            ? `${skip.votes}/${skip.required} — DJ, staff and the requester skip instantly`
+            : "—",
+        inline: false,
+      },
     ],
     thumbnail: track.thumbnail ? { url: track.thumbnail } : undefined,
   };

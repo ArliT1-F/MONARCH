@@ -23,7 +23,7 @@ export interface SkipElectionState {
 export interface SkipElectionOptions {
   /**
    * User ids of everyone (humans only — bots never vote) currently in the
-   * bot's voice channel. Re-supplied on every vote so the threshold tracks
+   * bot's voice channel. Re-supplied on every vote so the threshhold tracks
    * people joining/leaving mid-song.
    */
   listeners: string[];
@@ -61,7 +61,12 @@ export class SkipElector {
     if (passed) this.votes.delete(guildId);
 
     if (voters.has(userId)) {
-      return { status: passed ? "passed-by-this-vote" : "already", voters: [...voters], required, remaining: Math.max(0, required - voters.size) };
+      return {
+        status: passed ? "passed-by-this-vote" : "already",
+        voters: [...voters],
+        required,
+        remaining: Math.max(0, required - voters.size),
+      };
     }
     voters.add(userId);
     this.votes.set(guildId, voters);

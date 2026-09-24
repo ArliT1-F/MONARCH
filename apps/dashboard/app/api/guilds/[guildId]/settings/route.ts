@@ -5,10 +5,7 @@ import { assertSameOrigin, jsonError, requireGuildAccess } from "@/lib/api";
 import { getStore } from "@/lib/store";
 
 /** GET/PUT designated channels (Target Resolver defaults) for a guild. */
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const { guildId } = await params;
   const access = await requireGuildAccess(guildId);
   if (!access.ok) return access.response;
@@ -18,10 +15,7 @@ export async function GET(
 
 const PutBody = z.object({ designatedChannels: DesignatedChannelsSchema });
 
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const csrf = assertSameOrigin(req);
   if (csrf) return csrf;
   const { guildId } = await params;

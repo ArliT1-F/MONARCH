@@ -21,7 +21,10 @@ describe("parseCommandPrefix", () => {
   });
 
   it("keeps the default prefix legal", () => {
-    expect(parseCommandPrefix(DEFAULT_COMMAND_PREFIX)).toEqual({ ok: true, prefix: DEFAULT_COMMAND_PREFIX });
+    expect(parseCommandPrefix(DEFAULT_COMMAND_PREFIX)).toEqual({
+      ok: true,
+      prefix: DEFAULT_COMMAND_PREFIX,
+    });
     expect(isCommandPrefix(DEFAULT_COMMAND_PREFIX)).toBe(true);
   });
 
@@ -33,7 +36,20 @@ describe("parseCommandPrefix", () => {
   });
 
   it("rejects empty, whitespace, bare words, mentions and slash", () => {
-    for (const bad of ["", "   ", null, undefined, 42, "hey", "a", "@", "/", "@Monarch", "! b", "m !"]) {
+    for (const bad of [
+      "",
+      "   ",
+      null,
+      undefined,
+      42,
+      "hey",
+      "a",
+      "@",
+      "/",
+      "@Monarch",
+      "! b",
+      "m !",
+    ]) {
       expect(isCommandPrefix(bad), `${String(bad)} should be rejected`).toBe(false);
     }
   });
@@ -59,7 +75,7 @@ describe("parseCommandPrefix", () => {
   });
 
   it("rejects the characters that would collide with Discord syntax", () => {
-    for (const bad of ["@", "/", "@m", "m/", "\"m", "`", "#", "'", '"', "$", "[", "]", "(", "|"]) {
+    for (const bad of ["@", "/", "@m", "m/", '"m', "`", "#", "'", '"', "$", "[", "]", "(", "|"]) {
       expect(isCommandPrefix(bad), `${bad} should be rejected`).toBe(false);
     }
   });

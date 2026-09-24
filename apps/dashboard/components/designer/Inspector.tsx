@@ -29,8 +29,8 @@ export function Inspector({
         <div className="mt-10 text-center">
           <p className="mb-1 text-xs font-medium text-ink-300">Nothing selected</p>
           <p className="text-[11px] leading-relaxed text-ink-400">
-            Select a channel or category on the canvas to edit its properties. Drag rows to
-            reorder or move between categories.
+            Select a channel or category on the canvas to edit its properties. Drag rows to reorder
+            or move between categories.
           </p>
         </div>
         <IssueList validation={validation} />
@@ -48,7 +48,9 @@ export function Inspector({
         <Field label="Name" count={`${cat.name.length}/${DiscordLimits.channel.nameMax}`}>
           <input
             value={cat.name}
-            onChange={(e) => dispatch({ type: "RENAME_CATEGORY", id: cat.id, name: e.target.value })}
+            onChange={(e) =>
+              dispatch({ type: "RENAME_CATEGORY", id: cat.id, name: e.target.value })
+            }
             className={inputCls}
           />
         </Field>
@@ -64,7 +66,9 @@ export function Inspector({
             onClick={() => {
               if (
                 childCount === 0 ||
-                confirm(`Delete category "${cat.name}"? Its ${childCount} channel(s) move to the top level.`)
+                confirm(
+                  `Delete category "${cat.name}"? Its ${childCount} channel(s) move to the top level.`,
+                )
               ) {
                 dispatch({ type: "DELETE_CATEGORY", id: cat.id });
               }
@@ -85,14 +89,14 @@ export function Inspector({
 
   return (
     <div>
-      <PanelTitle>
-        {ch.type.charAt(0).toUpperCase() + ch.type.slice(1)} channel
-      </PanelTitle>
+      <PanelTitle>{ch.type.charAt(0).toUpperCase() + ch.type.slice(1)} channel</PanelTitle>
 
       <Field label="Name" count={`${ch.name.length}/${DiscordLimits.channel.nameMax}`}>
         <input
           value={ch.name}
-          onChange={(e) => dispatch({ type: "UPDATE_CHANNEL", id: ch.id, patch: { name: e.target.value } })}
+          onChange={(e) =>
+            dispatch({ type: "UPDATE_CHANNEL", id: ch.id, patch: { name: e.target.value } })
+          }
           className={inputCls}
         />
       </Field>
@@ -158,7 +162,11 @@ export function Inspector({
         <ActionButton
           danger
           onClick={() => {
-            if (confirm(`Remove "#${ch.name}" from this design? It will be deleted on Discord when you apply.`)) {
+            if (
+              confirm(
+                `Remove "#${ch.name}" from this design? It will be deleted on Discord when you apply.`,
+              )
+            ) {
               dispatch({ type: "DELETE_CHANNEL", id: ch.id });
             }
           }}

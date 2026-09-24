@@ -10,7 +10,11 @@ import {
 
 const FIELDS: { key: string; label: string; hint: string }[] = [
   { key: "welcome", label: "Welcome channel", hint: "Used by the Welcome Designer" },
-  { key: "announcements", label: "Announcements", hint: "Default target for published announcements" },
+  {
+    key: "announcements",
+    label: "Announcements",
+    hint: "Default target for published announcements",
+  },
   { key: "testing", label: "Testing", hint: "Default target for Send Test" },
   { key: "templateTesting", label: "Template testing", hint: "Where template previews are sent" },
 ];

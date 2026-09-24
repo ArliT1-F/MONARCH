@@ -15,7 +15,13 @@ const NO_PERMS = 0n;
 
 describe("canForceSkip", () => {
   it("lets a member with a DJ role skip", () => {
-    expect(canForceSkip({ roleNames: ["DJ", "Members"], permissions: NO_PERMS, isCurrentRequester: false })).toEqual({
+    expect(
+      canForceSkip({
+        roleNames: ["DJ", "Members"],
+        permissions: NO_PERMS,
+        isCurrentRequester: false,
+      }),
+    ).toEqual({
       allowed: true,
       reason: "dj",
     });
@@ -47,24 +53,33 @@ describe("canForceSkip", () => {
     for (const role of DEFAULT_STAFF_ROLE_NAMES) {
       expect(hasNamedRole([role], DEFAULT_STAFF_ROLE_NAMES)).toBe(true);
     }
-    expect(canForceSkip({ roleNames: ["Staff"], permissions: NO_PERMS, isCurrentRequester: false }).reason).toBe("staff");
+    expect(
+      canForceSkip({ roleNames: ["Staff"], permissions: NO_PERMS, isCurrentRequester: false })
+        .reason,
+    ).toBe("staff");
   });
 
   it("recognizes staff by real Discord permissions", () => {
     for (const bit of Object.values(STAFF_PERMISSION_BITS)) {
-      expect(canForceSkip({ roleNames: [], permissions: bit, isCurrentRequester: false }).reason).toBe("staff");
+      expect(
+        canForceSkip({ roleNames: [], permissions: bit, isCurrentRequester: false }).reason,
+      ).toBe("staff");
     }
   });
 
   it("lets the current requester skip their own song", () => {
-    expect(canForceSkip({ roleNames: [], permissions: NO_PERMS, isCurrentRequester: true })).toEqual({
+    expect(
+      canForceSkip({ roleNames: [], permissions: NO_PERMS, isCurrentRequester: true }),
+    ).toEqual({
       allowed: true,
       reason: "requester",
     });
   });
 
   it("sends everyone else to the vote", () => {
-    expect(canForceSkip({ roleNames: ["Listener"], permissions: NO_PERMS, isCurrentRequester: false })).toEqual({
+    expect(
+      canForceSkip({ roleNames: ["Listener"], permissions: NO_PERMS, isCurrentRequester: false }),
+    ).toEqual({
       allowed: false,
     });
   });

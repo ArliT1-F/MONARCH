@@ -46,7 +46,9 @@ export function ServerSwitcher({ current }: { current: GuildSummary }) {
         <span className="min-w-0 flex-1">
           <span className="block truncate text-xs font-medium text-ink-100">{current.name}</span>
           <span className="block text-[10px] text-ink-400">
-            {current.memberCount !== null ? `${current.memberCount.toLocaleString()} members` : "server"}
+            {current.memberCount !== null
+              ? `${current.memberCount.toLocaleString()} members`
+              : "server"}
           </span>
         </span>
         <svg viewBox="0 0 16 16" className="h-3 w-3 text-ink-400" fill="currentColor" aria-hidden>

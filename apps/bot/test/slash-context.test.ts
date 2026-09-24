@@ -22,7 +22,11 @@ const CLIENT_ID = "123456789012345678";
 const MOD_ID = "700000000000000001";
 const TARGET_ID = "600000000000000001";
 
-const member = (id: string, position: number, bits: bigint = PermissionFlagsBits.Administrator) => ({
+const member = (
+  id: string,
+  position: number,
+  bits: bigint = PermissionFlagsBits.Administrator,
+) => ({
   id,
   permissions: new PermissionsBitField(bits),
   roles: { highest: { position } },
@@ -170,7 +174,13 @@ describe("slash surface", () => {
   });
 
   it("toggles burg off for a member it already holds", async () => {
-    burg.burg({ guildId: GUILD_ID, userId: TARGET_ID, until: null, burgedBy: MOD_ID, style: "cat" });
+    burg.burg({
+      guildId: GUILD_ID,
+      userId: TARGET_ID,
+      until: null,
+      burgedBy: MOD_ID,
+      style: "cat",
+    });
     const interaction = fakeInteraction({ user: { id: TARGET_ID } });
     await monarch.burg(context(interaction));
     expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(false);
@@ -178,7 +188,13 @@ describe("slash surface", () => {
   });
 
   it("updates the entry when re-run with options instead of toggling off", async () => {
-    burg.burg({ guildId: GUILD_ID, userId: TARGET_ID, until: null, burgedBy: MOD_ID, style: "soft" });
+    burg.burg({
+      guildId: GUILD_ID,
+      userId: TARGET_ID,
+      until: null,
+      burgedBy: MOD_ID,
+      style: "soft",
+    });
     const interaction = fakeInteraction({ user: { id: TARGET_ID }, duration: "10m" });
     await monarch.burg(context(interaction));
     expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(true); // still on
@@ -188,7 +204,13 @@ describe("slash surface", () => {
   });
 
   it("lists burg'd members through /monarch burged", async () => {
-    burg.burg({ guildId: GUILD_ID, userId: TARGET_ID, until: null, burgedBy: MOD_ID, style: "soft" });
+    burg.burg({
+      guildId: GUILD_ID,
+      userId: TARGET_ID,
+      until: null,
+      burgedBy: MOD_ID,
+      style: "soft",
+    });
     const interaction = fakeInteraction({});
     await monarch.run(context(interaction), "burged");
     const payload = payloadAt(interaction.reply, 0);
@@ -201,7 +223,12 @@ describe("slash surface", () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ ok: true, snapshot: { name: "Backup" }, categoryCount: 2, channelCount: 9 }),
+      json: async () => ({
+        ok: true,
+        snapshot: { name: "Backup" },
+        categoryCount: 2,
+        channelCount: 9,
+      }),
     }));
     vi.stubGlobal("fetch", fetchMock);
     monarch = new MonarchCommands({
@@ -291,7 +318,9 @@ describe("the no-danger commands are open to everybody", () => {
 
     const payload = payloadAt(interaction.reply);
     expect(payload.flags).toBe(64); // still invoker-only, like every other reply
-    const url = new URL(payload.content!.match(/https:\/\/discord\.com\/oauth2\/authorize\?\S+/)![0]);
+    const url = new URL(
+      payload.content!.match(/https:\/\/discord\.com\/oauth2\/authorize\?\S+/)![0],
+    );
     expect(url.searchParams.get("client_id")).toBe(CLIENT_ID);
     expect(url.searchParams.get("scope")).toBe("bot applications.commands");
     // No pre-selected server: the point is installing it somewhere else.
@@ -303,7 +332,9 @@ describe("the no-danger commands are open to everybody", () => {
   it("posts byte-for-byte the same link as !invite (one builder, two surfaces)", async () => {
     const interaction = fakeInteraction({ sub: "invite", perms: PLAIN });
     await monarch.run(context(interaction), "invite");
-    const slashUrl = payloadAt(interaction.reply).content!.match(/https:\/\/discord\.com\/oauth2\/authorize\?\S+/)![0];
+    const slashUrl = payloadAt(interaction.reply).content!.match(
+      /https:\/\/discord\.com\/oauth2\/authorize\?\S+/,
+    )![0];
 
     // The text surface runs the same handler through the real tokenizer.
     const { PrefixCommandContext } = await import("../src/prefix/context.js");
@@ -319,8 +350,12 @@ describe("the no-danger commands are open to everybody", () => {
       match.kind === "command" ? match.args : [],
     );
     await monarch.run(ctx, "invite");
-    const prefixReply = payloadAt(message.channel.send as unknown as { mock: { calls: unknown[][] } });
-    const prefixUrl = prefixReply.content!.match(/https:\/\/discord\.com\/oauth2\/authorize\?\S+/)![0];
+    const prefixReply = payloadAt(
+      message.channel.send as unknown as { mock: { calls: unknown[][] } },
+    );
+    const prefixUrl = prefixReply.content!.match(
+      /https:\/\/discord\.com\/oauth2\/authorize\?\S+/,
+    )![0];
 
     expect(prefixUrl).toBe(slashUrl);
     // …and both are exactly what the shared builder — the dashboard's invite
@@ -382,11 +417,22 @@ function fakePrefixMessage(content: string) {
       id: GUILD_ID,
       name: "Test Guild",
       ownerId: "111111111111111111",
-      members: { me: { id: CLIENT_ID, permissions: new PermissionsBitField(PermissionFlagsBits.Administrator) }, cache: new Map(), fetch: vi.fn() },
+      members: {
+        me: {
+          id: CLIENT_ID,
+          permissions: new PermissionsBitField(PermissionFlagsBits.Administrator),
+        },
+        cache: new Map(),
+        fetch: vi.fn(),
+      },
       channels: { cache: new Map([[channel.id, channel]]) },
     },
     channel,
-    mentions: { users: { first: () => null }, members: { first: () => null, get: () => null }, channels: { first: () => null } },
+    mentions: {
+      users: { first: () => null },
+      members: { first: () => null, get: () => null },
+      channels: { first: () => null },
+    },
     attachments: [],
     stickers: [],
     webhookId: null,

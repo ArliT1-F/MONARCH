@@ -17,10 +17,7 @@ const Body = z.object({
  * "Send Test" — resolves the target through the Target Resolver
  * (designated channel or explicit pick; never a guessed #general).
  */
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ guildId: string }> },
-) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ guildId: string }> }) {
   const csrf = assertSameOrigin(req);
   if (csrf) return csrf;
   const { guildId } = await params;

@@ -102,10 +102,7 @@ export type ConfessionCooldownRow = {
 
 // ── row ↔ record mappers (pure; unit-tested without a database) ──────
 
-export function sessionRowToRecord(
-  session: SessionRow,
-  user: UserRow,
-): SessionRecord {
+export function sessionRowToRecord(session: SessionRow, user: UserRow): SessionRecord {
   const accessToken = decryptSecret(session.accessTokenEnc);
   const record: SessionRecord = {
     id: session.id,
@@ -144,11 +141,14 @@ export function settingsRowToRecord(row: GuildSettingsRow | null): GuildSettings
   if (row.welcomeChannelId) designatedChannels.welcome = row.welcomeChannelId;
   if (row.announcementsChannelId) designatedChannels.announcements = row.announcementsChannelId;
   if (row.testingChannelId) designatedChannels.testing = row.testingChannelId;
-  if (row.templateTestingChannelId) designatedChannels.templateTesting = row.templateTestingChannelId;
+  if (row.templateTestingChannelId)
+    designatedChannels.templateTesting = row.templateTestingChannelId;
   return { guildId: row.guildId, designatedChannels };
 }
 
-export function designatedChannelsToColumns(designatedChannels: Record<string, string | undefined>) {
+export function designatedChannelsToColumns(
+  designatedChannels: Record<string, string | undefined>,
+) {
   return {
     welcomeChannelId: designatedChannels.welcome ?? null,
     announcementsChannelId: designatedChannels.announcements ?? null,
@@ -298,7 +298,9 @@ export class PrismaStore implements MonarchStore {
   }
 
   async deleteDraft(guildId: string, userId: string): Promise<void> {
-    await this.db.designDraft.delete({ where: { guildId_userId: { guildId, userId } } }).catch(() => {});
+    await this.db.designDraft
+      .delete({ where: { guildId_userId: { guildId, userId } } })
+      .catch(() => {});
   }
 
   async listSnapshots(guildId: string): Promise<SnapshotRecord[]> {
@@ -451,7 +453,7 @@ export class PrismaStore implements MonarchStore {
   // ── Prefix commands ────────────────────────────────────────────────
   // Stored on GuildSettings.commandPrefix; deliberately NOT part of
   // GuildSettingsRecord/designatedChannels so the settings form and the
-  // bot's `!prefix set` can't clobber each other (same rule as the analyzer
+  // bot's `!prefix set` cant clobber each other (same rule as the analyzer
   // dismissals above).
 
   async getCommandPrefix(guildId: string): Promise<string | null> {
@@ -487,7 +489,8 @@ export class PrismaStore implements MonarchStore {
     return {
       guildId,
       channelId: typeof row?.confessionChannelId === "string" ? row.confessionChannelId : null,
-      logChannelId: typeof row?.confessionLogChannelId === "string" ? row.confessionLogChannelId : null,
+      logChannelId:
+        typeof row?.confessionLogChannelId === "string" ? row.confessionLogChannelId : null,
     };
   }
 

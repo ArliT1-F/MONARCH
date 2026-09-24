@@ -18,8 +18,16 @@ const scoreTone = (score: number) =>
   score >= 80
     ? { text: "text-ok-400", bg: "bg-ok-400", chip: "bg-ok-400/10 text-ok-400 border-ok-400/25" }
     : score >= 60
-      ? { text: "text-warn-400", bg: "bg-warn-400", chip: "bg-warn-400/10 text-warn-400 border-warn-400/25" }
-      : { text: "text-danger-400", bg: "bg-danger-400", chip: "bg-danger-400/10 text-danger-400 border-danger-400/25" };
+      ? {
+          text: "text-warn-400",
+          bg: "bg-warn-400",
+          chip: "bg-warn-400/10 text-warn-400 border-warn-400/25",
+        }
+      : {
+          text: "text-danger-400",
+          bg: "bg-danger-400",
+          chip: "bg-danger-400/10 text-danger-400 border-danger-400/25",
+        };
 
 export function AnalyzerPanel({
   guildId,
@@ -77,7 +85,10 @@ export function AnalyzerPanel({
     <div className="space-y-6">
       <section className="rounded-2xl border border-ink-700 bg-ink-900 p-4 sm:p-5">
         <div className="flex flex-wrap items-center gap-5">
-          <div className={`text-5xl font-semibold tracking-tight ${overall.text}`} aria-label={`Overall score ${report.overall} of 100`}>
+          <div
+            className={`text-5xl font-semibold tracking-tight ${overall.text}`}
+            aria-label={`Overall score ${report.overall} of 100`}
+          >
             {report.overall}
             <span className="ml-1 text-base font-normal text-ink-400">/100</span>
           </div>
@@ -111,7 +122,10 @@ export function AnalyzerPanel({
                   <p className={`text-sm font-semibold ${tone.text}`}>{cat.score}%</p>
                 </div>
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink-800">
-                  <div className={`h-full rounded-full ${tone.bg}`} style={{ width: `${cat.score}%` }} />
+                  <div
+                    className={`h-full rounded-full ${tone.bg}`}
+                    style={{ width: `${cat.score}%` }}
+                  />
                 </div>
               </div>
             );
@@ -120,7 +134,10 @@ export function AnalyzerPanel({
       </section>
 
       {error && (
-        <div role="status" className="rounded-xl border border-danger-400/25 bg-danger-400/10 px-4 py-3 text-xs text-danger-400">
+        <div
+          role="status"
+          className="rounded-xl border border-danger-400/25 bg-danger-400/10 px-4 py-3 text-xs text-danger-400"
+        >
           {error}
         </div>
       )}
@@ -132,12 +149,20 @@ export function AnalyzerPanel({
         </section>
       ) : (
         report.categories.map((cat) => {
-          const flagged = cat.checks.filter((c) => (!c.pass || c.dismissed) && (c.suggestion || c.dismissed));
+          const flagged = cat.checks.filter(
+            (c) => (!c.pass || c.dismissed) && (c.suggestion || c.dismissed),
+          );
           if (flagged.length === 0) return null;
           return (
-            <section key={cat.id} className="rounded-2xl border border-ink-700 bg-ink-900 p-4 sm:p-5">
+            <section
+              key={cat.id}
+              className="rounded-2xl border border-ink-700 bg-ink-900 p-4 sm:p-5"
+            >
               <h3 className="mb-3 text-sm font-semibold text-ink-100">
-                {cat.label} <span className={`ml-1 text-xs font-semibold ${scoreTone(cat.score).text}`}>{cat.score}%</span>
+                {cat.label}{" "}
+                <span className={`ml-1 text-xs font-semibold ${scoreTone(cat.score).text}`}>
+                  {cat.score}%
+                </span>
               </h3>
               <ul className="space-y-3">
                 {flagged.map((check) => (
@@ -156,11 +181,14 @@ export function AnalyzerPanel({
       )}
 
       <section className="rounded-2xl border border-ink-700 bg-ink-900 p-4 text-[11px] leading-relaxed text-ink-400 sm:p-5">
-        Passing checks are not listed. “Mark as intentional” removes a check from the score for
-        this server — use it when an issue is a deliberate choice. The report reflects the live
-        server as of {new Date(report.checkedAt).toLocaleString()}; re-open this page to re-analyze.
-        For deeper structure work, open the{" "}
-        <Link href={`/s/${guildId}/designer`} className="text-royal-400 underline underline-offset-2">
+        Passing checks are not listed. “Mark as intentional” removes a check from the score for this
+        server — use it when an issue is a deliberate choice. The report reflects the live server as
+        of {new Date(report.checkedAt).toLocaleString()}; re-open this page to re-analyze. For
+        deeper structure work, open the{" "}
+        <Link
+          href={`/s/${guildId}/designer`}
+          className="text-royal-400 underline underline-offset-2"
+        >
           Server Designer
         </Link>
         .
@@ -239,7 +267,10 @@ function CheckRow({
           {check.suggestion.affected && check.suggestion.affected.length > 0 && (
             <p className="text-ink-400">
               {check.suggestion.affected.map((name, i) => (
-                <span key={i} className="mr-1.5 inline-block rounded bg-ink-800 px-1.5 py-0.5 text-ink-200">
+                <span
+                  key={i}
+                  className="mr-1.5 inline-block rounded bg-ink-800 px-1.5 py-0.5 text-ink-200"
+                >
                   {name}
                 </span>
               ))}
@@ -271,12 +302,15 @@ function reportToMarkdown(guildName: string, report: AnalyzerReport): string {
     if (flagged.length === 0) continue;
     lines.push(`### ${cat.label} (${cat.score}%)`, "");
     for (const check of flagged) {
-      lines.push(`- **${check.label}** — score ${Math.round(check.score * 100)}%${check.dismissed ? " (marked intentional)" : ""}`);
+      lines.push(
+        `- **${check.label}** — score ${Math.round(check.score * 100)}%${check.dismissed ? " (marked intentional)" : ""}`,
+      );
       if (check.suggestion) {
         lines.push(`  - ${check.suggestion.title}`);
         if (check.suggestion.detail) lines.push(`  - ${check.suggestion.detail}`);
         if (check.suggestion.fix) lines.push(`  - Suggestion: ${check.suggestion.fix}`);
-        if (check.suggestion.affected?.length) lines.push(`  - Affected: ${check.suggestion.affected.join(", ")}`);
+        if (check.suggestion.affected?.length)
+          lines.push(`  - Affected: ${check.suggestion.affected.join(", ")}`);
       }
     }
     lines.push("");

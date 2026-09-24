@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { computeBotPermissions, type DiscordMemberInfo, type DiscordRoleInfo } from "../src/gateway.js";
+import {
+  computeBotPermissions,
+  type DiscordMemberInfo,
+  type DiscordRoleInfo,
+} from "../src/gateway.js";
 import { hasPermission, Permission } from "@monarch/shared";
 
 /**
@@ -28,9 +32,9 @@ describe("computeBotPermissions", () => {
 
   it("includes the @everyone role in the fallback", () => {
     const member: DiscordMemberInfo = { roles: ["bot-role"] };
-    expect(
-      hasPermission(computeBotPermissions(member, roles, "g1"), Permission.ViewChannel),
-    ).toBe(true);
+    expect(hasPermission(computeBotPermissions(member, roles, "g1"), Permission.ViewChannel)).toBe(
+      true,
+    );
   });
 
   it("Administrator implies Manage Channels — the reported bug", () => {
