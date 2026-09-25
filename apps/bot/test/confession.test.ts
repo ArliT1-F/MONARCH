@@ -297,7 +297,7 @@ function fakeInteraction(
     showModal: vi.fn(async () => ({})),
     fields:
       kind === "modal"
-        ? { getTextInputValue: (id: string) => (extra["text"] as string) ?? "" }
+        ? { getTextInputValue: (_id: string) => (extra["text"] as string) ?? "" }
         : undefined,
     client: {
       user: { id: "900000000000000001", username: "monarch" },

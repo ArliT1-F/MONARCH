@@ -243,8 +243,18 @@ function createClient(intents: number[]): Client {
   c.on(Events.Error, (e) => {
     log.error("gateway error", { error: String(e) });
   });
-  c.on(Events.MessageCreate, onMessage);
-  c.on(Events.InteractionCreate, onInteraction);
+  // Both handlers are async and an EventEmitter never awaits them, so each
+  // one reports its own failure: left dangling, a rejected handler would only
+  // surface on the global unhandledRejection log, with no hint of which event
+  // produced it (and after this worker had already served the message).
+  c.on(Events.MessageCreate, (message) => {
+    void onMessage(message).catch((e) => log.error("message handler failed", { error: String(e) }));
+  });
+  c.on(Events.InteractionCreate, (interaction) => {
+    void onInteraction(interaction).catch((e) =>
+      log.error("interaction handler failed", { error: String(e) }),
+    );
+  });
   c.on(Events.VoiceStateUpdate, (old: VoiceState, next: VoiceState) => {
     music?.handleVoiceStateUpdate(old, next);
   });
@@ -296,15 +306,21 @@ async function shutdown(signal: string) {
     log.warn("music shutdown failed", { error: String(e) });
   }
   try {
-    client.destroy(); // closes the gateway session cleanly
+    // destroy() is async and `process.exit(0)` is the very next statement, so
+    // an un-awaited call would let a rejected (or wedged) close slip past both
+    // this catch and the log line. Awaited, capped like the music shutdown
+    // above, and inside systemd's TimeoutStopSec.
+    await capWait(client.destroy(), 2_000);
   } catch (e) {
     log.warn("gateway close failed", { error: String(e) });
   }
   process.exit(0);
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+// `void` because a signal handler that returns a promise has nobody to await
+// it; shutdown() is idempotent and swallows its own per-step failures.
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
 
 // A stray rejection must not kill a worker that is otherwise serving guilds.
 process.on("unhandledRejection", (e) => {
@@ -773,7 +789,7 @@ async function start(botToken: string) {
     );
     messageContentEnabled = false;
     try {
-      client.destroy();
+      await client.destroy();
     } catch {
       // never connected
     }

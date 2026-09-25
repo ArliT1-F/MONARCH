@@ -5,6 +5,7 @@ import type { MockState } from "@monarch/discord";
 import { CONFESSION_COOLDOWN_MS } from "@monarch/shared";
 import { env } from "./env";
 import { PrismaStore } from "./prisma-store";
+import { snapshotIdsToPrune } from "./retention";
 
 /**
  * Monarch persistence layer.
@@ -146,6 +147,12 @@ export interface MonarchStore {
   listSnapshots(guildId: string): Promise<SnapshotRecord[]>;
   /** Scoped by guild so a snapshot id from another server can never be restored. */
   getSnapshot(guildId: string, id: string): Promise<SnapshotRecord | null>;
+  /**
+   * Store one snapshot and enforce retention (lib/retention.ts): manual
+   * backups are kept forever, the automatic `pre-apply` / `post-apply` pair
+   * written by every apply is capped per kind. Implementations must prune
+   * inside the same call, so no caller can accidentally store without a cap.
+   */
   addSnapshot(snapshot: SnapshotRecord): Promise<void>;
 
   getGuildSettings(guildId: string): Promise<GuildSettingsRecord>;
@@ -327,7 +334,13 @@ class FileStore implements MonarchStore {
   async addSnapshot(snapshot: SnapshotRecord) {
     const all = (await readJson<SnapshotRecord[]>("snapshots.json")) ?? [];
     all.push(snapshot);
-    await writeJson("snapshots.json", all);
+    // Retention runs here, not in the callers, so every writer is covered —
+    // and the whole rewrite it prevents is exactly why the cap exists.
+    const doomed = new Set(snapshotIdsToPrune(all.filter((s) => s.guildId === snapshot.guildId)));
+    await writeJson(
+      "snapshots.json",
+      doomed.size === 0 ? all : all.filter((s) => !doomed.has(s.id)),
+    );
   }
 
   async getGuildSettings(guildId: string) {

@@ -187,3 +187,49 @@ describe("export / import", () => {
     expect(outcome).toMatchObject({ ok: false, status: 422, code: "template.validation" });
   });
 });
+
+describe("snapshot retention", () => {
+  it("caps the automatic snapshots a store holds, keeping named backups", async () => {
+    const { AUTO_SNAPSHOT_LIMIT_PER_KIND } = await import("@/lib/retention");
+    const { newId } = await import("@/lib/store");
+    const guildId = "900-retention";
+    const design = liveDesign();
+    // Older than the grace window, so the cap is what decides (a fresh write
+    // is always kept — that rule is pinned in retention.test.ts).
+    const stamp = (i: number) => new Date(Date.now() - 3_600_000 - i * 1_000).toISOString();
+
+    for (let i = 0; i < AUTO_SNAPSHOT_LIMIT_PER_KIND + 5; i++) {
+      await getStore().addSnapshot({
+        id: newId("snap"),
+        guildId,
+        name: `Before apply ${i}`,
+        kind: "pre-apply",
+        design,
+        createdAt: stamp(i),
+      });
+    }
+    for (let i = 0; i < 3; i++) {
+      await getStore().addSnapshot({
+        id: newId("snap"),
+        guildId,
+        name: `My backup ${i}`,
+        kind: "manual",
+        design,
+        createdAt: stamp(i),
+      });
+    }
+
+    const kept = await getStore().listSnapshots(guildId);
+    expect(kept.filter((s) => s.kind === "pre-apply")).toHaveLength(AUTO_SNAPSHOT_LIMIT_PER_KIND);
+    expect(kept.filter((s) => s.kind === "manual")).toHaveLength(3);
+    // stamp(0) is the most recent write, so the cap keeps the newest 25 and
+    // drops the five oldest — a restore always still finds its undo point.
+    expect(kept.filter((s) => s.kind === "pre-apply").map((s) => s.name)).toEqual(
+      Array.from({ length: AUTO_SNAPSHOT_LIMIT_PER_KIND }, (_, i) => `Before apply ${i}`),
+    );
+
+    // And retention never reaches into another guild's history: guild "900"
+    // has its own snapshots from the tests above and is untouched here.
+    expect((await getStore().listSnapshots("900")).length).toBeGreaterThan(0);
+  });
+});

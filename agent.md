@@ -66,42 +66,56 @@ Dashboard edits → ServerDesign (@monarch/schemas) →
 
 ## 2. Tech stack & scripts
 
-| Tool            | Version                              | Notes                                                        |
-| --------------- | ------------------------------------ | ------------------------------------------------------------ |
-| Node            | >= 20                                | engines.node in root `package.json`                          |
-| Next.js         | ^15.1.6                              | App Router, React 19, `transpilePackages` for workspaces     |
-| React           | ^19.0.0                              |                                                              |
-| discord.js      | (imported as `discord.js`)           | `discord-api-types/v10` for payload types                    |
-| @discordjs/rest | (in packages/discord)                | For the bot + dashboard's REST gateway                       |
-| Prisma          | ^7.10.0                              | **Engine-free**: query compiler is WASM, `pg` driver adapter |
-| PostgreSQL      | 16 (docker) / Neon / Vercel Postgres |                                                              |
-| vitest          | ^2.1.8                               | `npm test` at repo root                                      |
-| TypeScript      | ^5.6.3                               | `strict`, `noUncheckedIndexedAccess`                         |
+| Tool            | Version                              | Notes                                                                           |
+| --------------- | ------------------------------------ | ------------------------------------------------------------------------------- |
+| Node            | >= 20                                | engines.node in root `package.json`                                             |
+| Next.js         | ^15.1.6                              | App Router, React 19, `transpilePackages` for workspaces                        |
+| React           | ^19.0.0                              |                                                                                 |
+| discord.js      | (imported as `discord.js`)           | `discord-api-types/v10` for payload types                                       |
+| @discordjs/rest | (in packages/discord)                | For the bot + dashboard's REST gateway                                          |
+| Prisma          | ^7.10.0                              | **Engine-free**: query compiler is WASM, `pg` driver adapter                    |
+| PostgreSQL      | 16 (docker) / Neon / Vercel Postgres |                                                                                 |
+| vitest          | ^2.1.8                               | `npm test` at repo root                                                         |
+| ESLint          | ^10 (flat config)                    | `npm run lint`; `eslint.config.mjs` says what it guards and why it stays narrow |
+| Prettier        | ^3                                   | `npm run format` / `format:check` (`.prettierrc.json` existed, nothing ran it)  |
+| TypeScript      | ^5.6.3                               | `strict`, `noUncheckedIndexedAccess`                                            |
 
 **Root scripts (`package.json`):**
 
-- `dev` / `dev:bot` / `build` / `test` / `typecheck` (root + workspaces)
+- `dev` / `dev:bot` / `build` / `test` / `test:watch` / `typecheck` (root + workspaces)
+- `lint` / `lint:fix` (ESLint, `eslint.config.mjs`) · `format` / `format:check`
+  (Prettier, which the repo already configured but never ran)
+- `verify` = typecheck → lint → format:check → test. This is the gate a
+  contributor runs locally; `.github/workflows/ci.yml` runs the same four plus
+  a production build and a boot smoke test.
 - `db:generate` (prisma generate) · `db:migrate` (deploy) · `db:dev` (dev)
   · `db:push` (no migrations) · `db:studio`
-- `postinstall: prisma generate` — runs on every install
+- `postinstall: node scripts/ensure-prisma-client.mjs` — runs `prisma generate`
+  and skips the work when the client is already newer than the schema.
 
-**Dashboard dev:** `npm run dev` → `next dev -H 0.0.0.0 -p 3000`.
-**Bot dev:** `npm run dev:bot`.
+### When `prisma generate` cannot run
 
-### Sandbox caveats (this environment)
+`prisma generate` downloads a schema engine from `binaries.prisma.sh`; that is
+unreachable from this sandbox (TLS is cut) and from some corporate networks.
+Both the install and the test suite now degrade on purpose rather than looking
+broken:
 
-- `binaries.prisma.sh` is **unreachable** (TLS fails). `npm install` partially
-  succeeds (packages install) but `prisma generate` errors out because the
-  query-engine binary download fails. Tests that need the generated Prisma
-  client (e.g. `prisma-store.integration.test.ts`) will fail here.
-- Workaround used by the Template Library + Analyzer session: a **type-only
-  stub** at `apps/dashboard/lib/generated/prisma/client.ts` (the directory is
-  gitignored) lets `tsc --noEmit` and all non-DB tests run. Every delegate
-  method throws at runtime — never run database code against it. A real
-  `prisma generate` overwrites it.
-- The fix is environment-only; in any normal environment with network
-  access, `npm install` runs `prisma generate` cleanly via the root
-  `postinstall` hook.
+- `scripts/ensure-prisma-client.mjs` (the `postinstall` hook) warns and exits 0
+  — unless `CI` is set or it is running inside a container build, where a
+  missing client is fatal (the Dockerfiles generate the client through this
+  hook, so an image that silently lacks it cannot talk to its database).
+- `vitest.config.ts` walks every suite's imports and filters out exactly those
+  that reach `apps/dashboard/lib/generated`, printing which ones and why.
+  `MONARCH_REQUIRE_CODEGEN=1` (CI) turns the same situation into an error, so
+  a green run there always mean the database suites ran.
+- `npm run typecheck` in the dashboard still reports the missing module; that
+  one is honest, and needs the real client.
+
+A **type-only stub** at `apps/dashboard/lib/generated/prisma/client.ts`
+(the directory is gitignored) remains the trick for making `tsc`/`next build`
+run here: `export class PrismaClient { [key: string]: any }`. Delegate methods
+must not be trusted at runtime. A real `prisma generate` overwrites it, and it
+must never be committed.
 
 ---
 
@@ -709,7 +723,11 @@ at the guild level — `requireGuildAccess` enforces this.
       one window per person rather than per guild, release, expiry),
       `prisma-store.integration.test.ts` (PGlite + applied migrations;
       needs Prisma client — fails in this sandbox),
-      `fetch-json.test.ts`, `invite.test.ts`, `workspace-parse.test.ts`.
+      `fetch-json.test.ts`, `invite.test.ts`, `workspace-parse.test.ts`,
+      `retention.test.ts` (the snapshot-retention rule both stores share:
+      cap per kind, named backups never pruned, the grace window that stops an
+      apply from eating its own snapshot, deterministic ties) — and the
+      FileStore wiring in `backups.test.ts` under "snapshot retention".
   - `apps/bot` — `commands.test.ts` (help stays in sync + under 2000 chars,
     prefix line + aliases), `prefix-parse.test.ts` (tokenizer, mention
     prefix, routing, silence rule, **alias tables ⇄ shared catalog**),
@@ -728,16 +746,25 @@ at the guild level — `requireGuildAccess` enforces this.
     discord.js stubbed; mutation-checked).
   - `packages/shared` — `prefix.test.ts` (prefix legality rules).
 
-- **Test count (most recent reported):** 497 passed, 11 failing in this
-  sandbox — all 11 in `prisma-store.integration.test.ts` (PGlite + the
-  generated Prisma client, which this sandbox cant download; 8 pre-existing
-  - the 3 confession-cooldown ones). In a normal environment all 11 pass and
-    the count is ~508.
-- **Bot typecheck caveat:** `npx tsc --noEmit -p apps/bot/tsconfig.json`
-  still reports 7 pre-existing errors in test files (APIEmbed/API component
-  union assertions in `confession.test.ts`, `required` in `commands.test.ts`).
-  The confession flow doubles are properly typed now (`FakeInteraction` +
-  `asButton`/`asModal`), which removed 21 of the 28 that were there.
+- **Test count:** 571 tests in 41 files pass in this sandbox (no Prisma
+  client ⇒ `prisma-store.integration`, `prisma-store`, `backups`, `library` and
+  `workspace-parse` are filtered out with a printed notice — see §2). With a
+  real `npm run db:generate` the same run is 46 files, and only
+  `prisma-store.integration.test.ts` needs PGlite as well; that one applies
+  every file in `prisma/migrations` and queries the result, which is what keeps
+  schema and migration history from drifting apart.
+- **Typecheck is clean, everywhere, including the bot's tests.** The 7
+  pre-existing `apps/bot` test-file errors (APIEmbed/API union assertions in
+  `confession.test.ts`, `required` in `commands.test.ts`) are gone; the
+  `npm run typecheck` script now also covers `packages/music` directly. Do not
+  reintroduce `@ts-ignore` there — the union doubles are typed via
+  `FakeInteraction` + `asButton`/`asModal`.
+- **What CI adds** (`.github/workflows/ci.yml`): `npm ci` → `db:generate` →
+  `typecheck` → `lint` → `format:check` → `test` (with
+  `MONARCH_REQUIRE_CODEGEN=1`) → `MONARCH_DEMO=1 npm run build` → boot the
+  build and assert the security headers from `next.config.ts` are on the wire.
+  A second job runs `docker compose config -q` (the `env_file` trap in bug-audit
+  #11 is a regression that has already happened once here).
 
 ---
 
@@ -1656,3 +1683,88 @@ confession and they can't send any more for the next 5 hours and 59 minutes."
   `/monarch confession cooldown` command to inspect or lift a window — the
   staff bypass covers "I need to test it", and DELETE on the internal route
   exists for the failed-post path only.
+
+---
+
+## Hardening session (2026-09-25)
+
+No new product surface — the four things that made it harder than necessary to
+trust a green checkout, plus one real bug.
+
+1. **CI existed nowhere.** No `.github/` at all: 560+ tests, a strict `tsc` and
+   a Prettier config that nothing ran, all optional. `.github/workflows/ci.yml`
+   now runs install → `db:generate` → typecheck → lint → format → test →
+   production build → a boot smoke test (curl the landing page, assert the
+   security headers are on the wire), and `docker compose config -q` as a
+   second job. Concurrency cancels superseded runs; `permissions: contents:
+read` keeps the token least-privilege.
+2. **Prettier was configured but not installed** — `.prettierrc.json` +
+   `.prettierignore` with no dependency and no script. The repo was already
+   100 % conformant, so `format:check` is free to enforce.
+3. **ESLint was added narrowly, on purpose.** The codebase carried six
+   `eslint-disable` comments naming `@next/next/no-img-element` and
+   `react-hooks/exhaustive-deps` — rules no config in the repo defined, so
+   those suppressions were silently decaying (and Next's build-time lint errors
+   on unknown rules, which is how it surfaced). Both plugins are now registered
+   with those rules at `warn`, so the comments mean something again.
+   `no-console` enforces the redacting `createLogger`; `no-restricted-imports`
+   enforces the `DiscordGateway` seam (§14) from CI instead of from prose; and
+   `no-floating-promises` / `no-misused-promises` run **only** on
+   `apps/bot/src/**` with `projectService`, because that block is the one place
+   a dangling promise means a failure nobody logged. Everything else lints
+   without type information, so `npm run lint` stays ~10 s. `next.config.ts`
+   sets `eslint.ignoreDuringBuilds` — the build must not fail on a lint nit in
+   a deploy, that is what the lint step is for.
+   It found 22 real issues on the first run: an unused import in
+   `apps/bot/src/commands.ts`, a 22-line dead `chunkLines` helper whose two
+   `.map()` calls did nothing, an unused type import in the executor, two
+   unreachable `let json = null` initialisers in the template upload routes, a
+   useless `\-` escape in `scripts/music-doctor.mjs`, three unused test
+   parameters, five `prefer-const`. All removed, not suppressed.
+4. **Snapshot retention.** `addSnapshot` appended forever, in both stores, while
+   every apply writes two snapshots and the file store rewrites the whole
+   `snapshots.json` (all guilds, all designs) to do it. `lib/retention.ts` is a
+   pure rule — 25 newest automatic snapshots per kind, `manual` backups never
+   touched, anything under a minute old exempt — called from inside both
+   stores' `addSnapshot` so no writer can bypass it. Prisma's copy reads a
+   three-column projection rather than the design JSON.
+5. **Security headers** on every dashboard response: CSP, `nosniff`,
+   `X-Frame-Options`, `Referrer-Policy` (guild snowflakes live in URLs),
+   `Permissions-Policy`, COOP, and `poweredByHeader: false`. Verified against
+   a real `next start` rather than by reading the config: the landing page
+   renders, `/api/guilds` still 401s, and the response carries the headers.
+   `script-src` keeps `'unsafe-inline'` because the App Router streams its RSC
+   payload through inline `self.__next_f.push(…)` scripts — four of them on the
+   landing page alone. Removing it needs `csp: { nonce: true }` plus a
+   per-request nonce from middleware, which has to be clicked through, so it is
+   recorded as a follow-up instead of shipped blind. `img-src` must accept any
+   https host: the embed preview renders whatever image URL a design points at,
+   exactly as Discord would.
+
+**Bug fixed: `client.destroy()` in the bot's shutdown path.** `shutdown()` had
+`try { client.destroy(); } catch { log.warn("gateway close failed") }` followed
+by `process.exit(0)`. `destroy()` is async, so the catch could never see its
+rejection and the exit did not wait for the close — the gateway session was
+dropped mid-frame and the "close failed" log line was unreachable. Same shape
+in the disallowed-intents recovery path. Both now await (the shutdown one via
+`capWait`, matching the music shutdown above it, so a wedged close still cannot
+hold the worker past systemd's `TimeoutStopSec`). `apps/bot/test/shutdown.test.ts`
+was updated to model `destroy()` as the async method it is — rejecting, not
+throwing — and `signal()` drains the queue, because the handler is now
+`void shutdown(…)`: an EventEmitter never awaits a listener, so the old
+"await the handler" trick asserted nothing. Verified by mutation: reverting the
+`await` makes exactly that one test fail.
+
+**Also:** `npm test` is green on a machine that cannot reach
+`binaries.prisma.sh` (§2), because suites that import the generated Prisma
+client are derived-and-filtered with a printed notice rather than erroring —
+and `MONARCH_REQUIRE_CODEGEN=1` makes the same situation fatal in CI, so
+skipping can never hide a real failure there.
+
+**Deliberately not done:** type-aware linting across the whole repo (it wants a
+`turbo`/`nx` graph to be fast, and `tsc` already owns types); ESLint
+`no-restricted-imports` for `process.env` outside `lib/env.ts` (worth doing,
+but it is a rule with findings to triage, not a config line); a Playwright
+smoke suite (Appendix C item 8 is still open and deserves its own PR); sharding
+`snapshots.json` per guild (retention already bounds it);
+`prisma migrate diff` in CI (already covered by the PGlite migration test).

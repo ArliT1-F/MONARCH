@@ -223,6 +223,13 @@ audit entries, demo mock state. Two implementations sit behind it:
 - **FileStore** — JSON files under `.monarch-data/` (gitignored) when no
   `DATABASE_URL` is configured. Development/demo only.
 
+Snapshots are capped, and the cap lives in the stores:
+`addSnapshot` runs the guild's list through `snapshotIdsToPrune`
+(apps/dashboard/lib/retention.ts) — the newest 25 `pre-apply` and 25
+`post-apply`, `manual` backups never, anything under a minute old exempt — so
+neither backend can grow without bound and no caller can write without a cap.
+Prisma reads only `{ id, kind, createdAt }` to decide, never the design JSON.
+
 Session cookies already carry only an HMAC-signed opaque id — tokens never
 reach the browser. Migrations live in `prisma/migrations/` (`npm run db:migrate`);
 the store contract is covered by tests that run against real PostgreSQL
@@ -238,6 +245,12 @@ not clobber it, which apps/dashboard/test/command-prefix.test.ts pins.
 Server`/`Administrator` → bot installed → bot `Manage Channels` (for apply).
   Frontend disabling is cosmetic only.
 - CSRF: mutating routes reject cross-site requests via `Sec-Fetch-Site`.
+- Response headers on every dashboard route (next.config.ts): CSP,
+  `nosniff`, `X-Frame-Options: DENY` + `frame-ancestors 'none'`,
+  `Referrer-Policy`, `Permissions-Policy`, COOP, and no `X-Powered-By`. The
+  CSP keeps `script-src … 'unsafe-inline'` because the App Router streams its
+  payload through inline scripts; tightening it to a nonce is a
+  build-and-click-through change, not a config edit.
 - Secrets only via env; logger redacts token/secret-shaped keys.
 - Raw Discord errors are translated to human-readable Monarch errors
   (packages/discord/src/errors.ts); raw payloads go to logs only.
@@ -286,6 +299,17 @@ clears the draft and rebases the editor onto fresh live state.
   mock gateway (including local-id parent resolution and re-diff = empty)
 - schemas: template envelope versioning; variable system
 - shared: command-prefix legality; command catalog ⇄ manifest sync
+- dashboard: backups/restore/import staging against the FileStore, the
+  template library's owner scoping, the command-prefix and confession
+  internal routes, snapshot retention, and PGlite migrations that keep
+  prisma/schema.prisma and prisma/migrations from drifting
+- `npm run verify` = typecheck + `npm run lint` + `npm run format:check` +
+  tests; `.github/workflows/ci.yml` adds a production build and a boot smoke
+  test that asserts the headers are on the wire. Lint is narrow on purpose
+  (see eslint.config.mjs): types are tsc's job, formatting is Prettier's, so
+  ESLint covers dead code, useless assignments, the `no-console` /
+  `no-restricted-imports` conventions, and — type-aware, on `apps/bot/src`
+  only — un-awaited promises in the worker's event handlers.
 - bot: prefix tokenizer/router + alias tables ⇄ catalog, prefix registry
   caching/degradation/validation, end-to-end prefix dispatch against real
   handlers and registries, and slash/text parity of the same handlers

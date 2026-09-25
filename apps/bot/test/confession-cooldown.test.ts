@@ -86,7 +86,7 @@ describe("ConfessionCooldowns", () => {
   });
 
   it("keeps other people's windows to themselves", async () => {
-    let now = 1_700_000_000_000;
+    const now = 1_700_000_000_000;
     const { store } = memoryStore(() => now);
     const cooldowns = new ConfessionCooldowns({ store, now: () => now });
 
@@ -95,7 +95,7 @@ describe("ConfessionCooldowns", () => {
   });
 
   it("answers the button from the cache — no round trip per click", async () => {
-    let now = 1_700_000_000_000;
+    const now = 1_700_000_000_000;
     const { store } = memoryStore(() => now);
     const cooldowns = new ConfessionCooldowns({ store, now: () => now });
 
@@ -121,7 +121,7 @@ describe("ConfessionCooldowns", () => {
   });
 
   it("reads a window it hasn't seen once, then remembers it", async () => {
-    let now = 1_700_000_000_000;
+    const now = 1_700_000_000_000;
     const until = now + 60_000;
     const { store } = memoryStore(() => now, { [USER]: until });
     const cooldowns = new ConfessionCooldowns({ store, now: () => now });
@@ -136,7 +136,7 @@ describe("ConfessionCooldowns", () => {
   });
 
   it("treats an expired stored window as free", async () => {
-    let now = 1_700_000_000_000;
+    const now = 1_700_000_000_000;
     const { store } = memoryStore(() => now, { [USER]: now - 1 });
     const cooldowns = new ConfessionCooldowns({ store, now: () => now });
 
@@ -154,7 +154,7 @@ describe("ConfessionCooldowns", () => {
   });
 
   it("release gives the window back immediately", async () => {
-    let now = 1_700_000_000_000;
+    const now = 1_700_000_000_000;
     const { store, windows } = memoryStore(() => now);
     const cooldowns = new ConfessionCooldowns({ store, now: () => now });
 
