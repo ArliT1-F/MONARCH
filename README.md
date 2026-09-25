@@ -163,11 +163,21 @@ Welcome Designer and Branding Studio are phased next — see
 npm install
 npm run dev          # dashboard on http://localhost:3000
 npm test             # engine unit tests
+npm run verify       # typecheck + lint + format:check + test, in that order
 ```
 
 Without Discord credentials Monarch boots in demo mode: a mock Discord
 gateway with seeded servers where the entire design → diff → apply loop
 actually executes.
+
+`npm run verify` is exactly what CI runs (plus a production build and a boot
+smoke test that checks the security headers are actually on the wire — see
+`.github/workflows/ci.yml`). If `prisma generate` cannot reach
+`binaries.prisma.sh` the install still succeeds: the five suites that import
+the generated Prisma client are filtered out with a printed notice, and the
+file store keeps the whole product usable. `npm run db:generate` brings them
+back; CI sets `MONARCH_REQUIRE_CODEGEN=1` so a green run there always means
+the database suites actually ran.
 
 ## Running against real Discord
 
@@ -243,6 +253,7 @@ packages/*        shared · schemas · validation · design-engine · renderer �
 prisma/           PostgreSQL schema (production persistence target)
 docker/           Compose + Dockerfiles
 docs/             Architecture & decisions
+.github/workflows CI — typecheck · lint · format · test · build · boot
 deploy/           laptop-install.sh — systemd user unit for a self-hosted worker
                   (see docs/hosting-laptop.md; no sudo, no Docker, no bill)
 ```

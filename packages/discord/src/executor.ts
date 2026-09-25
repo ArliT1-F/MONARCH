@@ -1,5 +1,5 @@
 import type { ServerDesign, RoleDesign } from "@monarch/schemas";
-import type { ApplyPlan, DiffEntry } from "@monarch/design-engine";
+import type { ApplyPlan } from "@monarch/design-engine";
 import { desiredPositions, describeEntry } from "@monarch/design-engine";
 import { isLocalId, createLogger, type MonarchError } from "@monarch/shared";
 import type { DiscordGateway } from "./gateway.js";

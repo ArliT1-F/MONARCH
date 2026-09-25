@@ -126,7 +126,7 @@ try {
   }
   const report = voice.generateDependencyReport();
   const field = (name) =>
-    new RegExp(`^- ${name.replace(/[/@.\-]/g, "\\$&")}: (.+)$`, "m").exec(report)?.[1]?.trim() ??
+    new RegExp(`^- ${name.replace(/[/@.-]/g, "\\$&")}: (.+)$`, "m").exec(report)?.[1]?.trim() ??
     null;
   const opus = field("opusscript");
   const native = field("@discordjs/opus");

@@ -2,6 +2,7 @@ import type { MockState } from "@monarch/discord";
 import type { EmbedDesign, MessageDesign, ServerDesign } from "@monarch/schemas";
 import { CONFESSION_COOLDOWN_MS } from "@monarch/shared";
 import type { PrismaClient } from "@/lib/generated/prisma/client";
+import { snapshotIdsToPrune } from "./retention";
 import { getPrisma } from "./prisma";
 import { decryptSecret, encryptSecret } from "./secure-token";
 import type {
@@ -65,6 +66,9 @@ export type SnapshotRow = {
   design: unknown;
   createdAt: Date;
 };
+
+/** The projection retention needs — deliberately not SnapshotRow, which carries the design. */
+type SnapshotRetentionRow = Pick<SnapshotRow, "id" | "kind" | "createdAt">;
 
 export type GuildSettingsRow = {
   guildId: string;
@@ -328,6 +332,19 @@ export class PrismaStore implements MonarchStore {
         createdAt: new Date(snapshot.createdAt),
       },
     });
+    // Same retention rule as the file store (lib/retention.ts). Only the
+    // columns the decision needs are read — a snapshot row carries a whole
+    // server design as JSON, and the history page is not asking for it.
+    const rows: SnapshotRetentionRow[] = await this.db.designVersion.findMany({
+      where: { guildId: snapshot.guildId },
+      select: { id: true, kind: true, createdAt: true },
+    });
+    const doomed = snapshotIdsToPrune(
+      rows.map((row) => ({ id: row.id, kind: row.kind, createdAt: row.createdAt.toISOString() })),
+    );
+    if (doomed.length > 0) {
+      await this.db.designVersion.deleteMany({ where: { id: { in: doomed } } });
+    }
   }
 
   async getGuildSettings(guildId: string): Promise<GuildSettingsRecord> {

@@ -9,7 +9,9 @@ import { helpCommandPresence } from "../src/presence.js";
  * shutdown path they take, and the startup sequence they guard.
  */
 const mocks = vi.hoisted(() => ({
-  destroy: vi.fn(),
+  // Real `Client#destroy()` returns a Promise — the shutdown path awaits it, so
+  // the double has to be async or it would not model what is being tested.
+  destroy: vi.fn(async () => {}),
   login: vi.fn(),
   put: vi.fn(),
   clientOn: vi.fn(),
@@ -126,13 +128,18 @@ async function boot(env: Record<string, string | undefined> = {}) {
 }
 
 /**
- * Invoke a registered signal handler the way the kernel would. The handler is
- * async on purpose: it waits for the music manager to stop the node's players
- * before the process exits, so tests have to wait with it.
+ * Invoke a registered signal handler the way the kernel would, then wait for
+ * the graceful shutdown it started to finish: the path stops the music manager
+ * and closes the gateway before it is allowed to exit.
  */
 async function signal(name: "SIGTERM" | "SIGINT") {
   try {
     await handlers.get(name)![0]!();
+    // The handler is fire-and-forget on purpose (`void shutdown(…)` — an
+    // EventEmitter can never await a listener), so its return value proves
+    // nothing. Drain the queue instead and let shutdown's own awaits — the
+    // capped music stop, then the capped gateway close — reach process.exit.
+    for (let i = 0; i < 4; i++) await new Promise((resolve) => setImmediate(resolve));
   } catch (e) {
     if (!(e instanceof ExitCalled)) throw e;
   }
@@ -277,11 +284,12 @@ describe("graceful shutdown", () => {
     expect(exitSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("still exits 0 when closing the gateway throws", async () => {
+  it("still exits 0 when closing the gateway rejects", async () => {
     await boot();
-    mocks.destroy.mockImplementationOnce(() => {
-      throw new Error("socket already gone");
-    });
+    // A rejection, not a synchronous throw: that is what Client#destroy()
+    // actually does, and it is the case the await in shutdown() exists to
+    // catch — before the fix it sailed past the catch block and process.exit.
+    mocks.destroy.mockRejectedValueOnce(new Error("socket already gone"));
     await signal("SIGTERM");
 
     expect(find("gateway close failed")).toBeDefined();

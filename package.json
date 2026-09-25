@@ -2,7 +2,7 @@
   "name": "monarch",
   "private": true,
   "version": "0.1.0",
-  "description": "Monarch \u2014 Design your Discord. A visual Discord server design and customization platform.",
+  "description": "Monarch — Design your Discord. A visual Discord server design and customization platform.",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -12,8 +12,14 @@
     "dev:bot": "npm run dev --workspace @monarch/bot",
     "build": "npm run build --workspace @monarch/dashboard",
     "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "verify": "npm run typecheck && npm run lint && npm run format:check && npm test",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p packages/music/tsconfig.json",
-    "postinstall": "prisma generate",
+    "postinstall": "node scripts/ensure-prisma-client.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:dev": "prisma migrate dev",
@@ -25,9 +31,16 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
     "@electric-sql/pglite-socket": "^0.2.11",
+    "@eslint/js": "^10.0.1",
+    "@next/eslint-plugin-next": "^15.5.26",
     "dotenv": "^17.4.2",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.9",
     "prisma": "^7.10.0",
     "typescript": "^5.6.3",
+    "typescript-eslint": "^8.70.1",
     "vitest": "^2.1.8"
   },
   "engines": {

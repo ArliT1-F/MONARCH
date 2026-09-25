@@ -167,7 +167,9 @@ export class PrefixCommandContext implements CommandContext {
     return this.args[0] ?? null;
   }
 
-  getIntegerOption(name: string): number | null {
+  // The name is documentation here: text commands have no labelled options, so
+  // an integer is whatever positional argument looks like one (`!queue 2`).
+  getIntegerOption(_name: string): number | null {
     const raw = this.args.find((arg) => /^-?\d+$/.test(arg.trim()));
     return raw === undefined ? null : Number.parseInt(raw.trim(), 10);
   }

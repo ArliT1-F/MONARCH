@@ -51,7 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ gui
       message: "That template file is too large (max 2 MB).",
     });
   }
-  let json: unknown = null;
+  let json: unknown;
   try {
     json = JSON.parse(raw);
   } catch {

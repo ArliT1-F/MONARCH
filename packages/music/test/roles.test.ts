@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_DJ_ROLE_NAMES,
   DEFAULT_STAFF_ROLE_NAMES,
   STAFF_PERMISSION_BITS,
   canForceSkip,

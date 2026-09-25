@@ -1,6 +1,5 @@
 import {
   ChannelType,
-  InteractionContextType,
   PermissionFlagsBits,
   SlashCommandBuilder,
   type APIEmbed,
@@ -234,27 +233,6 @@ export function prefixHelpLine(prefix: string = DEFAULT_COMMAND_PREFIX): string 
     `\`${prefix}burg @user\`… or with an @Monarch mention${extra}. Change yours with \`${prefix}prefix set <new>\`; ` +
     `\`${prefix}invite\` adds Monarch to another server.`
   );
-}
-
-function chunkLines(lines: string[], prefix: string, suffix: string): string[][] {
-  const chunks: string[][] = [];
-  let current: string[] = [];
-  let length = 0;
-  for (const line of lines) {
-    if (current.length > 0 && length + line.length + 1 > FIELD_VALUE_LIMIT) {
-      chunks.push(current);
-      current = [];
-      length = 0;
-    }
-    current.push(line);
-    length += line.length + 1;
-  }
-  if (current.length > 0) chunks.push(current);
-  return chunks
-    .map(
-      (chunk, i) => (i === 0 ? chunk : chunk), // grouping handled by the caller via suffixes
-    )
-    .map((chunk, i) => (i === 0 ? chunk : chunk)); // (kept simple — see helpEmbeds)
 }
 
 /**
