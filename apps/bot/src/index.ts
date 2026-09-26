@@ -37,7 +37,6 @@ import { ensureYtdlp } from "./music/ytdlp.js";
 import { resolveFfmpegPath } from "./music/audio.js";
 import { handlePrefixMessage, type PrefixDispatcherDeps } from "./prefix/dispatch.js";
 import { internalPrefixStore, PrefixRegistry } from "./prefix/registry.js";
-import { postAsEraPersona, resolveEraPersona } from "./era-relay.js";
 import { applyHelpStatus, BOT_STATUS_TEXT, helpCommandPresence } from "./presence.js";
 import { SlashCommandContext } from "./slash-context.js";
 
@@ -561,14 +560,6 @@ const prefixDeps: PrefixDispatcherDeps = {
   music: () => getMusicCommands(),
   botUserId: () => client.user?.id ?? null,
   enabled: () => messageContentEnabled, // MessageContent intent → text commands at all
-  era: {
-    botOwnerId: () => ownerUserId,
-    postAsPersona: (message, posts) =>
-      postAsEraPersona(message, posts, {
-        botUserId: client.user?.id ?? null,
-        resolvePersona: () => resolveEraPersona(message.guild, (id) => client.users.fetch(id)),
-      }),
-  },
   log,
 };
 

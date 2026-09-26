@@ -211,30 +211,6 @@ describe("matchCommand", () => {
     expect(match(">>help", [">>"])).toMatchObject({ surface: "monarch", sub: "help" });
   });
 
-  it("routes the era easter egg like any other group root", () => {
-    expect(match("!era zhvishu")).toMatchObject({
-      kind: "command",
-      surface: "era",
-      sub: "zhvishu",
-      args: [],
-    });
-    // The words after `add` stay arguments, original casing included.
-    expect(match("!era add Hello there")).toMatchObject({
-      surface: "era",
-      sub: "add",
-      args: ["Hello", "there"],
-    });
-    expect(match("!era messages")).toMatchObject({ surface: "era", sub: "messages", args: [] });
-    expect(match("!era photos")).toMatchObject({ surface: "era", sub: "photos", args: [] });
-    expect(match("!era remove 2")).toMatchObject({
-      surface: "era",
-      sub: "remove",
-      args: ["2"],
-    });
-    // A bare root is still "unknown" here — the dispatcher decides who hears it.
-    expect(match("!era")).toEqual({ kind: "unknown", token: "era", viaMention: false });
-  });
-
   it("silently ignores unknown !words — other bots' prefixes are not ours", () => {
     expect(match("!ban @user")).toEqual({ kind: "ignore" });
     expect(match("!ping")).toEqual({ kind: "ignore" });
@@ -254,7 +230,6 @@ describe("matchCommand", () => {
     expect(match(`<@${BOT_ID}>`)).toEqual({ kind: "bare", viaMention: true });
     expect(match("!monarch")).toEqual({ kind: "unknown", token: "monarch", viaMention: false });
     expect(match("!music")).toEqual({ kind: "unknown", token: "music", viaMention: false });
-    expect(match("!era")).toEqual({ kind: "unknown", token: "era", viaMention: false });
   });
 });
 
