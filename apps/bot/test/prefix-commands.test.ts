@@ -198,7 +198,6 @@ function setup(
     internalToken?: string;
     enabled?: boolean;
     clientId?: string | null;
-    botOwnerId?: string | null;
   } = {},
 ) {
   burg = new BurgRegistry();
@@ -222,10 +221,6 @@ function setup(
     music: () => musicStub as unknown as MusicCommands,
     botUserId: () => BOT_ID,
     enabled: () => options.enabled ?? true,
-    era: {
-      botOwnerId: () => options.botOwnerId ?? null,
-      postAsPersona: vi.fn(async () => {}),
-    },
     log,
   };
 }
@@ -268,36 +263,16 @@ describe("dispatch: what counts as a command", () => {
     expect(text(message)).toContain("!help");
   });
 
-  it("hides !era from anyone who isn't the server owner or the bot owner", async () => {
+  it("ignores the retired !era easter egg like any other unknown !word", async () => {
+    // `!era` used to be a hidden owner-only command; it was removed, so it
+    // must now behave exactly like every other word we don't know: silence.
     const message = fakeMessage({ content: "!era zhvishu" });
-    expect(await handlePrefixMessage(message, deps)).toBe(true);
+    expect(await handlePrefixMessage(message, deps)).toBe(false);
     expect(sent(message)).toHaveLength(0);
-    expect(text(message)).not.toContain("zhvishu");
-    expect(text(message)).not.toContain("era_img");
 
     const bare = fakeMessage({ content: "!era" });
-    expect(await handlePrefixMessage(bare, deps)).toBe(true);
+    expect(await handlePrefixMessage(bare, deps)).toBe(false);
     expect(sent(bare)).toHaveLength(0);
-  });
-
-  it("lets the bot owner through even when they don't own the server", async () => {
-    setup({ botOwnerId: MOD_ID });
-    const message = fakeMessage({ content: "!era zhvishu" });
-    expect(await handlePrefixMessage(message, deps)).toBe(true);
-    expect(text(message)).toContain("era_img");
-  });
-
-  it("lets the server owner reach !era without putting it in the channel help", async () => {
-    // No fixture images in era_img/ (see its README), so this lands on the
-    // empty-folder note. The fake author has no DM channel, so the private
-    // reply falls back to the channel — still not the public help list.
-    const message = fakeMessage({
-      content: "!era zhvishu",
-      authorId: "111111111111111111",
-    });
-    expect(await handlePrefixMessage(message, deps)).toBe(true);
-    expect(text(message)).toContain("era_img");
-    expect(text(message)).not.toContain("!help");
   });
 
   it("does nothing at all when the Message Content intent is off", async () => {
