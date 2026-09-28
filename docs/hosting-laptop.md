@@ -102,7 +102,7 @@ The four that actually matter for a laptop worker:
 | `INTERNAL_API_TOKEN` | the bot has no database of its own; `/monarch backup`, `export`, `embed`, `test`, `!prefix set` and confessions are HTTP calls to `APP_URL`. Must match Vercel's value exactly. |
 
 `MONARCH_OWNER_USER_ID` is worth setting while you're in the file (the
-`/burg` uno-reverse). Add `--headless` to the installer if the laptop will run
+`/jail` uno-reverse). Add `--headless` to the installer if the laptop will run
 **lid closed** — it also refuses lid-close suspend, which is what you want on a
 shelf and _not_ what you want before the laptop goes into a bag:
 
@@ -115,7 +115,7 @@ systemctl --user cat monarch-bot.service     # what was generated
 A healthy boot line looks like:
 
 ```
-bot ready  { instance: "arli-laptop", guilds: 3, burg: true, prefixCommands: true }
+bot ready  { instance: "arli-laptop", guilds: 3, jail: true, prefixCommands: true }
 ```
 
 `instance` is `os.hostname()` on purpose — if you ever forget whether the old
@@ -125,7 +125,7 @@ worker is still alive, this tells you which box answered.
 
 Two workers sharing `DISCORD_BOT_TOKEN` is not "redundancy":
 
-- both receive every `MessageCreate`, so `!burg` deletes and re-posts **twice**,
+- both receive every `MessageCreate`, so `!jail` deletes and re-posts **twice**,
   and every prefix command runs twice;
 - two `MusicManager`s each believe they own the guild's voice connection →
   flapping joins, a song that restarts, `!music stop` that doesn't stick;
@@ -211,7 +211,7 @@ registration becomes instant.
 | works all day, dead at 3 am, logs just stop   | the laptop slept. `journalctl -b -1 -n 40` will end mid-sentence. The `systemd-inhibit` lock covers idle suspend; `--headless` covers the lid; masking the targets covers everything.                                                                                                      |
 | bot joins, plays nothing, logs `signalling`   | Discord voice now requires **DAVE**. This repo pins `@discordjs/voice@0.19.2` + `@snazzah/davey` — don't downgrade it, and don't blame your network until step 1 above passes.                                                                                                             |
 | "no suitable opus encoder"                    | only the PCM path needs one (ffmpeg → PCM → Opus, which is what makes volume work). `opusscript` is in `apps/bot/package.json`; a missing one means `npm ci` didn't run, and playback would silently fall back to Opus passthrough. `npm run music:check` reports which encoder was found. |
-| `/burg` or `!help` do nothing, slash works    | Message Content intent off in the developer portal. The bot falls back to Guilds+VoiceStates instead of crash-looping, and says so at boot.                                                                                                                                                |
+| `/jail` or `!help` do nothing, slash works    | Message Content intent off in the developer portal. The bot falls back to Guilds+VoiceStates instead of crash-looping, and says so at boot.                                                                                                                                                |
 | unit `failed` with exit 1, repeats every 10 s | bad token, or Discord unreachable at boot. `--check` first, then `journalctl -n 30`.                                                                                                                                                                                                       |
 | 100 % CPU on one core while playing           | `opusscript` is JS. Fine for a handful of guilds; for more, `npm i @discordjs/opus -w @monarch/bot` (needs `build-essential python3`), or run the alpine image where it must compile — see below.                                                                                          |
 | only works while your terminal is open        | lingering is off: `sudo loginctl enable-linger $USER`                                                                                                                                                                                                                                      |

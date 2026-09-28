@@ -19,8 +19,8 @@ import { canonicalSubcommand, type PrefixInvocation } from "./parse.js";
 
 /**
  * Prefix-command surface: adapts a Discord {@link Message} to the same
- * {@link CommandContext} the slash surface implements, so `!burg @user` and
- * `/burg @user` run one and the same handler.
+ * {@link CommandContext} the slash surface implements, so `!jail @user` and
+ * `/jail @user` run one and the same handler.
  *
  * Differences from slash, all absorbed here rather than in the handlers:
  *
@@ -55,8 +55,20 @@ const FREEFORM_OPTIONS = new Set(["query", "name", "raw"]);
  */
 const CHANNEL_OPTION_ORDER: Readonly<Record<string, readonly string[]>> = {
   confession: ["channel", "logs"],
+  jail: ["channel"],
   test: ["channel"],
 };
+
+/**
+ * Role options in the order they're typed. Jail setup creates @jailed itself;
+ * the sole optional role mention is an additional staff role.
+ */
+const ROLE_OPTION_ORDER: Readonly<Record<string, readonly string[]>> = {
+  jail: ["staff"],
+};
+
+/** Role mentions in the raw text, in the order they were typed. */
+const ROLE_MENTION = /<@&(\d{15,25})>/g;
 
 /** A bare snowflake argument (`parseArgs` already reduced mentions to ids). */
 const SNOWFLAKE = /^\d{15,25}$/;
@@ -194,6 +206,22 @@ export class PrefixCommandContext implements CommandContext {
   getChannelOption(name: string): { id: string } | null {
     const ids = this.channelIds();
     const index = CHANNEL_OPTION_ORDER[this.commandWord ?? ""]?.indexOf(name) ?? -1;
+    const id = index >= 0 ? ids[index] : ids[0];
+    return id === undefined ? null : { id };
+  }
+
+  /**
+   * A role option by name, resolved positionally from the `<@&id>` mentions
+   * in the message. The text is the ground truth (discord.js' role cache can
+   * be cold), and mentions the tokenizer already rewrote are still present in
+   * `message.content`, so the order is whatever the person typed.
+   */
+  getRoleOption(name: string): { id: string } | null {
+    const ids: string[] = [];
+    for (const match of (this.message.content ?? "").matchAll(ROLE_MENTION)) {
+      ids.push(match[1]!);
+    }
+    const index = ROLE_OPTION_ORDER[this.commandWord ?? ""]?.indexOf(name) ?? -1;
     const id = index >= 0 ? ids[index] : ids[0];
     return id === undefined ? null : { id };
   }

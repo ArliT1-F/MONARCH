@@ -132,9 +132,6 @@ async function runCommand(
       deps.monarch.botUserId ??= () => botUserId;
       await deps.monarch.run(ctx, match.sub);
       return;
-    case "burg":
-      await deps.monarch.burg(ctx);
-      return;
     case "music":
       await deps.music().run(ctx, match.sub);
       return;

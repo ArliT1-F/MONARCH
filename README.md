@@ -69,7 +69,7 @@ setup [channel] [logs]` posts a starter confession with a **Confess**
   requester skip instantly; everyone else votes** and a majority of the
   listeners passes it
 - ⌨️ **Prefix commands** — every command also works as a plain message:
-  `!help`, `!play <song>`, `!burg @user`, `!backup`, or `@Monarch help`.
+  `!help`, `!play <song>`, `!jail @user`, `!backup`, or `@Monarch help`.
   Each server picks its own prefix with `!prefix set ?` (stored per server,
   the default `!` and an @Monarch mention always keep working), and unknown
   `!words` are ignored so other bots' prefixes stay theirs
@@ -87,8 +87,12 @@ setup [channel] [logs]` posts a starter confession with a **Confess**
   | `/monarch backup [name]`                                                                                              | Snapshot the server structure                                                                                                                                                                                                                                                                                       | Manage Server / Admin                        |
   | `/monarch export`                                                                                                     | Post the layout as a `.json` template file                                                                                                                                                                                                                                                                          | Manage Server / Admin                        |
   | `/monarch embed` · `/monarch test`                                                                                    | Embed Builder link · test/publish the saved design                                                                                                                                                                                                                                                                  | Manage Server / Admin                        |
-  | `/burg @user [duration] [style] [reason]`                                                                             | Delete everything the user posts and re-post it as cute uwu/owo text under their name and avatar. Run it again with no options to turn it off (or with options to update the timer/style); styles include random, soft, cat and chaotic                                                                             | Administrator or Kick Members                |
-  | `/monarch burged`                                                                                                     | List burg'd members                                                                                                                                                                                                                                                                                                 | Administrator or Kick Members                |
+  | `/jail @user [duration] [style] [reason]` | Confine someone to #jail after setup; their messages there are re-posted in a cute style, messages elsewhere are deleted and redirected. Run bare again to release. | Administrator or Kick Members |
+  | `/monarch jail setup [channel] [staff]` | Create/configure #jail and create the @jailed role; deny @everyone access to #jail, and deny @jailed viewing and writing in every other channel. Re-run to repair. `disable` releases everyone and removes overwrites; `status` inspects the cell. | Manage Server or Administrator |
+  | `/monarch jailed` | List jailed members. | Administrator or Kick Members |
+  | `/monarch vote` | Check your top.gg vote and get the vote link. | Everyone |
+  | `/monarch report` | Download the live Design Analyzer report as Markdown (voter perk). | Manage Server + vote |
+  | `/music autoplay [on|off]` | Radio mode: when a song ends naturally, search for a related track (voter perk to enable). | Listener + vote |
   | `/monarch debug on\|off`                                                                                              | **Owner only** (`MONARCH_OWNER_USER_ID`): post the raw error (yt-dlp stderr, stack traces) next to every music failure after `on`, back to one clean line after `off`                                                                                                                                               | the bot's owner                              |
   | `/monarch confession setup [channel] [logs]`                                                                          | Set up the anonymous confession channel (and optional staff log channel) and post the starter confession. `/monarch confession disable` switches it off. Anyone can confess from the **Confess** button on any confession — one per person every 6 hours, across every server (Manage Server / Admin skip the wait) | Manage Server / Admin (confessing: everyone) |
   | `/music play <link or search>`                                                                                        | Play/queue YouTube & Spotify tracks, playlists and albums                                                                                                                                                                                                                                                           | everyone in voice                            |
@@ -97,7 +101,7 @@ setup [channel] [logs]` posts a starter confession with a **Confess**
   | `/music queue [page]` · `/music nowplaying`                                                                           | Show the queue · now playing with progress                                                                                                                                                                                                                                                                          | everyone                                     |
   | `/music volume [0-150]` · `/music loop [off\|track\|queue]` · `/music shuffle` · `/music remove <#>` · `/music clear` | Playback controls                                                                                                                                                                                                                                                                                                   | everyone in the bot's channel                |
   | **Every one of those commands has a prefix form.** The slash tree mirrors                                             |
-  | one-to-one (`!monarch burged`, `!music play <song>`) and the things                                                   |
+  | one-to-one (`!monarch jailed`, `!music play <song>`) and the things                                                   |
   | people type often have short aliases:                                                                                 |
 
   | Prefix                                                                                      | Slash                                                  |
@@ -105,7 +109,7 @@ setup [channel] [logs]` posts a starter confession with a **Confess**
   | `!help` · `!commands`                                                                       | `/monarch help`                                        |
   | `!dashboard` · `!status` · `!prefix [set <new>\|reset]` · `!invite` (`!add`)                | `/monarch dashboard` · `status` · `prefix` · `invite`  |
   | `!backup [name]` · `!export` · `!embed` · `!test embed [publish] [#channel]`                | `/monarch backup` · `export` · `embed` · `test`        |
-  | `!burg @user [duration] [style] [reason]` · `!burged`                                       | `/burg` · `/monarch burged`                            |
+  | `!jail @user [duration] [style] [reason]` · `!jailed`                                       | `/jail` · `/monarch jailed`                            |
   | `!debug on` · `!debug off` (owner only)                                                     | `/monarch debug`                                       |
   | `!confession setup [#channel] [#logs]` · `!confession disable`                              | `/monarch confession setup` · `disable`                |
   | `!play <link or search>` (`!p`) · `!skip` · `!queue [page]` (`!q`) · `!np`                  | `/music play` · `skip` · `queue` · `nowplaying`        |
@@ -127,14 +131,14 @@ setup [channel] [logs]` posts a starter confession with a **Confess**
   only offers servers the person clicking can manage, and the link requests
   just the permissions Monarch uses (never Administrator), so the open door
   isn't a hole. Everything that reads or changes server data — `backup`,
-  `export`, `embed`, `test`, `prefix set`, the burg gag — still requires
+  `export`, `embed`, `test`, `prefix set`, the jail gag — still requires
   Manage Server / Administrator, or Administrator / Kick Members.
 
-  `backup`, `export`, `embed` and `test` need `INTERNAL_API_TOKEN` set in
+  `backup`, `export`, `embed`, `test` and `jail setup` need `INTERNAL_API_TOKEN` set in
   both the dashboard and the bot — as does saving a custom prefix, since the
-  bot has no database of its own. `/burg` and **all prefix
+  bot has no database of its own. `/jail` and **all prefix
   commands** need the **Message Content** privileged intent (see below); the
-  burg relay also needs the **Manage Messages** permission.
+  jail relay also needs the **Manage Messages** permission.
   Spotify links need `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` on the
   bot (free app at developer.spotify.com — see `.env.example`); YouTube
   links, searches and playlists work out of the box through **yt-dlp**, which
@@ -181,12 +185,12 @@ actually executes.
    screen (that one pre-selects the server). The link is built server-side by
    `GET /api/invite` and requests only the permissions Monarch uses —
    `Manage Channels`, `Manage Roles`, `Manage Webhooks`, `Manage Messages`
-   (burg), `View Channel`, `Send Messages`, `Send Messages in Threads`,
+   (jail), `View Channel`, `Send Messages`, `Send Messages in Threads`,
    `Embed Links`, `Attach Files`. Never Administrator. If Monarch was
    installed before `Manage Messages` was added, re-run the invite link or
    grant it in Server Settings → Roles.
 4. In the developer portal, under **Bot → Privileged Gateway Intents**,
-   enable **Message Content**. The burg relay needs it to read
+   enable **Message Content**. The jail relay needs it to read
    messages, and so does every prefix (text) command — without it only slash
    commands work. If it is off the bot still starts (Guilds-only), the
    commands explain what is missing and text commands simply never fire. Free
@@ -197,7 +201,7 @@ actually executes.
    `/monarch backup`, `/monarch export`, `/monarch embed`, `/monarch test`
    and `!prefix set` call the dashboard's `/api/internal/*` routes — set the
    same `INTERNAL_API_TOKEN` in both environments. `/monarch dashboard`,
-   `help`, `status`, `/burg`, `/monarch burged`, all of `/music` and every
+   `help`, `status`, `/jail`, `/monarch jailed`, all of `/music` and every
    other prefix command work without it.
 
    The bot also needs the **Server Voice States** intent for `/music`
@@ -220,11 +224,11 @@ voice needs outbound UDP, which Render's containers don't have — for that, or
 to stop paying for a worker at all, run it on your own always-on box with
 `deploy/laptop-install.sh` ([docs/hosting-laptop.md](docs/hosting-laptop.md));
 that page also lists which hosts allow UDP. **Exactly one** worker may hold
-`DISCORD_BOT_TOKEN` — two of them double every `!burg`/prefix command and fight
+`DISCORD_BOT_TOKEN` — two of them double every `!jail`/prefix command and fight
 over one guild's voice channel — and it talks to the dashboard through
 `APP_URL` + a matching `INTERNAL_API_TOKEN`, because the bot keeps no database
 of its own.
-Set `DISCORD_CLIENT_ID` on the worker so it can register `/monarch`, `/burg`
+Set `DISCORD_CLIENT_ID` on the worker so it can register `/monarch`, `/jail`
 and `/music`; optionally set `DISCORD_GUILD_ID` while testing for immediate
 slash-command updates (global Discord commands can take up to an hour to
 propagate). `render.yaml` is ready for a Render worker — everything except
@@ -237,7 +241,7 @@ and apply with `npm run db:migrate`.
 
 ```
 apps/dashboard    Next.js studio (UI + API routes)
-apps/bot          discord.js bot (dashboard links, status, burg, music player)
+apps/bot          discord.js bot (dashboard links, status, jail, music player)
                   — every command on two surfaces: slash + prefix (apps/bot/src/prefix/)
 packages/*        shared · schemas · validation · design-engine · renderer · discord · music
 prisma/           PostgreSQL schema (production persistence target)
@@ -260,3 +264,33 @@ Spotify via the Web API, Discord embeds).
 - Everything Discord-specific sits behind the `DiscordGateway` abstraction.
 - Errors are for humans; raw API errors stay in logs.
 - What Discord's API can't do, Monarch says it can't do.
+
+### Jail cell and voter perks
+
+Run `/monarch jail setup` (or `!jail setup`) once per server. Monarch creates
+`#jail` and creates the `@jailed` role itself (it never adopts an existing
+role), hides the cell from @everyone, allows staff roles in, and denies @jailed
+**viewing and writing** in **every other channel** (including new channels).
+Jailed members are given the role on jail and lose it on release. Re-run setup to repair permission overwrites. `/monarch jail status`
+inspects the cell; `/monarch jail disable` releases jailed members and removes
+the overwrites. A member with an Administrator role bypasses Discord's channel
+denies, so do not jail administrators. If a newly added role explicitly grants
+View Channel or Send Messages on individual channels, re-run setup to audit the
+server; a second role that allows those permissions overrides @jailed's deny.
+
+`/jail @user 10m cat` assigns the role; only staff can see and respond in
+`#jail`. The jailed member's messages inside are reposted with their name and
+avatar in a cute style; outside messages are deleted and redirected by DM.
+`/jail @user` again releases them. Without setup this remains a relay-only
+joke. Setup and active jail entries survive bot restarts via the dashboard's
+internal API: set **the same `INTERNAL_API_TOKEN`** on bot and dashboard and run
+`npm run db:migrate` on production before using setup. Message Content intent,
+Manage Roles, Manage Channels, Manage Messages and Manage Webhooks are required.
+
+No existing core command requires a top.gg vote. Optional new perks are
+`/music autoplay on` (radio mode), the pirate/Shakespeare/robot jail styles,
+and `/monarch report` (a downloadable Design Analyzer report). `/monarch vote`
+posts the link and checks a vote; positive checks are cached five minutes,
+negative checks one minute. Add `TOPGG_TOKEN` to the bot to enable the gate;
+leave it blank to unlock every perk (self-host friendly). A top.gg outage
+unlocks perks temporarily by default; set `TOPGG_REQUIRED=1` to fail closed.

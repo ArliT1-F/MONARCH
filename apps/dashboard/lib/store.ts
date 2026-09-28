@@ -65,6 +65,22 @@ export interface ConfessionChannelRecord {
   logChannelId: string | null;
 }
 
+export interface JailConfigRecord {
+  guildId: string;
+  channelId: string | null;
+  roleId: string | null;
+  staffRoleIds: string[];
+}
+
+export interface JailEntryRecord {
+  guildId: string;
+  userId: string;
+  until: string | null;
+  jailedBy: string;
+  style: string;
+  reason: string | null;
+}
+
 /**
  * Confession cooldown for one Discord user — **global across every server**
  * (confessing in server A is what makes you wait in server B).
@@ -174,12 +190,16 @@ export interface MonarchStore {
   getCommandPrefix(guildId: string): Promise<string | null>;
   putCommandPrefix(guildId: string, prefix: string | null): Promise<void>;
 
+  /** Bot-managed #jail cell and members; kept separate from the settings form. */
+  getJailConfig(guildId: string): Promise<JailConfigRecord>;
+  putJailConfig(guildId: string, config: JailConfigRecord): Promise<void>;
+  listJailEntries(guildId: string): Promise<JailEntryRecord[]>;
+  putJailEntry(entry: JailEntryRecord): Promise<void>;
+  removeJailEntry(guildId: string, userId: string): Promise<void>;
+
   /**
-   * Confessions: this guild's anonymous confession channel (null = the
-   * feature is off) and its optional staff-only log channel (null = no
-   * logs). Written by the bot (`/monarch confession setup`) through the
-   * internal API — kept out of GuildSettingsRecord so the designated-
-   * channels form can't clobber it (same rule as the command prefix).
+   * Confessions: this guild's anonymous confession channel (null = off) and
+   * optional staff-only log channel; kept out of the settings form.
    */
   getConfessionChannels(guildId: string): Promise<ConfessionChannelRecord>;
   putConfessionChannels(guildId: string, channels: ConfessionChannelRecord): Promise<void>;
@@ -397,6 +417,31 @@ class FileStore implements MonarchStore {
     if (prefix === null) delete all[guildId];
     else all[guildId] = prefix;
     await writeJson("command-prefixes.json", all);
+  }
+
+  async getJailConfig(guildId: string): Promise<JailConfigRecord> {
+    const all = (await readJson<Record<string, JailConfigRecord>>("jail-configs.json")) ?? {};
+    return all[guildId] ?? { guildId, channelId: null, roleId: null, staffRoleIds: [] };
+  }
+  async putJailConfig(guildId: string, config: JailConfigRecord): Promise<void> {
+    const all = (await readJson<Record<string, JailConfigRecord>>("jail-configs.json")) ?? {};
+    if (!config.channelId) delete all[guildId];
+    else all[guildId] = config;
+    await writeJson("jail-configs.json", all);
+  }
+  async listJailEntries(guildId: string): Promise<JailEntryRecord[]> {
+    const all = (await readJson<Record<string, JailEntryRecord>>("jail-entries.json")) ?? {};
+    return Object.values(all).filter((entry) => entry.guildId === guildId);
+  }
+  async putJailEntry(entry: JailEntryRecord): Promise<void> {
+    const all = (await readJson<Record<string, JailEntryRecord>>("jail-entries.json")) ?? {};
+    all[`${entry.guildId}:${entry.userId}`] = entry;
+    await writeJson("jail-entries.json", all);
+  }
+  async removeJailEntry(guildId: string, userId: string): Promise<void> {
+    const all = (await readJson<Record<string, JailEntryRecord>>("jail-entries.json")) ?? {};
+    delete all[`${guildId}:${userId}`];
+    await writeJson("jail-entries.json", all);
   }
 
   async getConfessionChannels(guildId: string): Promise<ConfessionChannelRecord> {

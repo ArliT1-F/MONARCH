@@ -24,7 +24,7 @@ import {
   type AudioBackend,
   type TrackEndReason,
 } from "./audio.js";
-import { SourceError, ensurePlayable, isDownloaderFailure, musicLimits } from "./sources.js";
+import { SourceError, ensurePlayable, isDownloaderFailure, musicLimits, resolveQuery } from "./sources.js";
 import { YtdlpError } from "./ytdlp.js";
 import type { DebugReporter } from "../debug.js";
 
@@ -88,6 +88,7 @@ interface GuildPlayback {
   stopping: boolean;
   advancing: boolean;
   failStreak: number;
+  autoplay: boolean;
   leaveTimer: NodeJS.Timeout | null;
 }
 
@@ -137,6 +138,7 @@ export class MusicManager {
       stopping: false,
       advancing: false,
       failStreak: 0,
+      autoplay: false,
       leaveTimer: null,
     };
     this.sessions.set(guildId, s);
@@ -303,6 +305,20 @@ export class MusicManager {
 
   // ── playback ───────────────────────────────────────────────────────
 
+  autoplayEnabled(guildId: string): boolean {
+    return this.sessions.get(guildId)?.autoplay ?? false;
+  }
+
+  setAutoplay(guildId: string, enabled: boolean): void {
+    this.session(guildId).autoplay = enabled;
+  }
+
+  private async relatedTrack(previous: Track): Promise<Track | null> {
+    const query = `${previous.title} ${previous.author} music`;
+    const result = await resolveQuery(query, "autoplay", "Monarch Radio", 5);
+    return result.tracks.find((track) => track.videoId !== previous.videoId && track.url !== previous.url) ?? null;
+  }
+
   /**
    * Pull the next track and hand it to the audio backend. `why` only feeds the
    * logs. When the queue runs dry the bot stays connected for a few minutes
@@ -317,10 +333,37 @@ export class MusicManager {
       // was current: a failed one, or the one a user just skipped. Loop modes
       // never resurrect a track that was explicitly left behind.
       let skipFailed = dropCurrent;
+      // Only a naturally finished song starts radio, never a skip or failed load.
+      const previous = why === "finished" ? s.queue.nowPlaying() : null;
+      let triedRadio = false;
       while (!s.stopping) {
         const track = s.queue.next(skipFailed);
         s.elector.reset(guildId);
         if (!track) {
+          if (
+            !triedRadio && previous && s.autoplay && s.voiceChannelId &&
+            this.sessions.get(guildId) === s
+          ) {
+            triedRadio = true;
+            try {
+              const related = await this.relatedTrack(previous);
+              if (
+                related && s.autoplay && !s.stopping &&
+                this.sessions.get(guildId) === s && s.queue.isEmpty
+              ) {
+                s.queue.add(related);
+                this.announce(guildId, {
+                  color: 0xf5c542,
+                  title: "📻 Radio queued a related track",
+                  description: `**${related.title}**`,
+                });
+                skipFailed = false;
+                continue;
+              }
+            } catch (error) {
+              log.warn("autoplay search failed", { guildId, error: String(error) });
+            }
+          }
           s.playing = false;
           s.paused = false;
           s.queue.setPaused(false);

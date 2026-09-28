@@ -12,6 +12,8 @@ import type {
   ConfessionCooldownWindow,
   DraftRecord,
   GuildSettingsRecord,
+  JailConfigRecord,
+  JailEntryRecord,
   GuildWorkspaceRecord,
   MonarchStore,
   SessionRecord,
@@ -473,6 +475,73 @@ export class PrismaStore implements MonarchStore {
       create: { guildId, commandPrefix },
       update: { commandPrefix },
     });
+  }
+
+  // ── Jail cell and active entries ───────────────────────────────────
+  async getJailConfig(guildId: string): Promise<JailConfigRecord> {
+    const row = await this.db.guildSettings.findUnique({
+      where: { guildId },
+      select: { jailChannelId: true, jailRoleId: true, jailStaffRoles: true },
+    });
+    return {
+      guildId,
+      channelId: row?.jailChannelId ?? null,
+      roleId: row?.jailRoleId ?? null,
+      staffRoleIds: Array.isArray(row?.jailStaffRoles)
+        ? row.jailStaffRoles.filter((id: unknown): id is string => typeof id === "string")
+        : [],
+    };
+  }
+
+  async putJailConfig(guildId: string, config: JailConfigRecord): Promise<void> {
+    await this.ensureGuild(guildId);
+    const data = {
+      jailChannelId: config.channelId,
+      jailRoleId: config.roleId,
+      jailStaffRoles: config.staffRoleIds,
+    };
+    await this.db.guildSettings.upsert({
+      where: { guildId },
+      create: { guildId, ...data },
+      update: data,
+    });
+  }
+
+  async listJailEntries(guildId: string): Promise<JailEntryRecord[]> {
+    const rows = await this.db.jailEntry.findMany({ where: { guildId } });
+    return rows.map((row: {
+      userId: string;
+      until: Date | null;
+      jailedBy: string;
+      style: string;
+      reason: string | null;
+    }) => ({
+      guildId,
+      userId: row.userId,
+      until: row.until?.toISOString() ?? null,
+      jailedBy: row.jailedBy,
+      style: row.style,
+      reason: row.reason,
+    }));
+  }
+
+  async putJailEntry(entry: JailEntryRecord): Promise<void> {
+    await this.ensureGuild(entry.guildId);
+    const data = {
+      until: entry.until ? new Date(entry.until) : null,
+      jailedBy: entry.jailedBy,
+      style: entry.style,
+      reason: entry.reason,
+    };
+    await this.db.jailEntry.upsert({
+      where: { guildId_userId: { guildId: entry.guildId, userId: entry.userId } },
+      create: { guildId: entry.guildId, userId: entry.userId, ...data },
+      update: data,
+    });
+  }
+
+  async removeJailEntry(guildId: string, userId: string): Promise<void> {
+    await this.db.jailEntry.deleteMany({ where: { guildId, userId } });
   }
 
   // ── Confessions ────────────────────────────────────────────────────

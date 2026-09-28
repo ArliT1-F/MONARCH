@@ -2051,7 +2051,7 @@ A short legend:
 | §11          | Diff engine is shared by Designer / Restore / Import / Templates                                                                                           | ✅     | `rebaseDesign`, `mergeDesigns`, `localiseIds` in `compose.ts`                                                                                                                                                                                                                                            |
 | §12          | Centralized validation engine                                                                                                                              | ✅     | `@monarch/validation/engine.ts` + `*-rules.ts`                                                                                                                                                                                                                                                           |
 | §12          | Human-readable errors with `fix` suggestions                                                                                                               | ✅     | `MonarchError{code,message,reason,fix,detail}`                                                                                                                                                                                                                                                           |
-| §13          | Discord API abstraction (not direct `discord.js` calls in routes)                                                                                          | ✅     | `DiscordGateway` interface; only `apps/bot` uses discord.js directly (slash commands + burg relay, which need the Gateway connection)                                                                                                                                                                    |
+| §13          | Discord API abstraction (not direct `discord.js` calls in routes)                                                                                          | ✅     | `DiscordGateway` interface; only `apps/bot` uses discord.js directly (slash commands + jail relay, which need the Gateway connection)                                                                                                                                                                    |
 | §14          | Permission checks: user + bot + hierarchy + target + API                                                                                                   | ✅     | `requireGuildAccess` + apply route's bot `ManageChannels` check + `resolveTarget`'s permission check                                                                                                                                                                                                     |
 | §15          | Draft system (autosave, discard, undo/redo)                                                                                                                | ✅     | Designer reducer + `DesignDraft` row + `PUT /api/guilds/:id/draft`                                                                                                                                                                                                                                       |
 | §16          | Undo/redo (Ctrl+Z / Ctrl+Shift+Z)                                                                                                                          | ✅     | `designer-state.ts`                                                                                                                                                                                                                                                                                      |
@@ -2076,7 +2076,7 @@ A short legend:
 | §28          | Integration tests for Discord service, database, API                                                                                                       | ✅     | `apps/dashboard/test/prisma-store.integration.test.ts` (PGlite + applied migrations); `packages/discord/test/gateway.test.ts` (full apply loop against mock)                                                                                                                                             |
 | §28          | UI tests                                                                                                                                                   | ⏳     | No component tests yet.                                                                                                                                                                                                                                                                                  |
 | §31          | "Unsupported by Discord" surfaced, never faked                                                                                                             | ✅     | Diff engine `unsupported` op + Review modal renders it explicitly                                                                                                                                                                                                                                        |
-| §32          | No moderation features                                                                                                                                     | ✅     | Only feature with even a moderation veneer is `/burg` (a gag). See Appendix B.5.                                                                                                                                                                                                                         |
+| §32          | No moderation features (superseded for jail)                                                                                                                                     | ✅     | Only feature with even a moderation veneer is `/jail` (a gag). See Appendix B.5.                                                                                                                                                                                                                         |
 | §33          | Bot stays lightweight; commands are links/tests/config shortcuts                                                                                           | ✅     | `apps/bot/src/index.ts` is ~460 lines (gateway wiring only — the commands live in `monarch-commands.ts`, `music/commands.ts` and `prefix/`); no structural mutations happen in the bot                                                                                                                   |
 | §34          | TypeScript strict; modular; no giant files; no duplicated business logic                                                                                   | ✅     | `tsconfig.base.json` has `strict` + `noUncheckedIndexedAccess`; `lib/api.ts`, `lib/workspace.ts`, `lib/backups.ts` are the cross-cutting services used by both user and bot routes                                                                                                                       |
 | §35          | Agent development rules                                                                                                                                    | 🟡     | Followed during PRs 1–9, but not yet formalized into a process document beyond the existing PR descriptions                                                                                                                                                                                              |
@@ -2109,7 +2109,7 @@ Apply Changes
 Import/Export, the mobile-friendly dashboard shell, the Discord bot
 (`/monarch help`, `/monarch dashboard`, `/monarch status`, `/monarch
 backup`, `/monarch export`, `/monarch embed`, `/monarch test`,
-`/burg`, `/monarch burged`), and the
+`/jail`, `/monarch jailed`), and the
 PostgreSQL-backed production path (Prisma 7, engine-free, Vercel-ready).
 
 ---
@@ -2133,14 +2133,14 @@ delivered more than the spec's command list. The full surface is:
 | `/monarch help`                                        | new                         | Rendered from a single `COMMAND_HELP` manifest. A unit test enforces it stays in sync with the registered subcommands and under Discord's 2000-char limit.                                               |
 | `/monarch dashboard`                                   | implicit                    | Link to the studio for the current guild.                                                                                                                                                                |
 | `/monarch invite` (`!invite`)                          | new; see B.10               | The same "Add to Server" link as the dashboard's invite button (`packages/shared/src/invite.ts`), but with no guild pre-selected — the point is installing Monarch somewhere else. Open to every member. |
-| `/monarch status`                                      | new                         | Bot presence, burg'd count, dashboard URL, this server's prefix.                                                                                                                                         |
+| `/monarch status`                                      | new                         | Bot presence, jailed count, dashboard URL, this server's prefix.                                                                                                                                         |
 | `/monarch prefix [prefix]`                             | new; see B.10               | Show or change this server's text-command prefix (Manage Server / Administrator). Persisted on `GuildSettings.commandPrefix` through `GET` / `PUT /api/internal/guilds/:id/prefix`.                      |
 | `/monarch backup [name]`                               | new (related to FEATURE 8)  | Calls `/api/internal/guilds/:id/backup` with the invoking member's `userId` so the audit trail is correct.                                                                                               |
 | `/monarch export`                                      | new (related to FEATURE 10) | Returns the live structure as a `monarch-template` JSON file via Discord's attachment mechanism.                                                                                                         |
 | `/monarch embed`                                       | new (related to FEATURE 2)  | Opens the Embed Builder; if `INTERNAL_API_TOKEN` is set, also previews the saved embed.                                                                                                                  |
 | `/monarch test kind:<embed\|message> [mode] [channel]` | new (related to FEATURE 18) | Test-send or publish the saved design through the dashboard's internal API, optionally to an explicit channel.                                                                                           |
-| `/burg @user [duration] [style] [reason]`              | NOT in spec; see B.5        | Gag feature: re-posts the member's messages as cute uwu/owo text. Bare re-run toggles off; re-run with options updates.                                                                                  |
-| `/monarch burged`                                      | NOT in spec; see B.5        | Lists who's burg'd.                                                                                                                                                                                      |
+| `/jail @user [duration] [style] [reason]`              | NOT in spec; see B.5        | Gag feature: re-posts the member's messages as cute uwu/owo text. Bare re-run toggles off; re-run with options updates.                                                                                  |
+| `/monarch jailed`                                      | NOT in spec; see B.5        | Lists who's jailed.                                                                                                                                                                                      |
 
 Auth: bot→dashboard requests use a shared `INTERNAL_API_TOKEN`
 (Bearer header, constant-time SHA-256 compare in
@@ -2151,7 +2151,7 @@ commands surface the same in chat.
 Intents: `Guilds + GuildMessages + MessageContent` with an automatic
 Guilds-only fallback if `MessageContent` is not enabled in the
 developer portal. The fallback logs a warning and disables
-`/burg` and the whole prefix (text) command surface;
+`/jail` and the whole prefix (text) command surface;
 slash commands keep working.
 
 ## B.10 Prefix (text) commands — every slash command twice
@@ -2255,7 +2255,7 @@ shutdown behavior or error budgets. We added:
   `db.migration-pending` code with a "run `npm run db:migrate`" fix
   hint, instead of returning a raw connection error.
 
-## B.5 Gag relay (`/burg`) — explicit non-conformance with §32
+## B.5 Gag relay (`/jail`) — explicit non-conformance with §32
 
 §32 says "no moderation features." We ship a _single_ moderation-flavoured
 slash command, scoped narrowly to gag/joke use, with the following
@@ -2263,20 +2263,20 @@ guardrails:
 
 - Documented in the README as a joke feature, not a moderation product.
 - The implementation is fully isolated in
-  `apps/bot/src/{index,burg,durations,commands}.ts`. There is no
+  `apps/bot/src/{index,jail,durations,commands}.ts`. There is no
   shared "moderation" module.
 - No banned/kicked/muted/auto-mod state, no logs, no audit. The
-  `BurgRegistry` is in-memory and releases everyone on restart.
+  `JailRegistry` persists via the dashboard internal API; startup restores entries and repairs overwrites.
 - The relay only deletes a single user's messages and re-posts them
   with the same content (rewritten as cute uwu/owo text) under their
   own name/avatar via a per-channel webhook. Discord markup (mentions,
-  custom emoji, timestamps, URLs, code spans) is preserved so a burg'd
+  custom emoji, timestamps, URLs, code spans) is preserved so a jailed
   user cannot bypass or break formatting. Polls are left alone (they
   can't be re-posted without losing votes).
 - Requires `ManageMessages` (in the bot's least-privilege invite
   bitfield) and the privileged `MessageContent` intent; the bot falls
   back to Guilds-only when the intent is not enabled.
-- Default is indefinite (toggle off by re-running `/burg` bare); `10m`,
+- Default is indefinite (toggle off by re-running `/jail` bare); `10m`,
   `2h`, `1d`, `1h30m` are accepted, capped at 28 days. Re-running with
   options updates the timer/style instead of toggling off.
 
@@ -2286,7 +2286,7 @@ decide whether to formally add it (and harden it) or remove it.
 
 > History: this section used to describe `/monarch jail`, a
 > Standard-Galactic-Alphabet variant of the same relay. It was removed
-> on 2026-09-12 (the `/burg` gag covers the joke use case on its own);
+> on 2026-09-12 (the `/jail` gag covers the joke use case on its own);
 > the guardrails above are unchanged.
 
 ## B.6 Mobile-first dashboard shell (not in spec)
@@ -2388,7 +2388,7 @@ In rough order of "smallest next step that adds the most user value":
    content renderer for the v2 component tree; legacy embeds stay
    supported.
 6. ~~**`/monarch jail` decision** (Appendix B.5).~~ **Decided 2026-09-12:
-   removed.** The Galactic-alphabet relay is gone; `/burg` remains as the
+   removed.** The Galactic-alphabet relay is gone; `/jail` remains as the
    single joke gag, still calling out the §32 deviation in Appendix B.5.
 7. **Formal feature-module registry** (FEATURE 24 / spec §24). The
    feature toggles are implicit today; a small `FeatureModule` table
@@ -2419,7 +2419,7 @@ codebase. The two documents are complementary:
 When the two disagree, the code wins for "is it built?" and this
 document wins for "should it be built?". The appendices above exist
 to make the disagreements (mostly the additive bot commands and
-`/burg`) auditable instead of accidental.
+`/jail`) auditable instead of accidental.
 
 ---
 
@@ -2752,3 +2752,17 @@ createdAt, updatedAt }` in FileStore (`templates.json`) or Prisma
 - `/monarch health` slash command (Appendix E) — can now reuse
   `@monarch/analyzer` via an internal route; not wired this time.
 - Per-check "how to fix" deep-links into the relevant designer panes.
+
+### 2026-09-28 update: opt-in jail exception and voter perks
+
+The user requested an opt-in confinement system beyond the original §32
+no-moderation boundary. `/monarch jail setup` creates a private #jail and
+creates the @jailed role, denies @everyone in #jail, denies @jailed viewing and
+writing in every other channel, and allows staff to observe. The bot adds the
+role when jailing and removes it on release. `/jail` confines members, preserves cute relay
+inside the cell, and deletes/DM-redirects outside messages. Both config and
+entries persist via the dashboard internal API; startup restores them.
+The original free commands remain free. Voter-only extras are music autoplay,
+three alternate jail styles, and the full analyzer report; without a top.gg
+token all extras remain usable. This addendum supersedes B.5's earlier
+in-memory gag-only design and §32 statements about jail.

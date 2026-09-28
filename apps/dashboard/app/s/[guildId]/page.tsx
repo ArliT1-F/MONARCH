@@ -162,7 +162,7 @@ export default async function GuildOverviewPage({
                 <span className="block text-[11px] text-ink-400">Get the layout as a template</span>
               </li>
               <li>
-                <Code>/burg @user 10m</Code>
+                <Code>/jail @user 10m</Code>
                 <span className="block text-[11px] text-ink-400">
                   Re-post their messages as cute uwu text
                 </span>

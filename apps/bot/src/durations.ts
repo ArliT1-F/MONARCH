@@ -1,14 +1,14 @@
 /**
  * Gag durations — `30s`, `10m`, `2h`, `1d`, `1h30m`.
  *
- * Shared by the `/burg` command on both surfaces (slash options and prefix
- * arguments go through the same parser, so `!burg @user 10m` and
- * `/burg @user duration:10m` always agree).
+ * Shared by the `/jail` command on both surfaces (slash options and prefix
+ * arguments go through the same parser, so `!jail @user 10m` and
+ * `/jail @user duration:10m` always agree).
  */
 
 /**
- * The longest a burg can last. Capped at 28 days (Discord's own timeout
- * ceiling) so a typo can't burg someone for a year.
+ * The longest a jail can last. Capped at 28 days (Discord's own timeout
+ * ceiling) so a typo can't jail someone for a year.
  */
 export const MAX_DURATION_MS = 28 * 24 * 60 * 60 * 1000;
 

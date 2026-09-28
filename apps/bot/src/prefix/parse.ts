@@ -9,8 +9,8 @@
  *    keeps `"double quoted"` arguments together and rewrites
  *    `<@123>` / `<#123>` mentions to bare snowflakes so handlers get ids.
  * 2. {@link matchCommand} — "which command is that?" It knows the full
- *    mirror of the slash tree (`!monarch burged`, `!music play`) plus the
- *    short aliases (`!burg`, `!play`). The alias table is checked against
+ *    mirror of the slash tree (`!monarch jailed`, `!music play`) plus the
+ *    short aliases (`!jail`, `!play`). The alias table is checked against
  *    the shared command catalog by a test, so `prefixAliases` in
  *    `@monarch/shared` can't drift from what the bot actually answers to.
  */
@@ -32,7 +32,6 @@ export interface PrefixInvocation {
 /** What a message routed to. */
 export type PrefixMatch =
   | { kind: "command"; surface: "monarch"; sub: string; args: string[]; viaMention: boolean }
-  | { kind: "command"; surface: "burg"; args: string[]; viaMention: boolean }
   | { kind: "command"; surface: "music"; sub: string; args: string[]; viaMention: boolean }
   /**
    * The prefix (or a bare mention) with nothing after it. Only mentions get
@@ -58,6 +57,7 @@ export const MUSIC_PREFIX_ALIASES: Readonly<Record<string, readonly string[]>> =
   remove: ["remove"],
   clear: ["clear"],
   stop: ["stop", "leave"],
+  autoplay: ["autoplay", "radio"],
 };
 
 /** `monarch` subcommand → short aliases, mirrored from `MONARCH_COMMANDS`. */
@@ -71,7 +71,10 @@ export const MONARCH_PREFIX_ALIASES: Readonly<Record<string, readonly string[]>>
   export: ["export"],
   embed: ["embed"],
   test: ["test"],
-  burged: ["burged"],
+  jailed: ["jailed"],
+  jail: ["jail"],
+  report: ["report"],
+  vote: ["vote"],
   confession: ["confession"],
   debug: ["debug"],
 };
@@ -81,7 +84,6 @@ const GROUP_ROOTS = new Set(["monarch", "music"]);
 
 /** Every short alias, used to tell command words from arguments. */
 const ALIAS_WORDS = new Set<string>([
-  "burg",
   ...Object.values(MONARCH_PREFIX_ALIASES).flat(),
   ...Object.values(MUSIC_PREFIX_ALIASES).flat(),
 ]);
@@ -90,7 +92,7 @@ const ALIAS_WORDS = new Set<string>([
  * How many leading words are the command path — everything after them is
  * arguments. Decided by the known-command tables, not by "looks like a word",
  * so `!play daft punk around the world` keeps its whole search phrase while
- * `!monarch burged` still reads as a two-word command.
+ * `!monarch jailed` still reads as a two-word command.
  */
 function commandWordCount(tokens: readonly string[]): number {
   const [head, second] = tokens as [string | undefined, string | undefined];
@@ -143,7 +145,7 @@ export function parseArgs(input: string): string[] {
 /**
  * Does this message start with one of the guild's prefixes (or mention the
  * bot first)? Returns null when it isn't a Monarch message — the caller then
- * carries on with whatever else it does for messages (the burg relay).
+ * carries on with whatever else it does for messages (the jail relay).
  *
  * `prefixes` must already be sorted longest-first so a server that configured
  * `!!` gets `!!help` read as `!!` + `help`, not `!` + `!help`.
@@ -237,14 +239,6 @@ export function matchCommand(invocation: PrefixInvocation): PrefixMatch {
 
   const [head, second] = tokens as [string, string | undefined];
 
-  if (head === "burg")
-    return {
-      kind: "command",
-      surface: "burg",
-      args: second ? [second, ...args] : args,
-      viaMention,
-    };
-
   if (GROUP_ROOTS.has(head!)) {
     if (!second) return { kind: "unknown", token: head!, viaMention };
     const rest = args;
@@ -253,8 +247,8 @@ export function matchCommand(invocation: PrefixInvocation): PrefixMatch {
     return { kind: "command", surface: "monarch", sub: second, args: rest, viaMention };
   }
 
-  // Short aliases. `prefix` and `burg` are their own words; everything else
-  // maps onto a monarch or music subcommand.
+  // Short aliases. `!jail`, `!jailed`, `!report` and the rest are their own
+  // words; everything maps onto a monarch or music subcommand.
   for (const [sub, aliases] of Object.entries(MONARCH_PREFIX_ALIASES)) {
     if (aliases.includes(head!)) {
       return {

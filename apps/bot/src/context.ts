@@ -20,8 +20,8 @@ import {
  *   the message text, there is no ephemeral flag (everybody can see a text
  *   command), and deferring posts a placeholder message that gets edited.
  *
- * Keeping the handlers surface-neutral is what makes `!play`, `!burg` and
- * `/music play`, `/burg` run the *same* code: one set of permission
+ * Keeping the handlers surface-neutral is what makes `!play`, `!jail` and
+ * `/music play`, `/jail` run the *same* code: one set of permission
  * checks, one set of replies, no drift between the two ways of typing a
  * command. Anything a handler needs that isn't here belongs in the surface
  * adapter, not in the handler.
@@ -95,6 +95,13 @@ export interface CommandContext {
    */
   getChannelOption(name: string): { id: string } | null;
   /**
+   * A role option by name (jail setup's optional `staff` role). The slash
+   * surface reads the typed option; the prefix surface reads `<@&id>` role
+   * mentions in the order they were typed. Bare ids are deliberately
+   * not treated as roles: they are indistinguishable from channel ids.
+   */
+  getRoleOption(name: string): { id: string } | null;
+  /**
    * Resolve a member by snowflake (prefix surface: mentions are rewritten to
    * ids during tokenizing). Returns null on the slash surface — use
    * {@link getMemberOption} there.
@@ -149,7 +156,7 @@ export interface SendableChannel {
  * Both surfaces must agree, including Discord's "Administrator implies
  * everything" shortcut — which `PermissionsBitField.has()` implements and a
  * raw bitwise AND does not. Handlers therefore read the same answer whether
- * the command arrived as `/burg` or `!burg`.
+ * the command arrived as `/jail` or `!jail`.
  */
 export function hasAnyPermission(
   permissions: PermissionsBitField | bigint | null | undefined,
