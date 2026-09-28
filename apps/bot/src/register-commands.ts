@@ -1,6 +1,6 @@
 import { REST, Routes } from "discord.js";
 import { createLogger } from "@monarch/shared";
-import { burgCommandJSON, monarchCommandJSON } from "./commands.js";
+import { jailCommandJSON, monarchCommandJSON } from "./commands.js";
 import { musicCommandJSON } from "./music/commands.js";
 
 /**
@@ -17,7 +17,7 @@ if (!token || !clientId) {
   process.exit(1);
 }
 
-const commands = [monarchCommandJSON(), burgCommandJSON(), musicCommandJSON()];
+const commands = [monarchCommandJSON(), jailCommandJSON(), musicCommandJSON()];
 const route = guildId
   ? Routes.applicationGuildCommands(clientId, guildId)
   : Routes.applicationCommands(clientId);

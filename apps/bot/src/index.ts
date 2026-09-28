@@ -14,12 +14,13 @@ import {
   type Message,
   type ModalSubmitInteraction,
   type VoiceState,
-  type Webhook,
-  type WebhookMessageCreateOptions,
 } from "discord.js";
 import { createLogger } from "@monarch/shared";
-import { burgCommandJSON, monarchCommandJSON } from "./commands.js";
-import { BurgRegistry, toBurg } from "./burg.js";
+import { jailCommandJSON, monarchCommandJSON } from "./commands.js";
+import { internalJailConfigStore, JailConfigRegistry } from "./jail-config.js";
+import { JailManager } from "./jail-manager.js";
+import { internalJailEntryStore, JailRegistry } from "./jail.js";
+import { VoteGate } from "./votes.js";
 import {
   CONFESS_BUTTON_ID,
   CONFESS_MODAL_ID,
@@ -46,11 +47,12 @@ import { SlashCommandContext } from "./slash-context.js";
  * The web dashboard is the product; the bot is the integration layer.
  * Commands provide quick actions and dashboard links. Structural changes
  * are executed by the API layer through @monarch/discord (REST), not by
- * this process. The live burg gag runs here becuase it
- * need gateway message events; the rest of the design work stays in the API.
+ * this process. The live jail (the confinement role, the channel overwrites
+ * and the cute relay) runs here because it needs gateway message events; the
+ * rest of the design work stays in the API.
  *
- * Every command answers to both surfaces: slash (`/burg`,
- * `/music play`) and text prefixes (`!burg`, `!play`, `@Monarch help`) with a
+ * Every command answers to both surfaces: slash (`/jail`,
+ * `/music play`) and text prefixes (`!jail`, `!play`, `@Monarch help`) with a
  * per-server prefix. Both are thin adapters over the same handlers, so they
  * cannot drift — see ./prefix/ and ./context.ts.
  *
@@ -77,12 +79,12 @@ if (!token) {
 }
 
 // The uno-reverse only exists when the worker knows who the application owner
-// is. A missing id fails *open* (the owner can be burg'd like anyone else),
-// so say so loudly at boot instead of letting it look like a burg bug —
+// is. A missing id fails *open* (the owner can be jailed like anyone else),
+// so say so loudly at boot instead of letting it look like a jail bug —
 // especially when two workers share a token and only one of them has it set.
 if (!ownerUserId) {
   log.warn(
-    "MONARCH_OWNER_USER_ID is not set — the application owner can be burg'd and the uno-reverse is off. " +
+    "MONARCH_OWNER_USER_ID is not set — the application owner can be jailed and the uno-reverse is off. " +
       "Set it to your Discord user id to protect yourself.",
   );
 }
@@ -90,14 +92,13 @@ if (!ownerUserId) {
 /**
  * Intents: Guilds for slash commands; GuildVoiceStates for the music player
  * (the bot joins voice channels itself and streams audio in-process — see
- * apps/bot/src/music/audio.ts);
- * GuildMessages + MessageContent so the burg relay can read and
+ * apps/bot/src/music/audio.ts); GuildMessages + MessageContent so the jail relay can read and
  * re-post messages, and so prefix (text) commands can be seen at all.
  * MessageContent is a *privileged* intent — enable it under Bot → Privileged
  * Gateway Intents in the developer portal (free under 100 servers,
  * verification required above that). If it is not enabled Discord refuses
  * the connection, so `start()` falls back to Guilds + VoiceStates with the
- * message features (the burg relay *and* prefix commands) disabled instead of
+ * message features (the jail relay *and* prefix commands) disabled instead of
  * crash-looping the worker — slash commands keep working.
  */
 const FULL_INTENTS = [
@@ -111,9 +112,46 @@ const BASIC_INTENTS = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceSta
 let messageContentEnabled = true;
 let client = createClient(FULL_INTENTS);
 
-const burg = new BurgRegistry((entry) => {
-  log.info("burg expired", { guildId: entry.guildId, userId: entry.userId, style: entry.style });
+/**
+ * The jail: entries (who is confined, until when, which style) and the live
+ * manager that owns the #jail cell, the @jailed role and the relay.
+ *
+ * Entries are persisted through the dashboard's internal API when the worker
+ * has a token (same rule as prefixes and confessions), so a redeploy doesn't
+ * quietly open every cell. A timed entry that runs out while the bot is up
+ * frees its member and DMs them; one that ran out while the bot was down is
+ * cleaned up by `startup()`.
+ */
+let jailManager: JailManager | null = null;
+const jail = new JailRegistry({
+  store: internalToken ? internalJailEntryStore(appUrl, internalToken) : null,
+  onExpire: (entry) => {
+    void jailManager?.releaseExpired(entry);
+  },
+  log,
 });
+const jailConfigs = new JailConfigRegistry({
+  store: internalToken ? internalJailConfigStore(appUrl, internalToken) : null,
+  log,
+});
+
+/**
+ * top.gg vote gate for the voter perks. `TOPGG_TOKEN` is what turns it on:
+ * without one (self-hosted instances) nothing is locked and the perks are
+ * simply available. `TOPGG_REQUIRED=1` makes a failed check deny instead of
+ * allow — see ./votes.ts.
+ */
+const votes = new VoteGate({
+  token: process.env.TOPGG_TOKEN ?? null,
+  botId: () => clientId ?? client.user?.id ?? null,
+  required: /^(1|true|yes|on)$/i.test(process.env.TOPGG_REQUIRED ?? ""),
+  log,
+});
+if (!votes.enabled) {
+  log.info(
+    "top.gg vote gate is off (no TOPGG_TOKEN) — voter perks (premium jail styles, /music autoplay, /monarch report) are unlocked",
+  );
+}
 
 // ── music player ─────────────────────────────────────────────────────
 
@@ -222,7 +260,7 @@ function createClient(intents: number[]): Client {
       instance: os.hostname(),
       guilds: ready.guilds.cache.size,
       status: BOT_STATUS_TEXT,
-      burg: messageContentEnabled,
+      jail: messageContentEnabled,
       // The same flag gates the relay and text commands: both need to read
       // other people's message content.
       prefixCommands: messageContentEnabled,
@@ -236,6 +274,12 @@ function createClient(intents: number[]): Client {
     // downloads it). Failures are logged with the fix, never fatal — every
     // other feature keeps working without yt-dlp.
     void checkMusicReady();
+
+    // Jail self-heal: pull stored cells in, re-hand the @jailed role to
+    // everyone who should have it, free the windows that ran out while the
+    // bot was down, and repair any channel that lost its deny. Background
+    // on purpose — a slow dashboard must not delay READY.
+    void jailManager?.startup();
   });
   // Surface gateway trouble instead of letting an EventEmitter "error" event
   // take the whole worker down (discord.js reconnects on its own).
@@ -246,6 +290,12 @@ function createClient(intents: number[]): Client {
   c.on(Events.InteractionCreate, onInteraction);
   c.on(Events.VoiceStateUpdate, (old: VoiceState, next: VoiceState) => {
     music?.handleVoiceStateUpdate(old, next);
+  });
+  // A channel created while a cell is configured must not become a window
+  // for jailed members to be seen through.
+  c.on(Events.ChannelCreate, (channel) => {
+    if (channel.isDMBased()) return;
+    void jailManager?.onChannelCreate(channel);
   });
   return c;
 }
@@ -310,85 +360,30 @@ process.on("unhandledRejection", (e) => {
   log.error("unhandled rejection", { error: String(e) });
 });
 
-function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
-
-// ── live message relay (burg) ────────────────────────────────────────
-
-const BURG_WEBHOOK_NAME = "Monarch Burg";
-const burgWebhookCache = new Map<string, Webhook>();
-
-/** One webhook per channel, created lazily and reused (Discord caps them at 15/channel). */
-async function burgWebhook(message: Message<true>): Promise<Webhook | null> {
-  const channel = message.channel;
-  // Threads post through their parent's webhook with `threadId`.
-  const host = channel.isThread() ? channel.parent : channel;
-  if (!host || !("fetchWebhooks" in host)) return null;
-  const cached = burgWebhookCache.get(host.id);
-  if (cached) return cached;
-  const me = message.guild.members.me;
-  if (!me || !host.permissionsFor(me).has(PermissionFlagsBits.ManageWebhooks)) return null;
-  const hooks = await host.fetchWebhooks();
-  let hook = hooks.find(
-    (candidate) =>
-      candidate.owner?.id === client.user?.id &&
-      candidate.name === BURG_WEBHOOK_NAME &&
-      candidate.token,
-  );
-  if (!hook) {
-    hook = await host.createWebhook({ name: BURG_WEBHOOK_NAME, reason: "Monarch burg relay" });
-  }
-  burgWebhookCache.set(host.id, hook);
-  return hook;
-}
-
-/** Drop a cached webhook so the next relay re-fetches (or recreates) it. */
-function evictWebhookCache(hook: Webhook): void {
-  for (const [channelId, cached] of burgWebhookCache) {
-    if (cached.id === hook.id) burgWebhookCache.delete(channelId);
-  }
-}
-
-function isUnknownWebhook(error: unknown): boolean {
-  return (error as { code?: unknown } | null)?.code === 10015;
-}
-
 /**
- * Webhook display names may not contain "discord" (Discord rejects the send,
- * which would delete the original with nothing re-posted), so swap one
- * character for a lookalike instead of failing the whole relay.
+ * Messages: text commands first, then the jail.
+ *
+ * The relay itself lives in ./jail-manager.ts (it owns the webhooks, the
+ * ordering and the deletes). A message that isn't a command and isn't from a
+ * jailed member costs only a map lookup.
  */
-function sanitizeRelayUsername(displayName: string, fallback: string): string {
-  const cleaned = displayName
-    .replace(/discord/gi, "d\u0456scord")
-    .replace(/clyde/gi, "\u0441lyde")
-    .trim();
-  const name = cleaned.length > 0 ? cleaned : fallback;
-  // Truncate by code point so a trailing emoji isn't sliced in half (Discord
-  // caps webhook usernames at 80 characters).
-  return Array.from(name).slice(0, 80).join("");
-}
-
-// Relay sends for one channel run in order: without this, two quick messages
-// race their webhook posts and arrive swapped. The stored promise never
-// rejects, so one failed relay can't wedge the channel behind it.
-const relayChains = new Map<string, Promise<void>>();
-
-function serializeRelay(channelId: string, task: () => Promise<void>): Promise<void> {
-  const previous = relayChains.get(channelId) ?? Promise.resolve();
-  const current = previous.catch(() => {}).then(task);
-  const stored = current.catch(() => {});
-  relayChains.set(channelId, stored);
-  const cleanup = () => {
-    if (relayChains.get(channelId) === stored) relayChains.delete(channelId);
-  };
-  current.then(cleanup, cleanup);
-  return current;
-}
-
 async function onMessage(message: Message) {
   if (!message.inGuild() || message.author.bot || message.webhookId || message.system) return;
+
+  // A jailed member cannot use commands to speak outside the cell: confine
+  // before prefix dispatch (otherwise `!help` and friends bypass deletion).
+  if (jail.get(message.guildId, message.author.id)) {
+    const config = await jailConfigs.get(message.guildId);
+    if (config && message.channelId !== config.channelId &&
+        (!message.channel.isThread() || message.channel.parentId !== config.channelId)) {
+      try {
+        await jailManager?.handleMessage(message);
+      } catch (error) {
+        log.error("jail confinement failed", { error: String(error) });
+      }
+      return;
+    }
+  }
 
   // 1) Text commands. Only when the MessageContent intent is on (without it
   // `message.content` is empty for other people's messages), and never for
@@ -401,104 +396,12 @@ async function onMessage(message: Message) {
     return;
   }
 
-  // 2) The burg relay.
+  // 2) The jail: confine or relay. `handleMessage` re-checks the entry itself
+  // and quietly returns false for everyone else.
   try {
-    const burgEntry = burg.get(message.guildId, message.author.id);
-    if (!burgEntry) return;
-
-    // Polls can't be re-posted faithfully (recreating one would lose every
-    // vote), so they're left alone rather than deleted.
-    if (message.poll) {
-      log.info("burg skipped — message contains a poll", {
-        guildId: message.guildId,
-        channelId: message.channelId,
-      });
-      return;
-    }
-
-    const me = message.guild.members.me;
-    const channelPerms = me ? message.channel.permissionsFor(me) : null;
-    if (!channelPerms?.has(PermissionFlagsBits.ManageMessages)) {
-      log.warn("burg'd message left alone — missing Manage Messages", {
-        guildId: message.guildId,
-        channelId: message.channelId,
-      });
-      return;
-    }
-    if (!channelPerms.has(PermissionFlagsBits.SendMessages)) {
-      // Deleting a message the bot couldn't re-post would just destroy it.
-      log.warn("burg'd message left alone — missing Send Messages", {
-        guildId: message.guildId,
-        channelId: message.channelId,
-      });
-      return;
-    }
-
-    const content = toBurg(message.content ?? "", burgEntry.style);
-    const files = message.attachments.map((a) => a.url);
-    const stickers = message.stickers.map((s) => s.name);
-    const stickerText =
-      stickers.length > 0 ? toBurg(`*(sticker: ${stickers.join(", ")})*`, burgEntry.style) : "";
-    const body = [content, stickerText].filter(Boolean).join("\n");
-    if (!body && files.length === 0) {
-      await message.delete().catch(() => {});
-      return;
-    }
-
-    const member = message.member;
-    const displayName =
-      member?.displayName ?? message.author.displayName ?? message.author.username;
-    const avatarURL =
-      member?.displayAvatarURL({ size: 256 }) ?? message.author.displayAvatarURL({ size: 256 });
-    const username = sanitizeRelayUsername(displayName, message.author.username);
-    const sendPayload = (): WebhookMessageCreateOptions => ({
-      content: truncate(body, 2000) || undefined,
-      files: files.slice(0, 10),
-      username,
-      avatarURL,
-      threadId: message.channel.isThread() ? message.channel.id : undefined,
-      allowedMentions: { parse: [] },
-    });
-
-    // Relay first (attachments are re-uploaded from the original's CDN
-    // URLs, which must still exist), then delete. The delete happens even if
-    // the relay failed so the gag always holds. One channel relays at a time
-    // so quick messages cant arrive swapped.
-    await serializeRelay(message.channelId, async () => {
-      try {
-        const hook = await burgWebhook(message);
-        if (hook) {
-          try {
-            await hook.send(sendPayload());
-          } catch (error) {
-            // A webhook deleted from Server Settings leaves a stale cache
-            // entry: evict it and try once more with a fresh one.
-            if (!isUnknownWebhook(error)) throw error;
-            log.info("burg webhook was deleted — recreating", {
-              guildId: message.guildId,
-              channelId: message.channelId,
-            });
-            evictWebhookCache(hook);
-            const fresh = await burgWebhook(message);
-            if (!fresh) throw error;
-            await fresh.send(sendPayload());
-          }
-        } else {
-          await message.channel.send({
-            content: truncate(`**${displayName}**: ${body}`, 2000),
-            files: files.slice(0, 10),
-            allowedMentions: { parse: [] },
-          });
-        }
-      } catch (e) {
-        log.warn("burg relay failed — original still deleted", { error: String(e) });
-      }
-      await message
-        .delete()
-        .catch((e) => log.warn("could not delete burg'd message", { error: String(e) }));
-    });
+    await jailManager?.handleMessage(message);
   } catch (e) {
-    log.error("message relay failed", { error: String(e) });
+    log.error("jail message handling failed", { error: String(e) });
   }
 }
 
@@ -509,11 +412,11 @@ async function onMessage(message: Message) {
  * ./monarch-commands.ts and ./music/commands.ts) that talks to a
  * CommandContext (./context.ts). `onInteraction` wraps interactions in
  * SlashCommandContext, `handlePrefixMessage` wraps messages in
- * PrefixCommandContext — so `/burg @user` and `!burg @user` are the
+ * PrefixCommandContext — so `/jail @user` and `!jail @user` are the
  * same code, with the same checks, the same API calls and the same replies.
  *
- * This file keeps only what needs the live gateway: the relay webhooks above,
- * the lazily created music manager, and the two event handlers below.
+ * This file keeps only what needs the live gateway: the lazily created music
+ * manager, the jail manager above, and the event handlers below.
  */
 const prefixes = new PrefixRegistry({
   store: internalToken ? internalPrefixStore(appUrl, internalToken) : null,
@@ -537,16 +440,21 @@ const confessionCooldowns = new ConfessionCooldowns({
   log,
 });
 
+jailManager = new JailManager({ client: () => client, configs: jailConfigs, registry: jail, log });
+
 const monarchCommands = new MonarchCommands({
   appUrl,
   internalToken,
-  burg,
+  jail,
+  jailConfigs,
+  jailManager,
   prefixes,
   confessions,
-  burgEnabled: () => messageContentEnabled,
+  jailEnabled: () => messageContentEnabled,
   clientId, // for `!invite` — falls back to the bot's own user id below
   ownerUserId,
   debug: debugFlags,
+  votes,
   log,
 });
 // A bot's user id *is* its application id, so a worker without
@@ -702,8 +610,8 @@ async function runChatInput(interaction: ChatInputCommandInteraction) {
       await runSlash(interaction, "music command", (ctx) => getMusicCommands().run(ctx, sub));
       return;
     }
-    case "burg":
-      await runSlash(interaction, "burg command", (ctx) => monarchCommands.burg(ctx));
+    case "jail":
+      await runSlash(interaction, "jail command", (ctx) => monarchCommands.jail(ctx));
       return;
     case "monarch": {
       const sub = interaction.options.getSubcommand(false) ?? "help";
@@ -718,7 +626,7 @@ async function runChatInput(interaction: ChatInputCommandInteraction) {
 /** Music commands need the (lazily created) manager, so they're lazy too. */
 let musicCommands: MusicCommands | null = null;
 function getMusicCommands(): MusicCommands {
-  musicCommands ??= new MusicCommands(getMusic());
+  musicCommands ??= new MusicCommands(getMusic(), votes);
   return musicCommands;
 }
 
@@ -727,7 +635,7 @@ async function registerCommands(botToken: string) {
     log.warn("DISCORD_CLIENT_ID is not set — slash commands were not registered");
     return;
   }
-  const commands = [monarchCommandJSON(), burgCommandJSON(), musicCommandJSON()];
+  const commands = [monarchCommandJSON(), jailCommandJSON(), musicCommandJSON()];
   const route = guildIdForCommands
     ? Routes.applicationGuildCommands(clientId, guildIdForCommands)
     : Routes.applicationCommands(clientId);
@@ -757,7 +665,7 @@ async function start(botToken: string) {
   } catch (e) {
     if (!isDisallowedIntents(e)) throw e;
     log.error(
-      "Message Content intent is not enabled for this application — /burg and all prefix (text) " +
+      "Message Content intent is not enabled for this application — /jail and all prefix (text) " +
         "commands are disabled; slash commands keep working. " +
         "Enable it under Bot → Privileged Gateway Intents in the Discord developer portal, then restart.",
       { error: String(e) },

@@ -187,7 +187,7 @@ Voice is UDP **from the bot's host**. That is the only hard requirement:
 | `MUSIC_AUDIO_PIPELINE=pcm\|opus`                | Force transcode or passthrough                                                                                   |
 | `MUSIC_MAX_QUEUE`, `MUSIC_MAX_PLAYLIST_TRACKS`  | Queue and import caps                                                                                            |
 | `MUSIC_SEARCH_PREFIX`                           | Search backend for plain-text queries (`ytsearch`, `ytmsearch`, `scsearch`)                                      |
-| `MONARCH_OWNER_USER_ID`                         | The only account allowed to run `/monarch debug on` (and be immune to `!burg`)                                   |
+| `MONARCH_OWNER_USER_ID`                         | The only account allowed to run `/monarch debug on` (and be immune to `!jail`)                                   |
 | `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`    | Spotify link support                                                                                             |
 | `MUSIC_DJ_ROLE_NAMES`, `MUSIC_STAFF_ROLE_NAMES` | Who can force-skip                                                                                               |
 

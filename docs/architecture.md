@@ -13,7 +13,7 @@ with Send Test, **Embed Builder** (Phase 3) and **Message Designer**
 per-guild workspaces, Send Test / Publish through the Target Resolver, audit
 entries — plus **Backups & Restore**, **Templates (Import / Export)**, a
 responsive/mobile dashboard shell, and the bot's `help`, `backup`, `export`,
-`/burg` and `/monarch burged` commands — every one
+`/jail` and `/monarch jailed` commands — every one
 of which also answers as a **prefix (text) command** (`!help`, `!play`,
 `@Monarch status`) with a per-server prefix set by `!prefix set ?`.
 
@@ -46,30 +46,35 @@ both the user-facing routes and the bot-facing `/api/internal/*` routes:
   appends under the current structure (`mergeDesigns`, "add") or replaces
   categories/channels wholesale ("replace"), validates, and stages a draft.
 
-## Burg (bot-side gag relay)
+## Jail (bot confinement and cute relay)
 
-`/burg @user [duration] [style]` is the one feature the bot runs on its own,
-because it needs live `messageCreate` events. State is an in-memory
-`BurgRegistry` (apps/bot/src/burg.ts) with per-entry timers — a restart
-releases everyone, by design (no bot database access). The relay deletes the
-original and re-posts it through a per-channel webhook named "Monarch Burg"
-using the member's display name and avatar, with the text rewritten by the
-uwu/owo transformer (mentions, custom emoji, timestamps, links and code spans
-are preserved so formatting can't be broken or bypassed), plus readable
-spelling changes and selectable soft, cat, chaotic or random cute flourishes.
-Requires the `GuildMessages` + privileged `MessageContent` intents and
-`Manage Messages`; if the intent is not enabled the bot falls back to
-Guilds-only and the command says so. Invokers must hold Administrator or Kick
-Members, and can only burg members below their highest role; owners and bots
-can't be burg'd. Run bare on a burg'd member it toggles the gag off; run with
-options it updates the timer/style. `/monarch burged` lists who's burg'd.
+`/monarch jail setup` creates a private `#jail` channel and a bot-owned
+`@jailed` role (only a role ID saved by an earlier setup is reused; setup never
+adopts a role it finds by name). It denies @everyone access to #jail and denies
+@jailed **View Channel and Send Messages** in every other existing and newly
+created channel; moderation roles and optional
+staff role are allowed in. Re-run setup to repair overwrites, or disable to
+release members and remove the role overwrites. The bot needs Manage Channels,
+Manage Roles, Manage Messages and Manage Webhooks, plus Message Content intent.
+Administrator roles and roles with server-wide View Channel bypass channel
+denies; do not put jailed members in privileged roles. Setup refuses a stored jail role
+that gained server-wide permissions.
+
+`/jail @user [duration] [style] [reason]` assigns the role after setup. Messages
+outside the cell are deleted and redirected by DM; messages inside the cell are
+re-posted under their own name/avatar in cute uwu style. Bare re-run releases;
+options update the timer/style. Without setup the relay still works as a gag.
+Configuration and entries persist through the dashboard internal API and are
+restored on bot startup; expiry and release remove the role. The bot holds no
+SQL credentials. Pirate, Shakespeare and robot styles are voter perks, as are
+`/music autoplay` and `/monarch report`; no top.gg token means no lockout.
 
 ## Command surface: slash + prefix (two ways to type one command)
 
 Every bot command exists twice, and the second time is not a copy. Handlers
 are written against one surface-neutral interface, `CommandContext`
 (apps/bot/src/context.ts): `SlashCommandContext` (apps/bot/src/slash-context.ts)
-implements it for `/monarch`, `/burg`, `/music`; `PrefixCommandContext`
+implements it for `/monarch`, `/jail`, `/music`; `PrefixCommandContext`
 (apps/bot/src/prefix/context.ts) implements it for text messages. The handler
 layer (apps/bot/src/monarch-commands.ts, apps/bot/src/music/commands.ts) never
 learns which one it is talking to, so permissions, wording and registry state
@@ -92,26 +97,27 @@ whitespace, must end in punctuation — so `!`, `?`, `m!`, `>>` are valid and
 nobody knows the prefix), then text prefixes longest-first and
 case-insensitively; the rest of the message is tokenized by `prefix/parse.ts`
 (quotes keep arguments together, mentions become snowflakes, URLs stay whole).
-The router mirrors the slash tree (`!monarch burged`, `!music play x`)
-plus short aliases (`!play`, `!p`, `!np`, `!q`, `!burged`, `!burg`, `!help`,
+The router mirrors the slash tree (`!monarch jailed`, `!music play x`)
+plus short aliases (`!play`, `!p`, `!np`, `!q`, `!jailed`, `!jail`, `!help`,
 `!invite`) that the shared command catalog documents and tests keep in sync.
 
 **Nothing harmless is gated.** `help`, `dashboard`, `status`, `prefix` (show)
 and `invite` run for any member; only commands that read or change server data
 ask for Manage Server / Administrator (`backup`, `export`, `embed`, `test`,
-`prefix set`) or Administrator / Kick Members (`burg`, `burged`).
+`prefix set`) or Administrator / Kick Members (`jail`, `jailed`).
 `!invite` builds its link with `packages/shared/src/invite.ts` — the same
 builder behind the dashboard's `GET /api/invite` and "Add Monarch to Discord"
 button — so a member who finds Monarch in somebody else's server can install it
 on their own with the identical least-privilege permission set.
 
-**Response policy.** A text command outranks the burg relay (a burg'd
-user's `!burged` still runs as a command — asserted in the tests). Unknown `!words`
+**Response policy.** Outside #jail, confinement runs before prefix dispatch,
+so a jailed user cannot bypass deletion with a command. Inside #jail, text
+commands are handled normally before the relay. Unknown `!words`
 are answered with **silence** so servers with several bots don't collect a pile
 of "unknown command" replies; only an explicit `@Monarch <typo>` or a bare
 `!monarch` / `!music` group root gets a helpful reply, and a bare `@Monarch`
 gets a greeting. Prefix replies are public (there is no ephemeral text message)
-and always send an explicit `allowedMentions`, so a `!burg <@someone>` reply
+and always send an explicit `allowedMentions`, so a `!jail <@someone>` reply
 can't ping the room (the slash surface does the same).
 
 ## Monorepo layout
@@ -300,4 +306,4 @@ clears the draft and rebases the editor onto fresh live state.
 5. Publishing features must accept a `TargetConfig`.
 6. Register the nav entry in components/nav/SidebarNav.tsx.
 
-Explicit product boundary: **no moderation features** (spec §32).
+Product boundary: jail is the user-requested opt-in moderation exception to the original §32 design-only scope.

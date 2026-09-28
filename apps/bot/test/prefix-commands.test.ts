@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PermissionFlagsBits, PermissionsBitField } from "discord.js";
 import { DEFAULT_COMMAND_PREFIX } from "@monarch/shared";
-import { BurgRegistry } from "../src/burg.js";
+import { JailRegistry } from "../src/jail.js";
+import { JailConfigRegistry } from "../src/jail-config.js";
 import { MonarchCommands } from "../src/monarch-commands.js";
 import { ConfessionRegistry } from "../src/confession.js";
 import { formatDuration } from "../src/durations.js";
@@ -9,10 +10,12 @@ import type { MusicCommands } from "../src/music/commands.js";
 import { handlePrefixMessage, type PrefixDispatcherDeps } from "../src/prefix/dispatch.js";
 import { PrefixRegistry } from "../src/prefix/registry.js";
 
+const jailManagerStub = { confine: async () => ({ ok: true }), free: async () => ({ ok: true }) } as never;
+
 /**
  * End-to-end tests for the prefix surface: a fake gateway message goes into
  * `handlePrefixMessage` and the real handlers (MonarchCommands + the real
- * burg registry) run against it. The point is the *wiring* — that the
+ * jail registry) run against it. The point is the *wiring* — that the
  * text surface reaches the same code as the slash surface with the same
  * permission checks, and that ordinary messages are left alone.
  */
@@ -183,7 +186,7 @@ function text(message: ReturnType<typeof fakeMessage>): string {
     .join("\n");
 }
 
-let burg: BurgRegistry;
+let jail: JailRegistry;
 let prefixes: PrefixRegistry;
 let musicStub: { run: ReturnType<typeof vi.fn> };
 let deps: PrefixDispatcherDeps;
@@ -200,7 +203,7 @@ function setup(
     clientId?: string | null;
   } = {},
 ) {
-  burg = new BurgRegistry();
+  jail = new JailRegistry();
   prefixes = new PrefixRegistry();
   musicStub = { run: vi.fn(async () => {}) };
   log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -209,10 +212,12 @@ function setup(
     monarch: new MonarchCommands({
       appUrl: "https://monarch.example",
       internalToken: options.internalToken,
-      burg,
+      jail,
+      jailConfigs: new JailConfigRegistry(),
+      jailManager: jailManagerStub,
       prefixes,
       confessions: new ConfessionRegistry(),
-      burgEnabled: () => options.enabled ?? true,
+      jailEnabled: () => options.enabled ?? true,
       // Omitted by default: `!invite` then falls back to the bot's own user id,
       // which is what a real worker does when DISCORD_CLIENT_ID is unset.
       clientId: options.clientId,
@@ -301,7 +306,7 @@ describe("dispatch: general commands", () => {
     expect(payload.embeds).toHaveLength(1);
     const embed = payload.embeds![0] as { description: string; fields: { value: string }[] };
     expect(embed.description).toContain("Prefix commands");
-    expect(embed.fields.map((f) => f.value).join("\n")).toContain("/monarch burged");
+    expect(embed.fields.map((f) => f.value).join("\n")).toContain("/monarch jailed");
     // A help reply must not ping anybody.
     expect(payload.content ?? "").toBe("");
     expect(
@@ -408,10 +413,12 @@ describe("dispatch: general commands", () => {
     deps.monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
       internalToken: "token",
-      burg,
+      jail,
+      jailConfigs: new JailConfigRegistry(),
+      jailManager: jailManagerStub,
       prefixes,
       confessions: new ConfessionRegistry(),
-      burgEnabled: () => true,
+      jailEnabled: () => true,
       log,
     });
 
@@ -437,10 +444,12 @@ describe("dispatch: general commands", () => {
     deps.monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
       internalToken: "token",
-      burg,
+      jail,
+      jailConfigs: new JailConfigRegistry(),
+      jailManager: jailManagerStub,
       prefixes,
       confessions: new ConfessionRegistry(),
-      burgEnabled: () => true,
+      jailEnabled: () => true,
       log,
     });
 
@@ -463,10 +472,12 @@ describe("dispatch: general commands", () => {
     deps.monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
       internalToken: "token",
-      burg,
+      jail,
+      jailConfigs: new JailConfigRegistry(),
+      jailManager: jailManagerStub,
       prefixes,
       confessions: new ConfessionRegistry(),
-      burgEnabled: () => true,
+      jailEnabled: () => true,
       log,
     });
 
@@ -476,154 +487,158 @@ describe("dispatch: general commands", () => {
   });
 });
 
-describe("dispatch: burg runs the moderation checks", () => {
-  it("burgs the mentioned member and says for how long", async () => {
+describe("dispatch: jail runs the moderation checks", () => {
+  it("jails the mentioned member and says for how long", async () => {
     // The confirmation quotes whatever is left of the sentence, so pin the
     // clock: without this a slow machine renders "9m 59s" and the test lies.
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-12T12:00:00.000Z"));
-    const message = fakeMessage({ content: `!burg <@${TARGET_ID}> 10m cat being silly` });
+    const message = fakeMessage({ content: `!jail <@${TARGET_ID}> 10m cat being silly` });
     await handlePrefixMessage(message, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(true);
-    const entry = burg.get(GUILD_ID, TARGET_ID)!;
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true);
+    const entry = jail.get(GUILD_ID, TARGET_ID)!;
     expect(entry.until).toBe(Date.now() + 10 * 60 * 1000); // exactly ten minutes
-    expect(entry.burgedBy).toBe(MOD_ID);
+    expect(entry.jailedBy).toBe(MOD_ID);
     expect(entry.style).toBe("cat");
-    expect(text(message)).toContain(`burg'd for **${formatDuration(entry.until! - Date.now())}**`);
+    expect(text(message)).toContain(`jailed for **${formatDuration(entry.until! - Date.now())}**`);
     expect(text(message)).toContain(`until <t:${Math.floor(entry.until! / 1000)}:f>`);
     expect(text(message)).toContain("being silly");
     expect(text(message)).toContain("**cat** style");
   });
 
   it("accepts a bare snowflake and defaults to a random style until toggled off", async () => {
-    const byId = fakeMessage({ content: `!burg ${TARGET_ID}` });
+    const byId = fakeMessage({ content: `!jail ${TARGET_ID}` });
     await handlePrefixMessage(byId, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(true);
-    expect(burg.get(GUILD_ID, TARGET_ID)?.until).toBeNull();
-    expect(burg.get(GUILD_ID, TARGET_ID)?.style).toBe("random");
-    expect(text(byId)).toContain("until toggled off");
-    expect(text(byId)).toContain("!burg"); // an open-ended burg says how to end it
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true);
+    expect(jail.get(GUILD_ID, TARGET_ID)?.until).toBeNull();
+    expect(jail.get(GUILD_ID, TARGET_ID)?.style).toBe("random");
+    expect(text(byId)).toContain("until released");
+    expect(text(byId)).toContain("!jail"); // an open-ended jail says how to end it
   });
 
   it("refuses without Kick Members, and says who can", async () => {
     const message = fakeMessage({
-      content: `!burg <@${TARGET_ID}>`,
+      content: `!jail <@${TARGET_ID}>`,
       authorId: TARGET_ID,
       perms: NOTHING,
     });
     await handlePrefixMessage(message, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(false);
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(false);
     expect(text(message)).toContain("Kick Members");
   });
 
   it("accepts Administrator as the wildcard it is on Discord", async () => {
-    // BURG_PERMISSIONS is literally [KickMembers]; an Administrator passes
+    // JAIL_PERMISSIONS is literally [KickMembers]; an Administrator passes
     // because PermissionsBitField.has() short-circuits on Administrator —
     // the same rule the slash surface has always used.
-    const message = fakeMessage({ content: `!burg <@${TARGET_ID}>`, perms: ADMIN });
+    const message = fakeMessage({ content: `!jail <@${TARGET_ID}>`, perms: ADMIN });
     await handlePrefixMessage(message, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(true);
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true);
   });
 
-  it("refuses to burg yourself", async () => {
-    const self = fakeMessage({ content: `!burg <@${MOD_ID}>` });
+  it("refuses to jail yourself", async () => {
+    const self = fakeMessage({ content: `!jail <@${MOD_ID}>` });
     await handlePrefixMessage(self, deps);
-    expect(burg.isBurg(GUILD_ID, MOD_ID)).toBe(false);
-    expect(text(self)).toContain("can't burg yourself");
+    expect(jail.isJailed(GUILD_ID, MOD_ID)).toBe(false);
+    expect(text(self)).toContain("can't jail yourself");
   });
 
-  it("refuses to burg someone whose highest role is above yours", async () => {
+  it("refuses to jail someone whose highest role is above yours", async () => {
     const above = fakeMessage({
-      content: `!burg <@${TARGET_ID}>`,
+      content: `!jail <@${TARGET_ID}>`,
       authorId: "555555555555555555", // a moderator with a low role
       perms: KICK,
       invokerPosition: 1,
       targetPosition: 9,
     });
     await handlePrefixMessage(above, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(false);
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(false);
     expect(text(above)).toContain("highest role is below yours");
   });
 
   it("explains when the Message Content intent is off", async () => {
     setup({ enabled: false });
     deps.enabled = () => true; // the dispatcher runs; the gag itself is disabled
-    const message = fakeMessage({ content: `!burg <@${TARGET_ID}>` });
+    const message = fakeMessage({ content: `!jail <@${TARGET_ID}>` });
     deps.monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
-      burg,
+      jail,
+      jailConfigs: new JailConfigRegistry(),
+      jailManager: jailManagerStub,
       prefixes,
       confessions: new ConfessionRegistry(),
-      burgEnabled: () => false,
+      jailEnabled: () => false,
       log,
     });
     await handlePrefixMessage(message, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(false);
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(false);
     expect(text(message)).toContain("Message Content");
   });
 
   it("still lets a toggle-off through while the intent is off", async () => {
-    burg.burg({
+    jail.jail({
       guildId: GUILD_ID,
       userId: TARGET_ID,
       until: null,
-      burgedBy: MOD_ID,
+      jailedBy: MOD_ID,
       style: "cat",
     });
     deps.monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
-      burg,
+      jail,
+      jailConfigs: new JailConfigRegistry(),
+      jailManager: jailManagerStub,
       prefixes,
       confessions: new ConfessionRegistry(),
-      burgEnabled: () => false,
+      jailEnabled: () => false,
       log,
     });
-    const message = fakeMessage({ content: `!burg <@${TARGET_ID}>` });
+    const message = fakeMessage({ content: `!jail <@${TARGET_ID}>` });
     await handlePrefixMessage(message, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(false);
-    expect(text(message)).toContain("no longer burg'd");
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(false);
+    expect(text(message)).toContain("is out of jail");
   });
 
-  it("!burged lists active burgs and says when nobody is", async () => {
-    const empty = fakeMessage({ content: "!burged" });
+  it("!jailed lists active jails and says when nobody is", async () => {
+    const empty = fakeMessage({ content: "!jailed" });
     await handlePrefixMessage(empty, deps);
-    expect(text(empty)).toContain("Nobody is burg'd");
+    expect(text(empty)).toContain("Nobody is jailed");
 
-    burg.burg({
+    jail.jail({
       guildId: GUILD_ID,
       userId: TARGET_ID,
       until: null,
-      burgedBy: MOD_ID,
+      jailedBy: MOD_ID,
       style: "cat",
     });
-    const list = fakeMessage({ content: "!burged" });
+    const list = fakeMessage({ content: "!jailed" });
     await handlePrefixMessage(list, deps);
     expect(text(list)).toContain(`<@${TARGET_ID}>`);
-    expect(text(list)).toContain("until toggled off");
+    expect(text(list)).toContain("until released");
     expect(text(list)).toContain("cat");
   });
 
-  it("refuses a duration it can't parse instead of burging forever by accident", async () => {
+  it("refuses a duration it can't parse instead of jailing forever by accident", async () => {
     for (const content of [
-      `!burg <@${TARGET_ID}> ten minutes`,
-      `!burg <@${TARGET_ID}> 10 minutes`,
-      `!burg <@${TARGET_ID}> 2 hours`,
-      `!burg <@${TARGET_ID}> 0m`,
-      `!burg <@${TARGET_ID}> minutes`,
+      `!jail <@${TARGET_ID}> ten minutes`,
+      `!jail <@${TARGET_ID}> 10 minutes`,
+      `!jail <@${TARGET_ID}> 2 hours`,
+      `!jail <@${TARGET_ID}> 0m`,
+      `!jail <@${TARGET_ID}> minutes`,
     ]) {
-      burg.release(GUILD_ID, TARGET_ID);
+      jail.release(GUILD_ID, TARGET_ID);
       const message = fakeMessage({ content });
       await handlePrefixMessage(message, deps);
-      expect(burg.isBurg(GUILD_ID, TARGET_ID), content).toBe(false);
+      expect(jail.isJailed(GUILD_ID, TARGET_ID), content).toBe(false);
       expect(text(message), content).toContain("didn't understand that duration");
     }
   });
 
   it("keeps ordinary reason words out of the duration slot", async () => {
-    const message = fakeMessage({ content: `!burg <@${TARGET_ID}> spamming memes in general` });
+    const message = fakeMessage({ content: `!jail <@${TARGET_ID}> spamming memes in general` });
     await handlePrefixMessage(message, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(true);
-    expect(burg.get(GUILD_ID, TARGET_ID)?.until).toBeNull(); // until toggled off
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true);
+    expect(jail.get(GUILD_ID, TARGET_ID)?.until).toBeNull(); // until toggled off
     expect(text(message)).toContain("spamming memes in general");
   });
 
@@ -633,53 +648,53 @@ describe("dispatch: burg runs the moderation checks", () => {
       "acting up for days",
       "full of chaotic energy",
     ]) {
-      burg.release(GUILD_ID, TARGET_ID);
-      const message = fakeMessage({ content: `!burg <@${TARGET_ID}> ${reason}` });
+      jail.release(GUILD_ID, TARGET_ID);
+      const message = fakeMessage({ content: `!jail <@${TARGET_ID}> ${reason}` });
       await handlePrefixMessage(message, deps);
-      expect(burg.isBurg(GUILD_ID, TARGET_ID), reason).toBe(true);
+      expect(jail.isJailed(GUILD_ID, TARGET_ID), reason).toBe(true);
       expect(text(message), reason).toContain(reason);
     }
   });
 
   it("keeps style words in the reason once free text has started", async () => {
-    const message = fakeMessage({ content: `!burg <@${TARGET_ID}> being chaotic today` });
+    const message = fakeMessage({ content: `!jail <@${TARGET_ID}> being chaotic today` });
     await handlePrefixMessage(message, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(true);
-    expect(burg.get(GUILD_ID, TARGET_ID)?.style).toBe("random");
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true);
+    expect(jail.get(GUILD_ID, TARGET_ID)?.style).toBe("random");
     expect(text(message)).toContain("being chaotic today");
   });
 });
 
-describe("dispatch: the burg toggle and its update path", () => {
-  it("toggles on and off with !burg", async () => {
+describe("dispatch: the jail toggle and its update path", () => {
+  it("toggles on and off with !jail", async () => {
     vi.useFakeTimers(); // the confirmation quotes time left, not time asked for
     vi.setSystemTime(new Date("2026-09-12T12:00:00.000Z"));
-    const on = fakeMessage({ content: `!burg <@${TARGET_ID}> 5m cat being cute` });
+    const on = fakeMessage({ content: `!jail <@${TARGET_ID}> 5m cat being cute` });
     await handlePrefixMessage(on, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(true);
-    expect(burg.get(GUILD_ID, TARGET_ID)?.style).toBe("cat");
-    expect(text(on)).toContain("burg'd for **5m**");
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true);
+    expect(jail.get(GUILD_ID, TARGET_ID)?.style).toBe("cat");
+    expect(text(on)).toContain("jailed for **5m**");
     expect(text(on)).toContain("**cat** style");
 
-    const off = fakeMessage({ content: `!burg <@${TARGET_ID}>` });
+    const off = fakeMessage({ content: `!jail <@${TARGET_ID}>` });
     await handlePrefixMessage(off, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(false);
-    expect(text(off)).toContain("no longer burg'd");
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(false);
+    expect(text(off)).toContain("is out of jail");
   });
 
   it("re-running with options updates the entry instead of toggling off", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-12T12:00:00.000Z"));
-    const on = fakeMessage({ content: `!burg <@${TARGET_ID}> 10m soft first go` });
+    const on = fakeMessage({ content: `!jail <@${TARGET_ID}> 10m soft first go` });
     await handlePrefixMessage(on, deps);
-    const first = burg.get(GUILD_ID, TARGET_ID)!;
+    const first = jail.get(GUILD_ID, TARGET_ID)!;
     expect(first.style).toBe("soft");
 
     vi.setSystemTime(new Date("2026-09-12T12:01:00.000Z")); // a minute later
-    const update = fakeMessage({ content: `!burg <@${TARGET_ID}> cat` });
+    const update = fakeMessage({ content: `!jail <@${TARGET_ID}> cat` });
     await handlePrefixMessage(update, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(true); // still on
-    const second = burg.get(GUILD_ID, TARGET_ID)!;
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true); // still on
+    const second = jail.get(GUILD_ID, TARGET_ID)!;
     expect(second.style).toBe("cat");
     expect(second.until).toBe(first.until); // the timer was untouched
     expect(text(update)).toContain("Updated");
@@ -687,71 +702,75 @@ describe("dispatch: the burg toggle and its update path", () => {
     expect(text(update)).toContain("for **9m**"); // one minute already elapsed
   });
 
-  it("a typo while burg'd errors instead of toggling the gag off", async () => {
-    burg.burg({
+  it("a typo while jailed errors instead of toggling the gag off", async () => {
+    jail.jail({
       guildId: GUILD_ID,
       userId: TARGET_ID,
       until: null,
-      burgedBy: MOD_ID,
+      jailedBy: MOD_ID,
       style: "soft",
     });
-    const message = fakeMessage({ content: `!burg <@${TARGET_ID}> ten minutes` });
+    const message = fakeMessage({ content: `!jail <@${TARGET_ID}> ten minutes` });
     await handlePrefixMessage(message, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(true); // the gag survives the typo
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true); // the gag survives the typo
     expect(text(message)).toContain("didn't understand that duration");
   });
 
-  it("burging the bot owner reverses the gag onto the invoker", async () => {
+  it("jailing the bot owner reverses the gag onto the invoker", async () => {
     deps.monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
-      burg,
+      jail,
+      jailConfigs: new JailConfigRegistry(),
+      jailManager: jailManagerStub,
       prefixes,
       confessions: new ConfessionRegistry(),
-      burgEnabled: () => true,
+      jailEnabled: () => true,
       ownerUserId: TARGET_ID,
       log,
     });
-    const message = fakeMessage({ content: `!burg <@${TARGET_ID}>` });
+    const message = fakeMessage({ content: `!jail <@${TARGET_ID}>` });
     await handlePrefixMessage(message, deps);
-    expect(burg.isBurg(GUILD_ID, TARGET_ID)).toBe(false);
-    expect(burg.isBurg(GUILD_ID, MOD_ID)).toBe(true);
+    expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(false);
+    expect(jail.isJailed(GUILD_ID, MOD_ID)).toBe(true);
     expect(text(message)).toContain("bot owner");
-    expect(text(message)).toContain("have been burg'd");
+    expect(text(message)).toContain("you* are jailed");
   });
 
-  it("the reverse doesn't toggle an already-burg'd invoker off", async () => {
-    burg.burg({
+  it("the reverse doesn't toggle an already-jailed invoker off", async () => {
+    jail.jail({
       guildId: GUILD_ID,
       userId: MOD_ID,
       until: null,
-      burgedBy: TARGET_ID,
+      jailedBy: TARGET_ID,
       style: "soft",
     });
     deps.monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
-      burg,
+      jail,
+      jailConfigs: new JailConfigRegistry(),
+      jailManager: jailManagerStub,
       prefixes,
       confessions: new ConfessionRegistry(),
-      burgEnabled: () => true,
+      jailEnabled: () => true,
       ownerUserId: TARGET_ID,
       log,
     });
-    const message = fakeMessage({ content: `!burg <@${TARGET_ID}>` });
+    const message = fakeMessage({ content: `!jail <@${TARGET_ID}>` });
     await handlePrefixMessage(message, deps);
-    expect(burg.isBurg(GUILD_ID, MOD_ID)).toBe(true); // still burg'd — no free release
-    expect(burg.get(GUILD_ID, MOD_ID)?.style).toBe("soft"); // entry untouched
+    expect(jail.isJailed(GUILD_ID, MOD_ID)).toBe(true); // still jailed — no free release
+    expect(jail.get(GUILD_ID, MOD_ID)?.style).toBe("soft"); // entry untouched
   });
 
   it("says the user isn't here when the id resolves to nobody", async () => {
-    const message = fakeMessage({ content: "!burg 999999999999999999" });
+    const message = fakeMessage({ content: "!jail 999999999999999999" });
     await handlePrefixMessage(message, deps);
     expect(text(message)).toContain("isn't in this server");
   });
 
-  it("asks who to burg when no member is given", async () => {
-    const message = fakeMessage({ content: "!burg" });
+  it("asks who to jail when no member is given", async () => {
+    const message = fakeMessage({ content: "!jail" });
     await handlePrefixMessage(message, deps);
-    expect(text(message)).toContain("Say who to burg");
+    expect(text(message)).toContain("Say who to jail");
   });
 });
 
@@ -797,18 +816,18 @@ describe("dispatch: music commands", () => {
   });
 });
 
-describe("dispatch: the burg relay still gets non-command messages", () => {
-  it("returns false so a burg'd member's ordinary message is relayed", async () => {
-    burg.burg({ guildId: GUILD_ID, userId: TARGET_ID, until: null, burgedBy: MOD_ID });
+describe("dispatch: the jail relay still gets non-command messages", () => {
+  it("returns false so a jailed member's ordinary message is relayed", async () => {
+    jail.jail({ guildId: GUILD_ID, userId: TARGET_ID, until: null, jailedBy: MOD_ID });
     const message = fakeMessage({ content: "hello everyone", authorId: TARGET_ID, perms: NOTHING });
     expect(await handlePrefixMessage(message, deps)).toBe(false);
   });
 
-  it("runs a burg'd member's command as a command, not as a relay", async () => {
-    burg.burg({ guildId: GUILD_ID, userId: MOD_ID, until: null, burgedBy: TARGET_ID });
-    const message = fakeMessage({ content: "!burged", authorId: MOD_ID });
+  it("runs a jailed member's command as a command, not as a relay", async () => {
+    jail.jail({ guildId: GUILD_ID, userId: MOD_ID, until: null, jailedBy: TARGET_ID });
+    const message = fakeMessage({ content: "!jailed", authorId: MOD_ID });
     expect(await handlePrefixMessage(message, deps)).toBe(true);
-    expect(text(message)).toContain("Burg'd in Test Guild");
+    expect(text(message)).toContain("Jailed in Test Guild");
   });
 });
 
@@ -833,10 +852,12 @@ describe("dispatch: confession commands (prefix surface)", () => {
     deps.monarch = new MonarchCommands({
       appUrl: "https://monarch.example",
       internalToken: "test-token",
-      burg,
+      jail,
+      jailConfigs: new JailConfigRegistry(),
+      jailManager: jailManagerStub,
       prefixes,
       confessions,
-      burgEnabled: () => true,
+      jailEnabled: () => true,
       log,
     });
   });

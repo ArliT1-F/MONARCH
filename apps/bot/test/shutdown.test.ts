@@ -157,7 +157,7 @@ describe("bot startup", () => {
 
     expect(mocks.put).toHaveBeenCalledOnce();
     expect(mocks.login).toHaveBeenCalledWith("test-token");
-    // Three top-level commands: /monarch, /burg and /music.
+    // Three top-level commands: /monarch, /jail and /music.
     expect(find("registered slash commands")).toMatchObject({ level: "info", count: 3 });
     expect(exitSpy).not.toHaveBeenCalled();
   });
@@ -197,7 +197,7 @@ describe("bot startup", () => {
     expect(mocks.login).toHaveBeenCalledTimes(2);
     expect(
       find(
-        "Message Content intent is not enabled for this application — /burg and all prefix (text) commands are disabled; slash commands keep working. Enable it under Bot → Privileged Gateway Intents in the Discord developer portal, then restart.",
+        "Message Content intent is not enabled for this application — /jail and all prefix (text) commands are disabled; slash commands keep working. Enable it under Bot → Privileged Gateway Intents in the Discord developer portal, then restart.",
       ),
     ).toBeDefined();
     expect(exitSpy).not.toHaveBeenCalled();
@@ -208,7 +208,7 @@ describe("bot startup", () => {
 
     expect(
       find(
-        "MONARCH_OWNER_USER_ID is not set — the application owner can be burg'd and the uno-reverse is off. " +
+        "MONARCH_OWNER_USER_ID is not set — the application owner can be jailed and the uno-reverse is off. " +
           "Set it to your Discord user id to protect yourself.",
       ),
     ).toMatchObject({ level: "warn" });

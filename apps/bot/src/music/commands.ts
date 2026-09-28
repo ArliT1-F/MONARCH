@@ -6,6 +6,7 @@ import {
 } from "discord.js";
 import { FORCE_SKIP_LABEL, formatDuration, parseVolume, type LoopMode } from "@monarch/music";
 import type { CommandContext } from "../context.js";
+import { voteRequiredMessage, type VoteGate } from "../votes.js";
 import type { MusicManager } from "./player.js";
 import { nowPlayingDetailed, queueEmbed } from "./player.js";
 import { SourceError, musicLimits, resolveQuery, spotifyConfigured } from "./sources.js";
@@ -153,6 +154,17 @@ export function musicCommandJSON() {
     .addSubcommand((s) => s.setName("shuffle").setDescription("Shuffle the upcoming tracks"))
     .addSubcommand((s) =>
       s
+        .setName("autoplay")
+        .setDescription("Show or switch radio mode (voter perk)")
+        .addStringOption((o) =>
+          o
+            .setName("mode")
+            .setDescription("Switch radio on or off")
+            .addChoices({ name: "On", value: "on" }, { name: "Off", value: "off" }),
+        ),
+    )
+    .addSubcommand((s) =>
+      s
         .setName("remove")
         .setDescription("Remove a track from the queue by its #position")
         .addIntegerOption((o) =>
@@ -179,6 +191,7 @@ const NEEDS_VOICE = new Set([
   "volume",
   "loop",
   "shuffle",
+  "autoplay",
   "remove",
   "clear",
   "stop",
@@ -195,13 +208,14 @@ export const MUSIC_SUBCOMMANDS = [
   "volume",
   "loop",
   "shuffle",
+  "autoplay",
   "remove",
   "clear",
   "stop",
 ] as const;
 
 export class MusicCommands {
-  constructor(private readonly manager: MusicManager) {}
+  constructor(private readonly manager: MusicManager, private readonly votes?: VoteGate) {}
 
   /**
    * Run one music subcommand. {@link SourceError} (bad link, unavailable
@@ -359,6 +373,27 @@ export class MusicCommands {
             ? `${icon} Looping **off**.`
             : `${icon} Looping **${mode === "track" ? "this track" : "the whole queue"}**.`,
         );
+        return;
+      }
+      case "autoplay": {
+        const raw = ctx.getStringOption("mode") ?? ctx.args[0] ?? null;
+        if (raw && raw !== "on" && raw !== "off") {
+          await ctx.replyHidden("Use `on` or `off` for radio mode.");
+          return;
+        }
+        if (!raw) {
+          await ctx.reply(
+            `📻 Radio mode is **${this.manager.autoplayEnabled(guildId) ? "on" : "off"}**. ` +
+              `Set it with \`${ctx.commandPrefix}autoplay on|off\`.`,
+          );
+          return;
+        }
+        if (raw === "on" && this.votes && !(await this.votes.hasVoted(ctx.user.id))) {
+          await ctx.replyHidden(voteRequiredMessage("radio mode", this.votes.voteUrl()));
+          return;
+        }
+        this.manager.setAutoplay(guildId, raw === "on");
+        await ctx.reply(`📻 Radio mode **${raw}**.`);
         return;
       }
       case "shuffle": {

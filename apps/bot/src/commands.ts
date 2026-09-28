@@ -15,14 +15,14 @@ import {
   type CommandDoc,
   type CommandGroupId,
 } from "@monarch/shared";
-import { BURG_STYLES } from "./burg.js";
+import { JAIL_STYLES } from "./jail.js";
 
 /**
  Monarch's slash commands — the worker (apps/bot/src/index.ts) registers
  * this at startup; `npm run register-commands` is the one-off variant.
  *
  * The bot stays lightweight: commands give dashboard links, quick actions
- * (backup / export / test-send), the burg gag and the music player. Any
+ * (backup / export / test-send), the jail cell and the music player. Any
  * structural change or generated content is executed by the dashboard API
  * layer, never by this process.
  *
@@ -112,7 +112,7 @@ export function monarchCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
             o.setName("channel").setDescription("Send here instead of the designated channel"),
           ),
       )
-      .addSubcommand((s) => s.setName("burged").setDescription("List who is currently burg'd here"))
+      .addSubcommand((s) => s.setName("jailed").setDescription("List who is currently jailed here"))
       .addSubcommand((s) =>
         s
           .setName("debug")
@@ -158,40 +158,80 @@ export function monarchCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
             s.setName("disable").setDescription("Switch confessions off again"),
           ),
       )
+      .addSubcommandGroup((g) =>
+        g
+          .setName("jail")
+          .setDescription("The #jail cell — where jailed members are confined")
+          .addSubcommand((s) =>
+            s
+              .setName("setup")
+              .setDescription(
+                "Create/refresh the #jail cell: a private channel only staff and jailed members can see",
+              )
+              .addChannelOption((o) =>
+                o
+                  .setName("channel")
+                  .setDescription("Use this channel as the cell — omit to create #jail")
+                  .addChannelTypes(ChannelType.GuildText),
+              )
+              .addRoleOption((o) =>
+                o
+                  .setName("staff")
+                  .setDescription(
+                    "Extra role that may see #jail (moderation roles are included automatically)",
+                  ),
+              ),
+          )
+          .addSubcommand((s) =>
+            s.setName("disable").setDescription("Release everyone and remove the cell"),
+          )
+          .addSubcommand((s) =>
+            s.setName("status").setDescription("Show the jail setup and who is inside"),
+          ),
+      )
+      .addSubcommand((s) =>
+        s.setName("report").setDescription("Voter perk: post the full Design Analyzer report"),
+      )
+      .addSubcommand((s) => s.setName("vote").setDescription("Vote for Monarch on top.gg"))
       .toJSON()
   );
 }
 
 /**
- * `/burg` is intentionally a top-level command rather than a `/monarch`
- * subcommand: it is a quick, memorable toggle for the uwu relay.
+ * `/jail` is intentionally a top-level command rather than a `/monarch`
+ * subcommand: it is a quick, memorable toggle. The cell it confines people
+ * to is configured with `/monarch jail setup` (the same split as
+ * `/monarch confession setup`).
  */
-export function burgCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
+export function jailCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
   return new SlashCommandBuilder()
-    .setName("burg")
-    .setDescription("Toggle cute uwu/owo re-posts for a member")
+    .setName("jail")
+    .setDescription("Send a member to #jail — only #jail hears them, and it comes back cute")
     .setContexts(0)
-    .addUserOption((o) => o.setName("user").setDescription("Who to burg").setRequired(true))
+    .addUserOption((o) => o.setName("user").setDescription("Who to jail").setRequired(true))
     .addStringOption((o) =>
       o
         .setName("duration")
-        .setDescription("e.g. 10m, 2h, 1d — empty = until /burg is used again")
+        .setDescription("e.g. 10m, 2h, 1d — empty = until /jail is used again")
         .setMaxLength(20),
     )
     .addStringOption((o) =>
       o
         .setName("style")
-        .setDescription("Cute spelling style; random is the default")
-        .addChoices(...BURG_STYLES),
+        .setDescription("Spelling style; random is the default, 🗳 styles are voter perks")
+        .addChoices(...JAIL_STYLES.map((choice) => ({ name: choice.name, value: choice.value }))),
     )
     .addStringOption((o) =>
-      o.setName("reason").setDescription("Shown in the confirmation only").setMaxLength(200),
+      o
+        .setName("reason")
+        .setDescription("Shown in the confirmation and the staff note")
+        .setMaxLength(200),
     )
     .toJSON();
 }
 
-/** Bits that let a member run `/burg` and `/monarch burged`. */
-export const BURG_PERMISSIONS = [PermissionFlagsBits.KickMembers] as const;
+/** Bits that let a member run `/jail` and `/monarch jailed`. */
+export const JAIL_PERMISSIONS = [PermissionFlagsBits.KickMembers] as const;
 
 /** Bits that let a member run backup / export / test (mirrors the dashboard's "can design" rule). */
 export const DESIGN_PERMISSIONS = [
@@ -231,7 +271,7 @@ export function prefixHelpLine(prefix: string = DEFAULT_COMMAND_PREFIX): string 
       : ` (the default \`${DEFAULT_COMMAND_PREFIX}\` still works)`;
   return (
     `-# Prefix commands: every command also works as \`${prefix}help\`, \`${prefix}play <song>\`, ` +
-    `\`${prefix}burg @user\`… or with an @Monarch mention${extra}. Change yours with \`${prefix}prefix set <new>\`; ` +
+    `\`${prefix}jail @user\`… or with an @Monarch mention${extra}. Change yours with \`${prefix}prefix set <new>\`; ` +
     `\`${prefix}invite\` adds Monarch to another server.`
   );
 }

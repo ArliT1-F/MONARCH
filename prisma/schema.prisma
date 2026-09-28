@@ -50,6 +50,7 @@ model Guild {
   createdAt DateTime @default(now())
 
   settings     GuildSettings?
+  jailEntries  JailEntry[]
   workspace    GuildWorkspace?
   drafts       DesignDraft[]
   versions     DesignVersion[]
@@ -87,6 +88,10 @@ model GuildSettings {
   // bot's internal API (NOT by the designated-channels settings form).
   confessionChannelId    String?
   confessionLogChannelId String?
+  // Bot-managed confinement, updated only via /api/internal/guilds/:id/jail.
+  jailChannelId String?
+  jailRoleId String?
+  jailStaffRoles Json?
 }
 
 // Confession cooldowns: one row per Discord user, **global across every
@@ -102,6 +107,20 @@ model ConfessionCooldown {
   userId        String   @id // Discord user id
   nextAllowedAt DateTime
   updatedAt     DateTime @updatedAt
+}
+
+model JailEntry {
+  guildId   String
+  guild     Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  userId    String
+  until     DateTime?
+  jailedBy  String
+  style     String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@id([guildId, userId])
+  @@index([guildId, until])
 }
 
 model DesignDraft {

@@ -29,7 +29,7 @@ import {
  * - prefix commands are resolved from the interaction's own text channel,
  *   which only matters for wording ("try `!play`");
  * - every reply carries an explicit `allowedMentions` (default: nobody), so
- *   user-supplied text such as burg reasons can never mass-ping — the same
+ *   user-supplied text such as jail reasons can never mass-ping — the same
  *   rule the prefix surface follows.
  */
 export class SlashCommandContext implements CommandContext {
@@ -142,6 +142,11 @@ export class SlashCommandContext implements CommandContext {
     return channel ? { id: channel.id } : null;
   }
 
+  getRoleOption(name: string): { id: string } | null {
+    const role = this.interaction.options.getRole(name);
+    return role ? { id: role.id } : null;
+  }
+
   /** Options are typed on the slash surface — free-form lookup isn't a thing. */
   async resolveMember(): Promise<GuildMember | null> {
     return null;
@@ -161,7 +166,7 @@ export class SlashCommandContext implements CommandContext {
   ): Promise<unknown> {
     this.responded = true;
     // Always explicit: without it, Discord falls back to its default mention
-    // behaviour and user text (a burg reason, a backup name) could ping.
+    // behaviour and user text (a jail reason, a backup name) could ping.
     const allowedMentions = allowedMentionsFor(options);
     if (this.deferred || this.interaction.deferred || this.interaction.replied) {
       return this.interaction.editReply({

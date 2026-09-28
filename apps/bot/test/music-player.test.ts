@@ -16,9 +16,10 @@ import type { Track } from "@monarch/music";
 vi.mock("../src/music/sources.js", async (original) => ({
   ...(await original<typeof import("../src/music/sources.js")>()),
   ensurePlayable: vi.fn(async (track: Track) => track),
+  resolveQuery: vi.fn(),
 }));
 
-import { ensurePlayable } from "../src/music/sources.js";
+import { ensurePlayable, resolveQuery } from "../src/music/sources.js";
 import { MusicManager } from "../src/music/player.js";
 import {
   FakeAudioBackend,
@@ -503,5 +504,33 @@ describe("stopping", () => {
     expect(backend.callsTo("leave")).toHaveLength(1);
     expect(backend.shutDown).toBe(true);
     expect(manager.connectedChannelId("guild")).toBeNull();
+  });
+});
+
+describe("voter radio", () => {
+  it("queues a related track only after the final song ends naturally", async () => {
+    const { manager, backend, guild, announce } = setup();
+    vi.mocked(resolveQuery).mockResolvedValue({ kind: "search", origin: "related", skipped: 0,
+      tracks: [track("new")] });
+    await joinVoice(manager, guild);
+    manager.setAutoplay("guild", true);
+    await manager.enqueue("guild", [track("one")]);
+    await manager.startIfIdle("guild");
+    backend.endTrack("guild", "finished", { trackId: "one", elapsedMs: 300_000 });
+    await tick();
+    expect(vi.mocked(resolveQuery)).toHaveBeenCalledOnce();
+    expect(plays(backend)).toEqual(["one", "new"]);
+    expect(titles(announce)).toContain("📻 Radio queued a related track");
+    manager.teardown("guild", false);
+  });
+  it("doesn't search radio on skip, failure or when off", async () => {
+    const { manager, backend, guild } = setup();
+    await joinVoice(manager, guild);
+    await manager.enqueue("guild", [track("one")]);
+    await manager.startIfIdle("guild");
+    backend.endTrack("guild", "finished", { trackId: "one", elapsedMs: 300_000 });
+    await tick();
+    expect(resolveQuery).not.toHaveBeenCalled();
+    manager.teardown("guild", false);
   });
 });

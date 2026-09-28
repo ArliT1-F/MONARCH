@@ -72,9 +72,10 @@ export const COMMAND_GROUPS: CommandGroup[] = [
   },
   {
     id: "moderation",
-    label: "Fun relays",
-    description: "Burg gag — messages are deleted and re-posted with a cute style.",
-    icon: "🧁",
+    label: "Jail",
+    description:
+      "Cute confinement — jailed members may only talk in #jail and their messages come back adorable.",
+    icon: "🔒",
   },
   {
     id: "community",
@@ -139,7 +140,7 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     summary: "Show Monarch's status for this server.",
     who: "everyone",
     details:
-      "Reports which server the bot sees, where the dashboard lives, how many members are currently burg'd, and a reminder that all design changes flow through the dashboard.",
+      "Reports which server the bot sees, where the dashboard lives, how many members are currently jailed, and a reminder that all design changes flow through the dashboard.",
   },
   {
     name: "/monarch prefix",
@@ -150,7 +151,7 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     summary: "Show or change this server's prefix for text commands.",
     who: "Manage Server or Administrator",
     details:
-      "Every Monarch command also works as a plain text message: `!help`, `!play <song>`, `!burg @user`. Without an argument this shows the prefix your server currently uses; with one it changes it (1–4 punctuation characters, for example `?`, `m!` or `>>`). The default prefix `!` and an @Monarch mention keep working either way, so you can never lock yourself out. Prefix commands are stored per server and need the same privileged Message Content intent as the burg relay.",
+      "Every Monarch command also works as a plain text message: `!help`, `!play <song>`, `!jail @user`. Without an argument this shows the prefix your server currently uses; with one it changes it (1–4 punctuation characters, for example `?`, `m!` or `>>`). The default prefix `!` and an @Monarch mention keep working either way, so you can never lock yourself out. Prefix commands are stored per server and need the same privileged Message Content intent as the jail relay.",
     args: [
       {
         name: "prefix",
@@ -249,15 +250,81 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
     ],
   },
   {
-    name: "/monarch burged",
-    usage: "/monarch burged",
-    prefixUsage: "!monarch burged",
-    prefixAliases: ["burged"],
+    name: "/monarch jailed",
+    usage: "/monarch jailed",
+    prefixUsage: "!monarch jailed",
+    prefixAliases: ["jailed"],
     group: "moderation",
-    summary: "List who is currently burg'd in this server.",
+    summary: "List who is currently jailed in this server.",
     who: "Administrator or Kick Members",
     details:
-      "Shows every active burg: who, until when (or 'until toggled off'), which cute style, and who burg'd them. Run /burg on them again with no options to turn it off.",
+      "Shows every active jail: who, until when (or 'until released'), which style, and who jailed them. Run /jail on them again with no options to set them free.",
+  },
+  {
+    name: "/monarch jail",
+    usage: "/monarch jail setup [#channel] [staff]",
+    prefixUsage: "!jail setup [#channel] [staff]",
+    prefixAliases: ["jail"],
+    group: "moderation",
+    summary: "Set up (or switch off) the #jail cell that jailed members are confined to.",
+    who: "Manage Server or Administrator",
+    details:
+      "`/monarch jail setup` builds the cell: Monarch creates a **#jail** channel and **creates the @jailed role itself** (it never adopts an existing role), hides #jail from @everyone, and — this is the part that matters — denies the @jailed role **View Channel and Send Messages on every other channel in the server**, so a jailed member can only read and type in #jail and cannot follow anyone back out into the rest of the server. The role is created with no server-wide permissions; jailed members get it added when jailed and removed on release. Roles that already have moderation powers (Manage Server, Kick/Ban Members, Manage Messages, Moderate Members, Manage Roles, Administrator) are granted access to #jail so staff can watch; pass `staff` to add another role (e.g. a Trial Mod role that holds none of those permissions). Pass `channel` to use an existing channel named #jail instead of creating one.\n\nWhile setup is on, `/jail @user` also **confines** them: they can only talk in #jail, anything they type elsewhere is deleted and they get a DM pointing at #jail, and their #jail messages are still re-posted in the cute style — a cell with a mirror. `/monarch jail disable` releases everyone, strips the overwrites and switches confinement off (the gag itself keeps working). `/monarch jail status` shows the configured channel, role and staff roles.\n\nWithout setup, `/jail` still runs, but it is the old relay-only gag: messages are re-posted cutely wherever they are typed and nobody is confined.",
+    args: [
+      {
+        name: "channel",
+        description: "Use this channel as #jail — omit to let Monarch create one.",
+      },
+      {
+        name: "staff",
+        description: "An extra role that may see #jail (moderation roles get access automatically).",
+      },
+    ],
+    examples: [
+      "/monarch jail setup",
+      "/monarch jail setup #jail @Trial Mod",
+      "!jail setup #jail",
+      "!jail status",
+      "!monarch jail disable",
+    ],
+    notes: [
+      "Needs INTERNAL_API_TOKEN set in the dashboard and the bot (the setup must survive a restart).",
+      "Monarch needs Manage Channels and Manage Roles to build the cell, and Manage Messages for the confinement itself.",
+      "The @jailed role is owned by Monarch: setup creates it with no server-wide permissions, denies it View Channel and Send Messages in every other channel, and jailed members get it added when jailed and removed on release.",
+      "Staff access is re-synced every time you run setup, so roles promoted later can be included by running setup again.",
+      "Discord Administrator permissions bypass channel denies; do not jail administrators. A role granting View Channel globally also defeats confinement.",
+    ],
+  },
+  {
+    name: "/monarch report",
+    usage: "/monarch report",
+    prefixUsage: "!monarch report",
+    prefixAliases: ["report"],
+    group: "design",
+    summary: "🗳 Vote-locked: post the full Design Analyzer report as a Markdown file.",
+    who: "Manage Server or Administrator, and a recent top.gg vote",
+    details:
+      "Runs the same deterministic 0–100 design score as the dashboard's Design Analyzer (organization · naming · role consistency · branding, with every check's suggestion) and posts it as a `.md` file you can keep or paste into a doc. Read-only: it never changes the server. Voters get this command; see `/monarch vote`.",
+    examples: ["/monarch report", "!report"],
+    notes: [
+      "Needs INTERNAL_API_TOKEN (the report is computed by the dashboard from the live server).",
+      "Vote-locked: run `/monarch vote` to vote for Monarch on top.gg — the unlock lasts as long as top.gg counts your vote (12 hours).",
+    ],
+  },
+  {
+    name: "/monarch vote",
+    usage: "/monarch vote",
+    prefixUsage: "!monarch vote",
+    prefixAliases: ["vote"],
+    group: "general",
+    summary: "Vote for Monarch on top.gg and unlock the voter perks.",
+    who: "everyone",
+    details:
+      "Posts the top.gg vote link and, when the bot can check votes (`TOPGG_TOKEN`), says whether your vote is currently counted and what it unlocks: the premium jail styles (pirate, shakespeare, robot), `/music autoplay` (radio mode) and `/monarch report` (the full Design Analyzer report in chat). One vote runs for 12 hours; every command that needs it says so instead of failing silently.",
+    examples: ["/monarch vote", "!vote"],
+    notes: [
+      "Self-hosted Monarch runs without TOPGG_TOKEN: nobody can be checked, so every perk is unlocked and nothing is locked behind votes.",
+    ],
   },
   {
     name: "/monarch confession",
@@ -297,32 +364,42 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   },
 ];
 
-/** The standalone /burg toggle is documented beside the Monarch moderation gags. */
-export const BURG_COMMANDS: CommandDoc[] = [
+/** The standalone /jail toggle is documented beside the Monarch jail commands. */
+export const JAIL_COMMANDS: CommandDoc[] = [
   {
-    name: "/burg",
-    usage: "/burg @user [duration] [style] [reason]",
-    prefixUsage: "!burg @user [duration] [style] [reason]",
-    prefixAliases: ["burg"],
+    name: "/jail",
+    usage: "/jail @user [duration] [style] [reason]",
+    prefixUsage: "!jail @user [duration] [style] [reason]",
+    prefixAliases: ["jail"],
     group: "moderation",
-    summary: "Delete a member's messages and re-post them as cute uwu/owo text.",
+    summary: "Send a member to #jail — only #jail hears them, and everything they say comes back cute.",
     who: "Administrator or Kick Members",
     details:
-      "Toggles a playful burg relay for the selected member. Their messages are deleted and re-posted through a webhook with their display name and avatar, using readable uwu/owo spelling plus random cute flourishes such as uwu, nya, >w< and cat faces. Run /burg on the same member again to turn it off. The style can be fixed or left random for a different cute variation on every message.",
+      "Jails the selected member until you run the command again on them. With `/monarch jail setup` in place this is a real cell: they are given the **@jailed** role, which can see **only #jail**, so the rest of the server is invisible to them; anything they type in another channel is deleted and they get a DM pointing at #jail; and what they do type in #jail is deleted and re-posted through a webhook under their own name and avatar in a cute uwu/owo spelling — staff get to watch, nobody else can see or answer them. Without setup it is the relay-only gag: every message they post is re-posted cutely, wherever it was typed. Run `/jail` on the same member again with no options to release them (the joke is over and their role goes away), or pass options to update the timer and style. Styles: random, soft, cat, chaotic — plus **pirate**, **shakespeare** and **robot**, which are voter perks (see `/monarch vote`).",
     args: [
-      { name: "user", description: "Who to burg.", required: true },
+      { name: "user", description: "Who to jail.", required: true },
       {
         name: "duration",
-        description: "e.g. 10m, 2h, 1d, 1h30m — empty = until toggled off with /burg.",
+        description: "e.g. 10m, 2h, 1d, 1h30m — empty = until toggled off with /jail.",
       },
-      { name: "style", description: "random, soft, cat or chaotic — omitted = random." },
-      { name: "reason", description: "Shown in the confirmation only." },
+      {
+        name: "style",
+        description: "random, soft, cat, chaotic (+ pirate, shakespeare, robot for voters).",
+      },
+      { name: "reason", description: "Shown in the confirmation and in the staff log entry." },
     ],
-    examples: ["/burg @icy404 10m", "/burg @icy404 style:cat", "/burg @icy404"],
+    examples: [
+      "/jail @icy404 10m",
+      "/jail @icy404 style:cat",
+      "/jail @icy404 1h pirate being a scourge",
+      "/jail @icy404",
+    ],
     notes: [
-      "Uses duration parsing (30s–28d), role hierarchy checks and moderation permissions (Administrator or Kick Members).",
-      "Needs the privileged Message Content gateway intent and the Manage Messages permission.",
-      "Running /burg again with no options turns it off; running it with options updates the timer and style.",
+      "Needs the privileged Message Content gateway intent plus Manage Messages (deleting and re-posting).",
+      "Confining someone to #jail needs the cell — run `/monarch jail setup` once. The relay itself works without it.",
+      "A member whose highest role is at or above yours can't be jailed; Discord Administrator permissions bypass channel denies, so administrators cannot be jailed.",
+      "The bot owner and the server owner are never jailed — trying it on the bot owner jails you instead.",
+      "Running /jail with options updates the timer/style; running it bare releases them. Durations run from 30s to 28d.",
     ],
   },
 ];
@@ -462,6 +539,24 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
       "Randomizes the play order of everything that is queued. The track that's playing is left alone.",
   },
   {
+    name: "/music autoplay",
+    usage: "/music autoplay [mode:on|off]",
+    prefixUsage: "!music autoplay [on|off]",
+    prefixAliases: ["autoplay", "radio"],
+    group: "music",
+    summary: "🗳 Vote-locked: radio mode — queue a related track when the queue runs dry.",
+    who: "everyone in the bot's voice channel, and a recent top.gg vote (to switch it on)",
+    details:
+      "With autoplay on, Monarch keeps the session alive by itself: when the last queued track finishes naturally, it searches for a track related to the one that just ended, queues it, and announces it as autoplay. Loop modes still win — `loop track` and `loop queue` never reach autoplay — and a manual skip, stop or empty queue stays empty. Without an argument it shows the current mode; `on`/`off` changes it.\n\nVoter perk: switching autoplay **on** needs a recent top.gg vote (see `/monarch vote`). Switching it **off** never does, and an instance without `TOPGG_TOKEN` has everything unlocked.",
+    args: [{ name: "mode", description: "on or off — omitted = show." }],
+    examples: ["/music autoplay", "/music autoplay on", "!radio off"],
+    notes: [
+      "Vote-locked to switch on: `/monarch vote` posts the link; top.gg counts a vote for 12 hours.",
+      "Autoplay only adds a track after a **finished** track — skips, failures, `stop` and both loop modes are left alone.",
+      "Related tracks come from a YouTube search based on the track that just finished, so occasionally the robot has questionable taste.",
+    ],
+  },
+  {
     name: "/music remove",
     usage: "/music remove <position>",
     prefixUsage: "!music remove <position>",
@@ -499,7 +594,7 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
 /** Every command, in display order. */
 export const COMMAND_CATALOG: CommandDoc[] = [
   ...MONARCH_COMMANDS,
-  ...BURG_COMMANDS,
+  ...JAIL_COMMANDS,
   ...MUSIC_COMMANDS,
 ];
 

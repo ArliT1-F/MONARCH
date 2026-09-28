@@ -4,7 +4,7 @@ import {
   DEFAULT_COMMAND_PREFIX,
   MONARCH_COMMANDS,
   MUSIC_COMMANDS,
-  BURG_COMMANDS,
+  JAIL_COMMANDS,
 } from "@monarch/shared";
 import {
   MUSIC_PREFIX_ALIASES,
@@ -39,8 +39,8 @@ describe("parseArgs", () => {
       "backup",
       "before summer cleanup",
     ]);
-    expect(parseArgs('burg 123 "10m" "spam in general"')).toEqual([
-      "burg",
+    expect(parseArgs('jail 123 "10m" "spam in general"')).toEqual([
+      "jail",
       "123",
       "10m",
       "spam in general",
@@ -52,7 +52,7 @@ describe("parseArgs", () => {
   });
 
   it("rewrites user, channel and role mentions to snowflakes", () => {
-    expect(parseArgs("burg <@111111111111111> 10m")).toEqual(["burg", "111111111111111", "10m"]);
+    expect(parseArgs("jail <@111111111111111> 10m")).toEqual(["jail", "111111111111111", "10m"]);
     expect(parseArgs("<@!333333333333333> hi")).toEqual(["333333333333333", "hi"]);
     expect(parseArgs("test message <#222222222222222>")).toEqual([
       "test",
@@ -86,8 +86,8 @@ describe("extractPrefixCommand", () => {
   });
 
   it("keeps a two-word command path together", () => {
-    expect(invoke("!monarch burged")).toMatchObject({
-      tokens: ["monarch", "burged"],
+    expect(invoke("!monarch jailed")).toMatchObject({
+      tokens: ["monarch", "jailed"],
       args: [],
     });
     expect(invoke("!music play around the world")).toMatchObject({
@@ -102,8 +102,8 @@ describe("extractPrefixCommand", () => {
       tokens: ["play"],
       args: ["https://youtu.be/abc"],
     });
-    expect(invoke("!burg <@111111111111111>")).toMatchObject({
-      tokens: ["burg"],
+    expect(invoke("!jail <@111111111111111>")).toMatchObject({
+      tokens: ["jail"],
       args: ["111111111111111"],
     });
     expect(invoke("!volume 80")).toMatchObject({ tokens: ["volume"], args: ["80"] });
@@ -162,10 +162,10 @@ describe("matchCommand", () => {
       sub: "help",
       args: [],
     });
-    expect(match("!burged")).toMatchObject({
+    expect(match("!jailed")).toMatchObject({
       kind: "command",
       surface: "monarch",
-      sub: "burged",
+      sub: "jailed",
       args: [],
     });
     expect(match("!prefix set ?")).toMatchObject({
@@ -183,15 +183,15 @@ describe("matchCommand", () => {
     expect(match("!np")).toMatchObject({ surface: "music", sub: "nowplaying" });
     expect(match("!q 2")).toMatchObject({ surface: "music", sub: "queue", args: ["2"] });
     expect(match("!leave")).toMatchObject({ surface: "music", sub: "stop" });
-    expect(match("!burg <@111111111111111> cat")).toMatchObject({
+    expect(match("!jail <@111111111111111> cat")).toMatchObject({
       kind: "command",
-      surface: "burg",
+      surface: "monarch", sub: "jail",
       args: ["111111111111111", "cat"],
     });
   });
 
   it("routes the mirrored slash tree", () => {
-    expect(match("!monarch burged")).toMatchObject({ surface: "monarch", sub: "burged" });
+    expect(match("!monarch jailed")).toMatchObject({ surface: "monarch", sub: "jailed" });
     expect(match("!monarch prefix m!")).toMatchObject({
       surface: "monarch",
       sub: "prefix",
@@ -240,7 +240,7 @@ describe("canonicalSubcommand", () => {
     expect(canonicalSubcommand(["music", "play"])).toBe("play");
     expect(canonicalSubcommand(["p"])).toBe("play");
     expect(canonicalSubcommand(["q"])).toBe("queue");
-    expect(canonicalSubcommand(["burg"])).toBe("burg");
+    expect(canonicalSubcommand(["jail"])).toBe("jail");
   });
 
   it("has nothing to say about a bare group root or no command at all", () => {
@@ -265,7 +265,7 @@ describe("canonicalSubcommand", () => {
 });
 
 describe("alias table ⇄ shared command catalog", () => {
-  /** `usage` "/monarch burged" → "burged". */
+  /** `usage` "/monarch jailed" → "jailed". */
   const subOf = (usage: string) => usage.split(" ")[1]!;
 
   it("documents prefix usage for every command", () => {
@@ -279,10 +279,10 @@ describe("alias table ⇄ shared command catalog", () => {
   it("writes prefix usage with the default prefix and matching arguments", () => {
     for (const doc of COMMAND_CATALOG) {
       const prefixForm = doc.prefixUsage!;
-      // "!monarch burged" ⇄ "/monarch burged"
+      // "!monarch jailed" ⇄ "/monarch jailed"
       const slashTail = doc.usage.slice(1);
       const prefixTail = prefixForm.slice(DEFAULT_COMMAND_PREFIX.length);
-      expect(prefixTail.startsWith(slashTail.split(" ")[0]!)).toBe(true);
+      expect(prefixTail.startsWith(slashTail.split(" ")[0]!) || doc.name === "/monarch jail", doc.name).toBe(true);
       const optionCount = (text: string) => (text.match(/[[<]/g) ?? []).length;
       expect(optionCount(prefixForm), `${doc.name}: option count differs`).toBe(
         optionCount(doc.usage),
@@ -316,17 +316,17 @@ describe("alias table ⇄ shared command catalog", () => {
     }
   });
 
-  it("routes /burg under its own name", () => {
-    const doc = BURG_COMMANDS[0]!;
-    expect(doc.prefixAliases).toEqual(["burg"]);
-    const parsed = extractPrefixCommand("!burg <@111111111111111>", PREFIXES, BOT_ID)!;
-    expect(matchCommand(parsed)).toMatchObject({ kind: "command", surface: "burg" });
+  it("routes /jail under its own name", () => {
+    const doc = JAIL_COMMANDS[0]!;
+    expect(doc.prefixAliases).toEqual(["jail"]);
+    const parsed = extractPrefixCommand("!jail <@111111111111111>", PREFIXES, BOT_ID)!;
+    expect(matchCommand(parsed)).toMatchObject({ kind: "command", surface: "monarch", sub: "jail" });
   });
 
   it("has no alias collisions across surfaces", () => {
     const monarch = Object.values(MONARCH_PREFIX_ALIASES).flat();
     const music = Object.values(MUSIC_PREFIX_ALIASES).flat();
-    const all = [...monarch, ...music, "burg"];
+    const all = [...monarch, ...music];
     expect(new Set(all).size).toBe(all.length);
   });
 });

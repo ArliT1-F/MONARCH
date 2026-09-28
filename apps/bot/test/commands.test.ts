@@ -8,7 +8,7 @@ import {
 } from "@monarch/shared";
 import {
   COMMAND_HELP,
-  burgCommandJSON,
+  jailCommandJSON,
   monarchCommandJSON,
   prefixHelpLine,
   renderHelp,
@@ -34,7 +34,7 @@ describe("monarch command manifest", () => {
         "export",
         "embed",
         "test",
-        "burged",
+        "jailed",
       ]),
     );
   });
@@ -72,6 +72,25 @@ describe("monarch command manifest", () => {
     expect(group.options?.find((o) => o.name === "disable")?.options ?? []).toHaveLength(0);
   });
 
+  it("gives jail a setup (bot-created role, optional channel + staff), a disable and a status", () => {
+    const group = (json.options ?? []).find((o) => o.name === "jail") as {
+      options?: { name: string; options?: { name: string; required?: boolean }[] }[];
+    };
+    expect(group).toBeTruthy();
+    expect(group.options?.map((o) => o.name)).toEqual(["setup", "disable", "status"]);
+    const setup = group.options?.find((o) => o.name === "setup");
+    expect(setup?.options?.map((o) => o.name)).toEqual(["channel", "staff"]);
+    expect(setup?.options?.every((o) => o.required === undefined || o.required === false)).toBe(
+      true,
+    );
+  });
+
+  it("documents the voter commands", () => {
+    const documented = new Set(MONARCH_COMMANDS.map((c) => c.usage.split(" ")[1]!));
+    expect(documented.has("report")).toBe(true);
+    expect(documented.has("vote")).toBe(true);
+  });
+
   it("is guild-only", () => {
     expect(json.contexts).toEqual([0]);
   });
@@ -79,16 +98,16 @@ describe("monarch command manifest", () => {
   it("renders the plain-text help under Discord's 2000 character limit", () => {
     const help = renderHelp("https://monarch.example");
     expect(help.length).toBeLessThan(2000);
-    expect(help).toContain("/monarch burged");
+    expect(help).toContain("/monarch jailed");
     expect(help).toContain("https://monarch.example");
   });
 });
 
-describe("/burg command manifest", () => {
-  const json = burgCommandJSON();
+describe("/jail command manifest", () => {
+  const json = jailCommandJSON();
 
   it("is a guild-only top-level command with a required user", () => {
-    expect(json.name).toBe("burg");
+    expect(json.name).toBe("jail");
     expect(json.contexts).toEqual([0]);
     const options = json.options as {
       name: string;
@@ -99,7 +118,7 @@ describe("/burg command manifest", () => {
     expect(options.map((option) => option.name)).toEqual(["user", "duration", "style", "reason"]);
   });
 
-  it("offers cute style variations", () => {
+  it("offers the free styles plus the voter styles", () => {
     const style = (json.options as { name: string; choices?: { value: string }[] }[]).find(
       (option) => option.name === "style",
     );
@@ -108,6 +127,9 @@ describe("/burg command manifest", () => {
       "soft",
       "cat",
       "chaotic",
+      "pirate",
+      "shakespeare",
+      "robot",
     ]);
   });
 });
@@ -193,8 +215,8 @@ describe("/monarch help embed", () => {
   it("lists the short prefix aliases next to the commands that have them", () => {
     const text = (embed.fields ?? []).map((f) => f.value).join("\n");
     expect(text).toContain("`!play`");
-    expect(text).toContain("`!burg`");
-    expect(text).toContain("`!burged`");
+    expect(text).toContain("`!jail`");
+    expect(text).toContain("`!jailed`");
     expect(text).toContain("`!np`");
   });
 

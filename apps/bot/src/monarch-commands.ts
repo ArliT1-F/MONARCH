@@ -1,4 +1,4 @@
-import { PermissionFlagsBits, type GuildBasedChannel, type GuildMember } from "discord.js";
+import { PermissionFlagsBits, type GuildBasedChannel, type GuildMember, type Role } from "discord.js";
 import {
   COMMAND_PREFIX_CHARS,
   CONFESSION_COOLDOWN_MS,
@@ -7,9 +7,17 @@ import {
   buildBotInviteUrl,
   invitePermissionNames,
 } from "@monarch/shared";
-import { BURG_PERMISSIONS, DESIGN_PERMISSIONS, renderHelpEmbeds } from "./commands.js";
-import type { BurgRegistry, BurgStyle } from "./burg.js";
-import { toBurg } from "./burg.js";
+import { JAIL_PERMISSIONS, DESIGN_PERMISSIONS, renderHelpEmbeds } from "./commands.js";
+import type { JailConfig, JailConfigRegistry } from "./jail-config.js";
+import type { JailManager } from "./jail-manager.js";
+import {
+  isVoterJailStyle,
+  styleLabel as jailStyleLabel,
+  toJailSpeak,
+  type JailRegistry,
+  type JailStyle,
+} from "./jail.js";
+import { voteRequiredMessage, type VoteGate } from "./votes.js";
 import type { CommandContext } from "./context.js";
 import { confessButtonRow, starterEmbed, type ConfessionRegistry } from "./confession.js";
 import { formatDuration, parseDuration } from "./durations.js";
@@ -19,13 +27,14 @@ import type { DebugFlags } from "./debug.js";
 /**
  * The `/monarch` command family, written once against {@link CommandContext}
  * so slash commands and prefix commands share the exact same checks, replies
- * and API calls (`/burg @user` and `!burg @user` are the same code).
+ * and API calls (`/jail @user` and `!jail @user` are the same code).
  *
  * Everything structural still happens in the dashboard: the commands that
  * touch server data call `/api/internal/*` with `INTERNAL_API_TOKEN`, and
  * anything that mutates Discord goes through the diff → review → apply
  * pipeline in the web UI. Nothing here writes to Discord directly except the
- * in-memory burg gag, which needs live gateway messages.
+ * in-memory jail registry; the confinement and relay need live gateway messages
+ * and live in ./jail-manager.ts.
  */
 
 export interface MonarchCommandDeps {
@@ -33,12 +42,16 @@ export interface MonarchCommandDeps {
   appUrl: string;
   /** Server-to-server token; without it backup/export/embed/test/prefix-set explain what's missing. */
   internalToken?: string;
-  burg: BurgRegistry;
+  jail: JailRegistry;
+  /** The #jail cell (channel/role/staff roles), persisted via the dashboard. */
+  jailConfigs: JailConfigRegistry;
+  /** The live half: building the cell, confining members, the relay. */
+  jailManager: JailManager;
   prefixes: PrefixRegistry;
   /** Per-guild confession channels (persisted through the internal API). */
   confessions: ConfessionRegistry;
-  /** True when the Message Content intent is enabled (the burg relay needs it). */
-  burgEnabled: () => boolean;
+  /** True when the Message Content intent is enabled (the jail relay needs it). */
+  jailEnabled: () => boolean;
   /**
    * Application id for `!invite` (the "add me to your server" link). Falls
    * back to the bot's own user id — for a bot, those are the same snowflake —
@@ -55,6 +68,11 @@ export interface MonarchCommandDeps {
    * explains that it is not available.
    */
   debug?: DebugFlags;
+  /**
+   * top.gg vote gate for the voter perks. Optional: without one (or without
+   * `TOPGG_TOKEN`) every perk is unlocked — see ./votes.ts.
+   */
+  votes?: VoteGate;
   botUserId?: () => string | null;
   log: {
     info: (msg: string, meta?: Record<string, unknown>) => void;
@@ -75,7 +93,10 @@ export const MONARCH_SUBCOMMANDS = [
   "export",
   "embed",
   "test",
-  "burged",
+  "jailed",
+  "jail",
+  "report",
+  "vote",
   "confession",
   "debug",
 ] as const;
@@ -95,8 +116,16 @@ function describeApiError(e: ApiError | undefined, fallback: string): string {
 export const DURATION_ERROR =
   "❌ I didn't understand that duration. Use `30s`, `10m`, `2h`, `1d` or `1h30m`.";
 
-/** Burg styles, shared with the slash command's choices. */
-const BURG_STYLE_WORDS = ["random", "soft", "cat", "chaotic"];
+/** Jail styles, shared with the slash command's choices (./jail.ts). */
+const JAIL_STYLE_WORDS = [
+  "random",
+  "soft",
+  "cat",
+  "chaotic",
+  "pirate",
+  "shakespeare",
+  "robot",
+];
 
 /**
  * Does this word look like somebody *trying* to give a duration? Anything
@@ -105,7 +134,7 @@ const BURG_STYLE_WORDS = ["random", "soft", "cat", "chaotic"];
  * else in the command (`10 minutes`, `ten minutes`). That keeps ordinary
  * reason prose ("being silly for hours") working while a typo is still
  * refused instead of being silently filed under "reason" and turning a
- * 10-minute burg into an indefinite one.
+ * 10-minute jail into an indefinite one.
  */
 const DURATIONISH_WITH_DIGIT =
   /^\d+\s*(?:[smhdw]|ms|secs?|seconds?|mins?|minutes?|hrs?|hours?|days?|wks?|weeks?)$/i;
@@ -122,14 +151,14 @@ const NUMBER_WORDS = new Set(
 const BARE_NUMBER = /^\d{1,6}$/;
 
 /**
- * Free-form prefix arguments for the burg command: a mention/id, then an
- * optional duration (`10m`, `1h30m`), an optional burg style, and whatever is
+ * Free-form prefix arguments for the jail command: a mention/id, then an
+ * optional duration (`10m`, `1h30m`), an optional jail style, and whatever is
  * left over becomes the reason. Order-free on purpose — text commands get
  * typed in whatever order feels natural — with one exception: style words
  * are only read *before* the reason starts, so "being chaotic today" stays
  * a reason instead of becoming style=chaotic plus "being today".
  */
-export function parseGagArgs(args: readonly string[]): {
+export function parseJailArgs(args: readonly string[]): {
   target: string | null;
   duration: string | null;
   /** A duration-shaped word we couldn't parse — the command must refuse. */
@@ -169,14 +198,14 @@ export function parseGagArgs(args: readonly string[]): {
       invalidDuration = arg;
       continue;
     }
-    if (!style && rest.length === 0 && BURG_STYLE_WORDS.includes(lower)) {
+    if (!style && rest.length === 0 && JAIL_STYLE_WORDS.includes(lower)) {
       style = lower;
       continue;
     }
     rest.push(arg);
   }
 
-  // A lone unit word with nothing else (`!burg @user minutes`) is a
+  // A lone unit word with nothing else (`!jail @user minutes`) is a
   // forgotten number, not a one-word reason.
   if (
     !duration &&
@@ -238,8 +267,14 @@ export class MonarchCommands {
         return this.embed(ctx);
       case "test":
         return this.test(ctx);
-      case "burged":
-        return this.burged(ctx);
+      case "jailed":
+        return this.jailed(ctx);
+      case "jail":
+        return this.jailCell(ctx);
+      case "report":
+        return this.report(ctx);
+      case "vote":
+        return this.vote(ctx);
       case "confession":
         return this.confession(ctx);
       case "debug":
@@ -354,7 +389,7 @@ export class MonarchCommands {
         `👑 **Add Monarch to a server** — ${url}`,
         `• Discord's dialog lists the servers you can manage — pick the one you want Monarch in (this one already has it).`,
         `• Monarch asks for ${invitePermissionNames().length} permissions and never Administrator — the ones it actually uses: ` +
-          `channels, roles, webhooks (the burg relay), messages and files.`,
+          `channels, roles, webhooks (the jail relay), messages and files.`,
         `• Once it's in: \`${ctx.commandPrefix}help\` lists everything, and \`${ctx.commandPrefix}prefix set <new>\` picks a prefix.`,
         `• The dashboard for it lives at ${this.appUrl}/s/<server>.`,
       ].join("\n"),
@@ -362,7 +397,7 @@ export class MonarchCommands {
   }
 
   private async status(ctx: CommandContext): Promise<void> {
-    const burged = this.deps.burg.list(ctx.guildId).length;
+    const jailed = this.deps.jail.list(ctx.guildId).length;
     const prefix = ctx.commandPrefix;
     await ctx.replyHidden(
       [
@@ -370,7 +405,7 @@ export class MonarchCommands {
         `• Server: ${ctx.guild.name}`,
         `• Dashboard: ${this.appUrl}`,
         `• Prefix: \`${prefix}\` (also @Monarch) — change it with \`${prefix}prefix set <new>\``,
-        `• Burg'd members: ${burged}`,
+        `• Jailed members: ${jailed}`,
         "• All design changes are previewed and applied from the dashboard.",
         `• \`${prefix}help\` or \`/monarch help\` lists every command — \`${prefix}invite\` adds Monarch to another server.`,
       ].join("\n"),
@@ -401,7 +436,7 @@ export class MonarchCommands {
       await ctx.replyHidden(
         [
           `**Prefix in ${ctx.guild.name}**: \`${current}\`${isDefault ? " (the default)" : ""}`,
-          `• Commands: \`${current}help\`, \`${current}play <song>\`, \`${current}burg @user\` — @Monarch works as a prefix too.`,
+          `• Commands: \`${current}help\`, \`${current}play <song>\`, \`${current}jail @user\` — @Monarch works as a prefix too.`,
           isDefault
             ? `• Change it with \`${current}prefix set <new>\` — 1-${MAX_COMMAND_PREFIX_LENGTH} characters from \`${COMMAND_PREFIX_CHARS}\`.`
             : `• \`${DEFAULT_COMMAND_PREFIX}\` still works, and \`${current}prefix reset\` restores the default.`,
@@ -454,7 +489,7 @@ export class MonarchCommands {
     await ctx.replyHidden(
       [
         `✅ Prefix for **${ctx.guild.name}** is now \`${outcome.prefix}\`.`,
-        `• Try \`${outcome.prefix}help\`, \`${outcome.prefix}play <song>\`, \`${outcome.prefix}burg @user\`.`,
+        `• Try \`${outcome.prefix}help\`, \`${outcome.prefix}play <song>\`, \`${outcome.prefix}jail @user\`.`,
         `• \`${DEFAULT_COMMAND_PREFIX}\` and an @Monarch mention keep working; \`${outcome.prefix}prefix reset\` restores the default.`,
       ].join("\n"),
     );
@@ -649,44 +684,203 @@ export class MonarchCommands {
     return null;
   }
 
-  // ── burg relay ─────────────────────────────────────────────────────
+  // ── jail ───────────────────────────────────────────────────────────
 
-  private async burged(ctx: CommandContext): Promise<void> {
-    if (!ctx.memberHasAny(BURG_PERMISSIONS)) {
+  /** `/monarch jailed` — who is in the cell right now. */
+  private async jailed(ctx: CommandContext): Promise<void> {
+    if (!ctx.memberHasAny(JAIL_PERMISSIONS)) {
       await ctx.replyHidden(
-        "❌ Only administrators and roles with **Kick Members** can see who's burg'd.",
+        "❌ Only administrators and roles with **Kick Members** can see who's jailed.",
       );
       return;
     }
-    const entries = this.deps.burg.list(ctx.guildId);
+    const entries = this.deps.jail.list(ctx.guildId);
     if (entries.length === 0) {
-      await ctx.replyHidden("Nobody is burg'd right now.");
+      await ctx.replyHidden("Nobody is jailed right now. 🎉");
       return;
     }
+    const config = await this.deps.jailConfigs.get(ctx.guildId);
     await ctx.replyHidden(
       [
-        `🧁 **Burg'd in ${ctx.guild.name}** (${entries.length})`,
+        `🔒 **Jailed in ${ctx.guild.name}** (${entries.length})`,
         ...entries.map(
           (e) =>
-            `• <@${e.userId}> — ${e.style} · ${e.until ? `until <t:${Math.floor(e.until / 1000)}:R>` : "until toggled off"} · by <@${e.burgedBy}>`,
+            `• <@${e.userId}> — ${e.style} · ${
+              e.until ? `until <t:${Math.floor(e.until / 1000)}:R>` : "until released"
+            } · by <@${e.jailedBy}>${e.reason ? ` — ${e.reason}` : ""}`,
         ),
+        config
+          ? `-# They can only talk in <#${config.channelId}>. Release one with \`${ctx.commandPrefix}jail @user\`.`
+          : `-# No cell is set up, so this is the relay-only gag — \`${ctx.commandPrefix}jail setup\` confines them to #jail.`,
       ].join("\n"),
     );
   }
 
   /**
-   * `/burg` — a toggle with an update path, on both surfaces (`/burg @user`,
-   * `!burg @user`).
-   *
-   * Run it bare on a burg'd member to turn the gag off; run it with a
-   * duration, style or reason to (re)apply it. The inputs are parsed *before*
-   * the toggle decision so a typo can't silently switch the gag off.
+   * `/monarch jail` — the cell: `setup`, `disable`, `status`. The bare
+   * `!jail …` form is the gag itself, so a word that isn't a verb falls
+   * through to {@link jail} (that is what keeps `!jail @user 10m` working).
    */
-  async burg(ctx: CommandContext): Promise<void> {
-    const { burg, log } = this.deps;
-    if (!ctx.memberHasAny(BURG_PERMISSIONS)) {
+  private async jailCell(ctx: CommandContext): Promise<void> {
+    const verb = (ctx.getSubcommand() ?? "").toLowerCase();
+    if (verb === "setup") return this.jailSetup(ctx);
+    if (verb === "disable") return this.jailDisable(ctx);
+    if (verb === "status") return this.jailStatus(ctx);
+    return this.jail(ctx);
+  }
+
+  /**
+   * `/monarch jail setup [#channel] [staff]` and `!jail setup …`.
+   *
+   * Builds the cell: a #jail channel hidden from @everyone, a managed
+   * @jailed role that setup creates (with no server-wide permissions) and
+   * that may only read and write in that channel, plus a deny for that role
+   * on every other channel in the server. Re-running refreshes staff access and
+   * repairs anything that changed outside Monarch.
+   */
+  private async jailSetup(ctx: CommandContext): Promise<void> {
+    if (!ctx.memberHasAny(DESIGN_PERMISSIONS)) {
       await ctx.replyHidden(
-        "❌ Only administrators and roles with **Kick Members** can use /burg.",
+        "❌ You need **Manage Server** or **Administrator** to set up the jail cell.",
+      );
+      return;
+    }
+    if (!this.deps.jailConfigs.persistent) {
+      await ctx.replyHidden(
+        "❌ The jail cell is saved through the Monarch dashboard — set `INTERNAL_API_TOKEN` " +
+          "in the dashboard and bot environments first. The `/jail` relay still works without a cell.",
+      );
+      return;
+    }
+
+    await ctx.defer({ hidden: true });
+
+    // A channel option that isn't a normal text channel is refused here so the
+    // manager never has to explain Discord's channel types.
+    const channelId = ctx.getChannelOption("channel")?.id ?? null;
+    const channel = channelId
+      ? await ctx.guild.channels.fetch(channelId).catch(() => null)
+      : null;
+    if (channelId && (!channel || !channel.isTextBased() || channel.isThread())) {
+      await ctx.edit(
+        "❌ The cell must be a normal text channel Monarch can see — mention a different channel or leave it out and I'll create `#jail`.",
+      );
+      return;
+    }
+
+    const staff = await this.resolveRole(ctx, "staff");
+    if (ctx.getRoleOption("staff") && !staff) {
+      await ctx.edit("❌ I couldn't find that staff role in this server.");
+      return;
+    }
+
+    const result = await this.deps.jailManager.setup(ctx.guild, {
+      channel,
+      staffRole: staff,
+      actorId: ctx.user.id,
+    });
+    if (!result.ok) {
+      await ctx.edit(result.message);
+      return;
+    }
+
+    const staffList =
+      result.staffRoleIds.length > 0
+        ? result.staffRoleIds.map((id) => `<@&${id}>`).join(", ")
+        : "none yet (roles with moderation permissions are picked up automatically)";
+    await ctx.edit(
+      [
+        `🔒 **The jail cell is ready in ${ctx.guild.name}.**`,
+        `• Cell: <#${result.channel.id}> (${result.channel.created ? "created" : "reused"}) — @everyone can't see it; jailed members and staff can.`,
+        `• Jail role: <@&${result.role.id}> (${result.role.created ? "created" : "created earlier"}) — no server-wide permissions, denied view **and** write outside the cell; I add and remove it automatically.`,
+        `• Locked **${result.locked}** channel${result.locked === 1 ? "" : "s"} against that role (${result.skipped} already locked${result.failed > 0 ? `, ${result.failed} failed — check my Manage Roles permission` : ""}).`,
+        `• Staff access: ${staffList}.`,
+        `• Jail someone: \`/jail @user [duration] [style] [reason]\` or \`${ctx.commandPrefix}jail @user 10m\`.`,
+        `• Undo everything: \`/monarch jail disable\`.`,
+      ].join("\n"),
+    );
+  }
+
+  /** `/monarch jail disable` — release everyone and forget the cell. */
+  private async jailDisable(ctx: CommandContext): Promise<void> {
+    if (!ctx.memberHasAny(DESIGN_PERMISSIONS)) {
+      await ctx.replyHidden(
+        "❌ You need **Manage Server** or **Administrator** to disable the jail cell.",
+      );
+      return;
+    }
+    const result = await this.deps.jailManager.disable(ctx.guild, ctx.user.id);
+    if (!result.ok) {
+      await ctx.replyHidden(result.message);
+      return;
+    }
+    await ctx.replyHidden(
+      [
+        `🔓 **The jail cell is switched off** — ${result.released} member${result.released === 1 ? "" : "s"} released.`,
+        `• Removed the @jailed overwrites from ${result.cleaned} channel${result.cleaned === 1 ? "" : "s"}${result.failed > 0 ? ` (${result.failed} failed — check my Manage Roles permission)` : ""}.`,
+        "• The channel itself stays exactly as it is (still private), and the `/jail` relay keeps working — it is just no longer confining anyone.",
+        `• Bring it back any time with \`${ctx.commandPrefix}jail setup\`.`,
+      ].join("\n"),
+    );
+  }
+
+  /** `/monarch jail status` — the cell and its occupants. */
+  private async jailStatus(ctx: CommandContext): Promise<void> {
+    if (!ctx.memberHasAny(JAIL_PERMISSIONS)) {
+      await ctx.replyHidden(
+        "❌ Only administrators and roles with **Kick Members** can inspect the jail.",
+      );
+      return;
+    }
+    if (!this.deps.jailConfigs.persistent) {
+      await ctx.replyHidden(
+        "❌ The jail cell is stored through the Monarch dashboard, and this bot has no " +
+          "`INTERNAL_API_TOKEN` — so there is no cell here, only the relay gag.",
+      );
+      return;
+    }
+    const status = await this.deps.jailManager.status(ctx.guild);
+    if (!status.config) {
+      await ctx.replyHidden(
+        `🔓 **No jail cell is set up here.** The \`/jail\` relay works, but nobody is confined. ` +
+          `Run \`${ctx.commandPrefix}jail setup\` to build one.`,
+      );
+      return;
+    }
+    const staffList =
+      status.config.staffRoleIds.length > 0
+        ? status.config.staffRoleIds.map((id) => `<@&${id}>`).join(", ")
+        : "none yet";
+    await ctx.replyHidden(
+      [
+        `🔒 **Jail cell in ${ctx.guild.name}**`,
+        `• Cell: ${status.channelExists ? `<#${status.config.channelId}>` : `⚠️ the channel (${status.config.channelId}) is gone — re-run setup`}`,
+        `• Jail role: ${status.roleExists ? `<@&${status.config.roleId}>` : `⚠️ the role (${status.config.roleId}) is gone — re-run setup`}`,
+        `• Staff access: ${staffList}`,
+        `• Currently jailed: ${status.jailed.length}${status.jailed.length > 0 ? ` (see \`${ctx.commandPrefix}jailed\`)` : ""}`,
+        `• Refresh staff access or repair the locks: \`${ctx.commandPrefix}jail setup\`. Switch it off: \`${ctx.commandPrefix}monarch jail disable\`.`,
+      ].join("\n"),
+    );
+  }
+
+  /**
+   * `/jail @user [duration] [style] [reason]`, `!jail @user …` — a toggle with
+   * an update path.
+   *
+   * Run it bare on a jailed member to set them free; run it with a duration,
+   * style or reason to (re)apply it. The inputs are parsed *before* the
+   * toggle decision so a typo can't silently open the cell.
+   *
+   * The relay is the joke, the role is the confinement: with a cell in place
+   * the member also gets the @jailed role (so the rest of the server becomes
+   * invisible to them) and loses it on release. Without one, `/jail` is the
+   * old relay-only gag.
+   */
+  async jail(ctx: CommandContext): Promise<void> {
+    const { jail, log } = this.deps;
+    if (!ctx.memberHasAny(JAIL_PERMISSIONS)) {
+      await ctx.replyHidden(
+        "❌ Only administrators and roles with **Kick Members** can use /jail.",
       );
       return;
     }
@@ -695,7 +889,7 @@ export class MonarchCommands {
     if (!target) {
       if (ctx.surface === "prefix" && !this.targetUserId(ctx)) {
         await ctx.replyHidden(
-          `❓ Say who to burg — \`${ctx.commandPrefix}burg @user [duration] [style] [reason]\` (run it again to turn it off).`,
+          `❓ Say who to jail — \`${ctx.commandPrefix}jail @user [duration] [style] [reason]\` (run it again to release them).`,
         );
       } else {
         // Slash always carries a user option, and a prefix id that resolves
@@ -705,92 +899,101 @@ export class MonarchCommands {
       return;
     }
 
-    const existing = burg.get(ctx.guildId, target.id);
-    const inputs = this.gagInputs(ctx, ["duration", "reason", "style"]);
+    const existing = jail.get(ctx.guildId, target.id);
+    const inputs = this.jailInputs(ctx, ["duration", "reason", "style"]);
     const hasNewInputs =
       inputs.duration !== null ||
       inputs.invalidDuration !== null ||
       inputs.style !== null ||
       inputs.reason !== null;
     if (existing && !hasNewInputs) {
-      // Deliberately a toggle: no second command name to remember. Switching
-      // the gag off needs nothing but the moderation permission — not the
-      // intent, not the role hierarchy, not a working relay.
-      burg.release(ctx.guildId, target.id);
-      log.info("member unburged", {
+      // Deliberately a toggle: no second command name to remember. Releasing
+      // only needs the moderation permission — not the intent, not the role
+      // hierarchy, not a working relay.
+      jail.release(ctx.guildId, target.id);
+      const config = await this.deps.jailConfigs.get(ctx.guildId);
+      const freed = await this.deps.jailManager.free(ctx.guild, target.id, config);
+      log.info("member released from jail", {
         guildId: ctx.guildId,
         userId: target.id,
         by: ctx.user.id,
         surface: ctx.surface,
+        roleRemoved: freed,
       });
       await ctx.replyHidden(
-        `🧁 <@${target.id}> is no longer burg'd — their messages are back to normal.`,
+        `🔓 <@${target.id}> is out of jail — their messages are back to normal` +
+          (freed ? " and the `@jailed` role is gone." : "."),
       );
       return;
     }
-    if (!this.deps.burgEnabled()) {
+    if (!this.deps.jailEnabled()) {
       await ctx.replyHidden(
-        "❌ /burg is disabled on this Monarch instance: the **Message Content** intent isn't enabled for the bot application. " +
+        "❌ /jail is disabled on this Monarch instance: the **Message Content** intent isn't enabled for the bot application. " +
           "The host must turn it on under Bot → Privileged Gateway Intents and restart the bot.",
       );
       return;
     }
     if (target.id === ctx.user.id) {
-      await ctx.replyHidden("You can't burg yourself — nice try.");
+      await ctx.replyHidden("You can't jail yourself — nice try.");
       return;
     }
-    // Burg cannot target the bot owner (the application owner). Reverse the
+    // Jail cannot target the bot owner (the application owner). Reverse the
     // gag onto the person who tried it instead.
     if (this.deps.ownerUserId && target.id === this.deps.ownerUserId) {
-      if (!burg.get(ctx.guildId, ctx.user.id)) {
-        // ...unless they're already burg'd, in which case the entry stays:
-        // the reverse must not become a free toggle-off.
-        burg.burg({
+      if (!jail.get(ctx.guildId, ctx.user.id)) {
+        // ...unless they're already jailed, in which case the entry stays:
+        // the reverse must not become a free get-out-of-jail card.
+        jail.jail({
           guildId: ctx.guildId,
           userId: ctx.user.id,
           until: null,
-          burgedBy: target.id,
+          jailedBy: target.id,
           style: "random",
         });
       }
-      log.info("bot owner uno-reversed burg command", {
+      log.info("bot owner uno-reversed the jail command", {
         guildId: ctx.guildId,
         attemptedTarget: target.id,
-        burgedUser: ctx.user.id,
+        jailedUser: ctx.user.id,
         surface: ctx.surface,
       });
+      const config = await this.deps.jailConfigs.get(ctx.guildId);
+      if (config) await this.confineOrWarn(ctx, ctx.user.id, config);
       await ctx.replyHidden(
-        "🔄 You tried to burg the bot owner. That's not how it works around here. Now you have been burg'd.",
+        "🔄 You tried to jail the bot owner. That's not how it works around here. Now *you* are jailed.",
       );
       return;
     }
     if (target.user.bot) {
-      await ctx.replyHidden("❌ Bots can't be burg'd.");
+      await ctx.replyHidden("❌ Bots can't be jailed.");
       return;
     }
     if (target.id === ctx.guild.ownerId) {
-      await ctx.replyHidden("❌ The server owner can't be burg'd.");
+      await ctx.replyHidden("❌ The server owner can't be jailed.");
       return;
     }
     const invokerIsOwner = ctx.guild.ownerId === ctx.member.id;
     if (!invokerIsOwner && target.roles.highest.position >= ctx.member.roles.highest.position) {
-      await ctx.replyHidden("❌ You can only burg members whose highest role is below yours.");
+      await ctx.replyHidden("❌ You can only jail members whose highest role is below yours.");
       return;
     }
-    if (target.permissions.has(PermissionFlagsBits.Administrator) && !invokerIsOwner) {
-      await ctx.replyHidden("❌ Administrators can only be burg'd by the server owner.");
+    if (target.permissions.has(PermissionFlagsBits.Administrator)) {
+      await ctx.replyHidden(
+        "❌ Administrators can't be confined: Discord ignores channel denies for them. " +
+          "Remove their Administrator role first.",
+      );
       return;
     }
     const mine = ctx.myPermissions();
     if (mine !== null && !mine.has(PermissionFlagsBits.ManageMessages)) {
       await ctx.replyHidden(
-        "❌ Monarch needs the **Manage Messages** permission to delete and re-post burg'd messages.\n" +
+        "❌ Monarch needs the **Manage Messages** permission to delete and re-post jailed messages.\n" +
           `Re-invite it from ${this.appUrl} or grant the permission in Server Settings → Roles, then try again.`,
       );
       return;
     }
     if (mine !== null && !mine.has(PermissionFlagsBits.ManageWebhooks)) {
-      log.warn("burg without Manage Webhooks — relaying as plain bot messages", {
+      log.warn("jail without Manage Webhooks — relaying as plain bot messages", {
         guildId: ctx.guildId,
       });
     }
@@ -808,22 +1011,31 @@ export class MonarchCommands {
       }
       until = Date.now() + ms;
     }
-    const style = asBurgStyle(inputs.style) ?? "random";
+    const style = asJailStyle(inputs.style) ?? "random";
+
+    // Voter perks: the premium styles are the reward for a top.gg vote. Checked
+    // before anything is stored, so a locked style never half-applies.
+    if (style !== "random" && isVoterJailStyle(style)) {
+      if (!(await this.requireVote(ctx, `The **${style}** style`))) return;
+    }
+
+    const config = await this.deps.jailConfigs.get(ctx.guildId);
 
     if (existing) {
       // Re-running with options updates the entry instead of toggling it
       // off: whatever the command didn't mention keeps its current value, so
-      // `!burg @user cat` changes the style without touching the timer.
-      const resolvedStyle = asBurgStyle(inputs.style) ?? existing.style;
+      // `!jail @user pirate` changes the style without touching the timer.
+      const resolvedStyle = asJailStyle(inputs.style) ?? existing.style;
       const resolvedUntil = inputs.duration ? until : existing.until;
-      burg.burg({
+      jail.jail({
         guildId: ctx.guildId,
         userId: target.id,
         until: resolvedUntil,
-        burgedBy: ctx.user.id,
+        jailedBy: ctx.user.id,
         style: resolvedStyle,
+        reason: inputs.reason ?? existing.reason,
       });
-      log.info("member burg updated", {
+      log.info("jail updated", {
         guildId: ctx.guildId,
         userId: target.id,
         by: ctx.user.id,
@@ -833,36 +1045,149 @@ export class MonarchCommands {
       });
       const when = resolvedUntil
         ? `for **${formatDuration(resolvedUntil - Date.now())}** (until <t:${Math.floor(resolvedUntil / 1000)}:f>)`
-        : `**until toggled off** with \`${ctx.commandPrefix}burg @user\``;
-      const styleLabel =
-        resolvedStyle === "random" ? "a random cute style" : `the **${resolvedStyle}** style`;
+        : `**until released** with \`${ctx.commandPrefix}jail @user\``;
       await ctx.replyHidden(
-        `🧁 Updated <@${target.id}>'s burg — now ${when}${inputs.reason ? ` — ${inputs.reason}` : ""}.\n` +
-          `Now using ${styleLabel}. Run \`${ctx.commandPrefix}burg @user\` with no options to turn it off.`,
+        `🔒 Updated <@${target.id}>'s cell — now ${when}${inputs.reason ? ` — ${inputs.reason}` : ""}.\n` +
+          `Now using ${jailStyleLabel(resolvedStyle)}. Run \`${ctx.commandPrefix}jail @user\` with no options to release them.`,
       );
+      if (config) await this.confineOrWarn(ctx, target.id, config);
       return;
     }
 
-    burg.burg({ guildId: ctx.guildId, userId: target.id, until, burgedBy: ctx.user.id, style });
-    log.info("member burged", {
+    jail.jail({
+      guildId: ctx.guildId,
+      userId: target.id,
+      until,
+      jailedBy: ctx.user.id,
+      style,
+      reason: inputs.reason,
+    });
+    log.info("member jailed", {
       guildId: ctx.guildId,
       userId: target.id,
       by: ctx.user.id,
       until,
       style,
       surface: ctx.surface,
+      confined: config !== null,
     });
     const when = until
       ? `for **${formatDuration(until - Date.now())}** (until <t:${Math.floor(until / 1000)}:f>)`
-      : `**until toggled off** with \`${ctx.commandPrefix}burg @user\``;
-    const styleLabel = style === "random" ? "a random cute style" : `the **${style}** style`;
+      : `**until released** with \`${ctx.commandPrefix}jail @user\``;
     await ctx.replyHidden(
-      `🧁 <@${target.id}> is burg'd ${when}${inputs.reason ? ` — ${inputs.reason}` : ""}.\n` +
-        `Their messages will be re-posted as ${styleLabel}, e.g. ${toBurg("hello there", style)} under their name and avatar.\n` +
-        `Use \`${ctx.commandPrefix}burg\` on them again to turn it off.`,
+      [
+        `🔒 <@${target.id}> is jailed ${when}${inputs.reason ? ` — ${inputs.reason}` : ""}.`,
+        config
+          ? `They now hold the \`@jailed\` role: the server is invisible to them, they can only talk in <#${config.channelId}>, and anything they type elsewhere gets removed.`
+          : `No cell is set up yet, so this is the relay-only gag — every message they post comes back cute. Run \`${ctx.commandPrefix}jail setup\` to also confine them to #jail.`,
+        `Their words come back as ${jailStyleLabel(style)}: ${toJailSpeak("hello there", style)}`,
+      ].join("\n"),
+    );
+    if (config) await this.confineOrWarn(ctx, target.id, config);
+  }
+
+  /**
+   * Hand out the @jailed role, or say why the confinement half didn't happen.
+   * The relay is already running at this point, so a failure here is a
+   * warning on top of a working gag — never a rollback.
+   */
+  private async confineOrWarn(
+    ctx: CommandContext,
+    userId: string,
+    config: JailConfig,
+  ): Promise<void> {
+    const result = await this.deps.jailManager.confine(ctx.guild, userId, config);
+    if (!result.ok) await ctx.replyHidden(result.message);
+  }
+
+  // ── voter perks ────────────────────────────────────────────────────
+
+  /**
+   * Is this person allowed to use a voter perk? Reposts the vote link when
+   * not. Without a gate (no `TOPGG_TOKEN`) everything is unlocked.
+   */
+  private async requireVote(ctx: CommandContext, perk: string): Promise<boolean> {
+    const gate = this.deps.votes;
+    if (!gate || !gate.enabled) return true;
+    if (await gate.hasVoted(ctx.user.id)) return true;
+    await ctx.replyHidden(voteRequiredMessage(perk, gate.voteUrl()));
+    return false;
+  }
+
+  /** `/monarch vote` — the link, the perks, and whether the vote counts. */
+  private async vote(ctx: CommandContext): Promise<void> {
+    const gate = this.deps.votes;
+    const url = gate?.voteUrl() ?? null;
+    if (!gate || !gate.enabled) {
+      await ctx.replyHidden(
+        [
+          "🗳️ This Monarch instance can't check top.gg votes (`TOPGG_TOKEN` isn't set), so **every perk is already unlocked**:",
+          "• the pirate, shakespeare and robot jail styles",
+          "• `/music autoplay` — radio mode",
+          "• `/monarch report` — the full Design Analyzer report",
+          "Nothing to do here — enjoy the bot! 👑",
+        ].join("\n"),
+      );
+      return;
+    }
+    // Always re-check rather than trusting the cache: the point of this
+    // command is to confirm the vote just landed.
+    gate.forget(ctx.user.id);
+    const voted = await gate.hasVoted(ctx.user.id);
+    await ctx.replyHidden(
+      [
+        voted
+          ? "🗳️ **Your vote counts right now — voter perks unlocked.** Thank you! 💛"
+          : "🗳️ **You haven't voted for Monarch yet.**",
+        url ? `Vote here: ${url}` : "The vote link is in the dashboard's help page.",
+        "A vote counts for **12 hours** and unlocks:",
+        "• jail styles: pirate, shakespeare, robot",
+        "• `/music autoplay` — the queue keeps itself fed",
+        "• `/monarch report` — the full Design Analyzer report in chat",
+        "-# Everything moderation-related in Monarch stays open to everyone; only these extras are gated.",
+      ].join("\n"),
     );
   }
 
+  /** `/monarch report` — the Design Analyzer report as a Markdown file. */
+  private async report(ctx: CommandContext): Promise<void> {
+    if (!ctx.memberHasAny(DESIGN_PERMISSIONS)) {
+      await ctx.replyHidden("❌ You need **Manage Server** or **Administrator** to run a report.");
+      return;
+    }
+    if (!this.internalToken) {
+      await ctx.replyHidden(
+        "❌ The report is computed by the Monarch dashboard — set `INTERNAL_API_TOKEN` in the dashboard and bot environments.",
+      );
+      return;
+    }
+    if (!(await this.requireVote(ctx, "The Design Analyzer report"))) return;
+
+    await ctx.defer({ hidden: true });
+    try {
+      const res = await fetch(`${this.appUrl}/api/internal/guilds/${ctx.guildId}/analyzer`, {
+        headers: this.internalHeaders(),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        fileName?: string;
+        markdown?: string;
+        score?: number;
+        error?: ApiError;
+      };
+      if (res.ok && data.ok && data.markdown) {
+        await ctx.attach(
+          `📊 **${ctx.guild.name}** scored **${data.score ?? "?"}/100** — the full Design Analyzer report is attached. ` +
+            "Suggestions only: nothing was changed.",
+          [{ name: data.fileName ?? "monarch-design-report.md", body: data.markdown }],
+        );
+      } else {
+        await ctx.edit(describeApiError(data.error, "Monarch couldn't analyze this server."));
+      }
+    } catch {
+      await ctx.edit("❌ Couldn't reach the Monarch dashboard.");
+    }
+  }
   // ── confessions ────────────────────────────────────────────────────
 
   /**
@@ -1028,7 +1353,7 @@ export class MonarchCommands {
    * prefix argument list ({@link CommandContext.args}). One code path, two
    * surfaces.
    */
-  private gagInputs(
+  private jailInputs(
     ctx: CommandContext,
     names: string[],
   ): {
@@ -1037,7 +1362,7 @@ export class MonarchCommands {
     reason: string | null;
     style: string | null;
   } {
-    const parsed = ctx.surface === "slash" ? fromSlashOptions(ctx) : parseGagArgs(ctx.args);
+    const parsed = ctx.surface === "slash" ? fromSlashOptions(ctx) : parseJailArgs(ctx.args);
     return {
       duration: names.includes("duration") ? parsed.duration : null,
       invalidDuration: names.includes("duration") ? parsed.invalidDuration : null,
@@ -1049,7 +1374,7 @@ export class MonarchCommands {
   /**
    * Who the command is about: the slash `user` option, or the first mention /
    * snowflake in the prefix arguments. A bare word is never treated as a
-   * member — after `!burg` its the reason.
+   * member — after `!jail` its the reason.
    */
   private async targetMember(ctx: CommandContext): Promise<GuildMember | null> {
     const fromOption = ctx.getMemberOption("user");
@@ -1058,6 +1383,15 @@ export class MonarchCommands {
     const userId = this.targetUserId(ctx);
     if (!userId) return null;
     return ctx.resolveMember(userId);
+  }
+
+  /** A role option (`role`, `staff`) resolved against this guild. */
+  private async resolveRole(ctx: CommandContext, name: string): Promise<Role | null> {
+    const id = ctx.getRoleOption(name)?.id;
+    if (!id) return null;
+    const cached = ctx.guild.roles.cache.get(id);
+    if (cached) return cached;
+    return ctx.guild.roles.fetch(id).catch(() => null);
   }
 
   /** The snowflake a gag command is aimed at (mentions arrive as ids). */
@@ -1073,12 +1407,14 @@ function joinArgs(args: readonly string[]): string | null {
   return args.length > 0 ? args.join(" ") : null;
 }
 
-/** A validated burg style, or null when the caller gave none (or garbage). */
-function asBurgStyle(raw: string | null): BurgStyle | null {
-  return raw === "random" || raw === "soft" || raw === "cat" || raw === "chaotic" ? raw : null;
+/** A validated jail style, or null when the caller gave none (or garbage). */
+function asJailStyle(raw: string | null): JailStyle | null {
+  return raw !== null && (JAIL_STYLE_WORDS as readonly string[]).includes(raw)
+    ? (raw as JailStyle)
+    : null;
 }
 
-/** Slash-option form of {@link parseGagArgs} (typed options: nothing to guess). */
+/** Slash-option form of {@link parseJailArgs} (typed options: nothing to guess). */
 function fromSlashOptions(ctx: CommandContext): {
   duration: string | null;
   invalidDuration: string | null;

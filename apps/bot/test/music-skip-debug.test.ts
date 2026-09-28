@@ -23,12 +23,15 @@ import { ensurePlayable, SourceError } from "../src/music/sources.js";
 import { MusicManager } from "../src/music/player.js";
 import { YtdlpError } from "../src/music/ytdlp.js";
 import { DebugFlags, clampDebugText, type DebugReporter } from "../src/debug.js";
-import { BurgRegistry } from "../src/burg.js";
+import { JailRegistry } from "../src/jail.js";
+import { JailConfigRegistry } from "../src/jail-config.js";
 import { ConfessionRegistry } from "../src/confession.js";
 import { PrefixRegistry } from "../src/prefix/registry.js";
 import { MonarchCommands } from "../src/monarch-commands.js";
 import { SlashCommandContext } from "../src/slash-context.js";
 import { FakeAudioBackend, fakeClient, fakeGuild, fakeVoiceChannel } from "./music-fakes.js";
+
+const jailManagerStub = { confine: async () => ({ ok: true }), free: async () => ({ ok: true }) } as never;
 
 const track = (id: string, extra: Partial<Track> = {}): Track =>
   ({
@@ -210,10 +213,12 @@ describe("/monarch debug", () => {
   function commands(ownerUserId: string | null, flags = new DebugFlags()) {
     return new MonarchCommands({
       appUrl: "https://monarch.example",
-      burg: new BurgRegistry(),
+      jail: new JailRegistry(),
+      jailConfigs: new JailConfigRegistry(),
+      jailManager: jailManagerStub,
       prefixes: new PrefixRegistry(),
       confessions: new ConfessionRegistry(),
-      burgEnabled: () => true,
+      jailEnabled: () => true,
       ownerUserId,
       debug: flags,
       log: { info: vi.fn(), warn: vi.fn() },

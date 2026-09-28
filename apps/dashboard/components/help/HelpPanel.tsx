@@ -21,7 +21,7 @@ import {
 export function HelpPanel({ appUrl }: { appUrl: string }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<Set<string>>(
-    () => new Set(["/burg", "/monarch burged", "/music play", "/music skip"]),
+    () => new Set(["/jail", "/monarch jailed", "/music play", "/music skip"]),
   );
 
   const normalized = query.trim().toLowerCase();
@@ -306,12 +306,12 @@ function SetupNotes() {
     {
       id: "general",
       title: "Prefix (text) commands",
-      body: `Every command also works as a normal message: ${DEFAULT_COMMAND_PREFIX}help, ${DEFAULT_COMMAND_PREFIX}play <song>, ${DEFAULT_COMMAND_PREFIX}burg @user, or "@Monarch help" — mentioning the bot always works as a prefix. Each server picks its own with ${DEFAULT_COMMAND_PREFIX}prefix set <new> (1–${MAX_COMMAND_PREFIX_LENGTH} characters from ${COMMAND_PREFIX_CHARS}), and ${DEFAULT_COMMAND_PREFIX}prefix reset restores the default; the default prefix keeps working either way, so nobody gets locked out. Unknown ${DEFAULT_COMMAND_PREFIX}words are ignored so other bots' prefixes are untouched.`,
+      body: `Every command also works as a normal message: ${DEFAULT_COMMAND_PREFIX}help, ${DEFAULT_COMMAND_PREFIX}play <song>, ${DEFAULT_COMMAND_PREFIX}jail @user, or "@Monarch help" — mentioning the bot always works as a prefix. Each server picks its own with ${DEFAULT_COMMAND_PREFIX}prefix set <new> (1–${MAX_COMMAND_PREFIX_LENGTH} characters from ${COMMAND_PREFIX_CHARS}), and ${DEFAULT_COMMAND_PREFIX}prefix reset restores the default; the default prefix keeps working either way, so nobody gets locked out. Unknown ${DEFAULT_COMMAND_PREFIX}words are ignored so other bots' prefixes are untouched.`,
     },
     {
       id: "setup",
-      title: "Message Content intent (prefix commands + /burg)",
-      body: "Prefix commands and /burg all read ordinary messages, so they need the privileged Message Content intent: Discord developer portal → Bot → Privileged Gateway Intents. Without it the bot still starts, slash commands keep working, and the text commands simply don't fire.",
+      title: "Message Content intent (prefix commands + /jail)",
+      body: "Prefix commands and /jail all read ordinary messages, so they need the privileged Message Content intent: Discord developer portal → Bot → Privileged Gateway Intents. Without it the bot still starts, slash commands keep working, and the text commands simply don't fire.",
     },
     {
       id: "setup",
