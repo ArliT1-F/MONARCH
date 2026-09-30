@@ -379,7 +379,7 @@ export const CAT_COMMANDS: CommandDoc[] = [
     examples: ["!cat", "!c", "/cat"],
     notes: [
       "Cat images are loaded from the repository's `cats/` folders; the filename becomes the card name.",
-      "The bot owner can add an image by DMing `!cat add <rarity>`, then uploading it; Mythic cards drop at 0.01%.",
+      "The bot owner can DM `!cat add <rarity> [name]`, then upload an image; the optional name (spaces allowed) replaces the attachment filename. Mythic cards drop at 0.01%.",
       "Only add images you own or have permission to reuse. Global pull totals and adoptions require INTERNAL_API_TOKEN for persistent storage.",
     ],
   },
