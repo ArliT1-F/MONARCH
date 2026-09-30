@@ -382,7 +382,7 @@ async function onMessage(message: Message) {
       await catUploads.handleDirectMessage(message);
     } catch (error) {
       log.error("cat image DM upload failed", { error: String(error) });
-      await message.reply("Couldn't process that cat upload. Try `!cat add <rarity>` again.").catch(() => {});
+      await message.reply("Couldn't process that cat upload. Try `!cat add <rarity> [name]` again.").catch(() => {});
     }
     return;
   }

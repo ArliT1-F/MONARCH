@@ -16,6 +16,7 @@ const IMAGE_TYPES: Readonly<Record<string, string>> = {
 
 interface PendingUpload {
   folder: string;
+  name?: string;
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -37,7 +38,7 @@ export class CatUploadManager {
       await message.reply({ content: "🔒 Cat uploads are owner-only; use `!help cat` for card details." });
       return true;
     }
-    await message.reply({ content: "📩 Send `!cat add <rarity>` to me in DMs to upload a cat." });
+    await message.reply({ content: "📩 DM me `!cat add <rarity> [name]` to upload a cat." });
     return true;
   }
 
@@ -58,14 +59,20 @@ export class CatUploadManager {
         await message.reply(`❓ Unknown rarity. Use one of: ${CAT_RARITIES.map((item) => item.label.toLowerCase()).join(", ")}.`);
         return true;
       }
+      const name = add.name === undefined ? undefined : sanitizeImageStem(add.name);
+      if (add.name !== undefined && !name) {
+        await message.reply("❓ That image name has no usable letters or numbers. Try `!cat add mythic Midnight`.");
+        return true;
+      }
       this.clearPending();
       const timer = setTimeout(() => {
         this.pending = null;
-        void message.reply("⌛ Cat upload timed out. Start again with `!cat add <rarity>`.").catch(() => {});
+        void message.reply("⌛ Cat upload timed out. Start again with `!cat add <rarity> [name]`.").catch(() => {});
       }, this.timeoutMs);
       timer.unref?.();
-      this.pending = { folder: rarity.folder, timer };
-      await message.reply(`🐾 Ready for a **${rarity.label}** cat. Upload one image here now, or send \`!cat cancel\`.`);
+      this.pending = { folder: rarity.folder, ...(name ? { name } : {}), timer };
+      const namedAs = name ? ` named **${name}**` : "";
+      await message.reply(`🐾 Ready for a **${rarity.label}** cat${namedAs}. Upload one image here now, or send \`!cat cancel\`.`);
       return true;
     }
 
@@ -112,17 +119,12 @@ export class CatUploadManager {
 
       const pending = this.pending;
       if (!pending) {
-        await message.reply("That upload request expired. Start again with `!cat add <rarity>`.");
+        await message.reply("That upload request expired. Start again with `!cat add <rarity> [name]`.");
         return true;
       }
       const folder = path.join(this.directory, pending.folder);
       await fs.mkdir(folder, { recursive: true });
-      const originalStem = path.basename(attachment.name ?? "cat", extension)
-        .normalize("NFKC")
-        .replace(/[^\p{L}\p{N}_ -]/gu, "")
-        .trim()
-        .replace(/[\s-]+/g, "_")
-        .slice(0, 60);
+      const originalStem = pending.name ?? sanitizeImageStem(path.basename(attachment.name ?? "cat", extension));
       const stem = originalStem || "cat";
       let filename = `${stem}${extension}`;
       let destination = path.join(folder, filename);
@@ -150,12 +152,23 @@ export class CatUploadManager {
   }
 }
 
-function parseAddCommand(content: string): { folder: string } | null {
-  const match = /^!(?:cat|c)\s+add\s+([\p{L}\p{N}.-]+)$/iu.exec(content.trim());
+function parseAddCommand(content: string): { folder: string; name?: string } | null {
+  const match = /^!(?:cat|c)\s+add\s+([^\s]+)(?:\s+(.+))?$/iu.exec(content.trim());
   if (!match) return null;
   const entered = match[1]!.toLowerCase();
   const rarity = CAT_RARITIES.find(
     (item) => item.folder.toLowerCase() === entered || item.label.toLowerCase() === entered,
   );
-  return { folder: rarity?.folder ?? entered };
+  const name = match[2]?.trim();
+  return { folder: rarity?.folder ?? entered, ...(name ? { name } : {}) };
+}
+
+function sanitizeImageStem(value: string): string {
+  const withoutExtension = value.trim().replace(/\.(?:jpe?g|png|gif|webp)$/i, "");
+  return withoutExtension
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}_ -]/gu, "")
+    .trim()
+    .replace(/[\s-]+/g, "_")
+    .slice(0, 60);
 }

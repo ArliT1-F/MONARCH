@@ -73,6 +73,32 @@ describe("CatUploadManager", () => {
     expect(upload.reply).toHaveBeenCalledWith(expect.stringContaining("0.01%"));
   });
 
+  it("uses an optional command name for the saved cat filename", async () => {
+    const root = await tempDirectory();
+    const manager = new CatUploadManager("owner-id", root);
+    const command = directMessage({ content: "!cat add mythic Midnight Paws" });
+    await manager.handleDirectMessage(command);
+    expect(command.reply).toHaveBeenCalledWith(expect.stringContaining("named **Midnight_Paws**"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, arrayBuffer: async () => Buffer.from("named-cat") })),
+    );
+
+    const upload = directMessage({
+      attachment: {
+        name: "original-file.png",
+        url: "https://cdn.discordapp.com/attachments/channel/file/cat.png",
+        size: 9,
+        contentType: "image/png",
+      },
+    });
+    await manager.handleDirectMessage(upload);
+
+    const saved = await readFile(path.join(root, "mythic-0.01", "Midnight_Paws.png"), "utf8");
+    expect(saved).toBe("named-cat");
+    expect(upload.reply).toHaveBeenCalledWith(expect.stringContaining("Midnight_Paws"));
+  });
+
   it("rejects non-image formats without leaving the pending flow", async () => {
     const root = await tempDirectory();
     const manager = new CatUploadManager("owner-id", root);
