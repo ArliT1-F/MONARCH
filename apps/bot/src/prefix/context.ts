@@ -1,5 +1,7 @@
 import {
+  ActionRowBuilder,
   AttachmentBuilder,
+  ButtonBuilder,
   PermissionFlagsBits,
   PermissionsBitField,
   type APIEmbed,
@@ -133,7 +135,27 @@ export class PrefixCommandContext implements CommandContext {
   }
 
   async replyEmbeds(embeds: APIEmbed[], options?: ReplyOptions): Promise<unknown> {
-    return this.send({ embeds }, options);
+    return this.send({ embeds, components: options?.components }, options);
+  }
+
+  async replyEmbedsWithFiles(
+    embeds: APIEmbed[],
+    files: CommandFile[],
+    options?: ReplyOptions,
+  ): Promise<unknown> {
+    return this.send(
+      {
+        embeds,
+        components: options?.components,
+        files: files.map(
+          (file) =>
+            new AttachmentBuilder(Buffer.from(file.body, file.encoding ?? "utf8"), {
+              name: file.name,
+            }),
+        ),
+      },
+      options,
+    );
   }
 
   async defer(): Promise<unknown> {
@@ -263,7 +285,12 @@ export class PrefixCommandContext implements CommandContext {
   }
 
   private async send(
-    payload: { content?: string; embeds?: APIEmbed[] },
+    payload: {
+      content?: string;
+      embeds?: APIEmbed[];
+      components?: ActionRowBuilder<ButtonBuilder>[];
+      files?: AttachmentBuilder[];
+    },
     options?: ReplyOptions,
   ): Promise<unknown> {
     this.responded = true;
@@ -280,6 +307,8 @@ export class PrefixCommandContext implements CommandContext {
     return this.channel.send({
       content: payload.content,
       embeds: payload.embeds,
+      components: payload.components,
+      files: payload.files,
       // Always explicit: unlike an interaction reply, a channel send would
       // otherwise ping whoever the text mentions (@everyone included).
       allowedMentions: allowedMentionsFor(options),

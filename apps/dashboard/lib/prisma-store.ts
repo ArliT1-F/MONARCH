@@ -477,6 +477,33 @@ export class PrismaStore implements MonarchStore {
     });
   }
 
+  async incrementCatCardPull(catId: string): Promise<number> {
+    const row = await this.db.catCardPull.upsert({
+      where: { catId },
+      create: { catId, pullCount: 1 },
+      update: { pullCount: { increment: 1 } },
+      select: { pullCount: true },
+    });
+    return row.pullCount;
+  }
+
+  async adoptCatCard(guildId: string, catId: string, userId: string): Promise<boolean> {
+    try {
+      await this.db.catAdoption.create({ data: { guildId, catId, userId } });
+      return true;
+    } catch (error) {
+      if (
+        error !== null &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "P2002"
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   // ── Jail cell and active entries ───────────────────────────────────
   async getJailConfig(guildId: string): Promise<JailConfigRecord> {
     const row = await this.db.guildSettings.findUnique({

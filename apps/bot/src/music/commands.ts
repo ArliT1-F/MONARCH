@@ -4,7 +4,7 @@ import {
   type GuildMember,
   type VoiceBasedChannel,
 } from "discord.js";
-import { FORCE_SKIP_LABEL, formatDuration, parseVolume, type LoopMode } from "@monarch/music";
+import { parseVolume, type LoopMode } from "@monarch/music";
 import type { CommandContext } from "../context.js";
 import { voteRequiredMessage, type VoteGate } from "../votes.js";
 import type { MusicManager } from "./player.js";
@@ -285,9 +285,7 @@ export class MusicCommands {
           await ctx.replyHidden("Nothing is playing right now.");
           return;
         }
-        await ctx.reply(
-          `⏸ **Paused.** \`${ctx.commandPrefix}resume\` to continue, \`${ctx.commandPrefix}skip\` to move on.`,
-        );
+        await ctx.reply("⏸ Paused.");
         return;
       }
       case "resume": {
@@ -347,9 +345,7 @@ export class MusicCommands {
       case "volume": {
         const level = this.readVolume(ctx);
         if (level === null) {
-          await ctx.reply(
-            `🔊 Volume is **${this.manager.getVolume(guildId)}%** (set it with \`${ctx.commandPrefix}volume <0-150>\`).`,
-          );
+          await ctx.reply(`🔊 Volume: ${this.manager.getVolume(guildId)}%.`);
           return;
         }
         const parsed = parseVolume(level);
@@ -368,11 +364,7 @@ export class MusicCommands {
         const mode = requested ?? queue.cycleLoop();
         queue.setLoop(mode);
         const icon = mode === "track" ? "🔂" : mode === "queue" ? "🔁" : "➡️";
-        await ctx.reply(
-          mode === "off"
-            ? `${icon} Looping **off**.`
-            : `${icon} Looping **${mode === "track" ? "this track" : "the whole queue"}**.`,
-        );
+        await ctx.reply(`${icon} Loop: ${mode}.`);
         return;
       }
       case "autoplay": {
@@ -382,10 +374,7 @@ export class MusicCommands {
           return;
         }
         if (!raw) {
-          await ctx.reply(
-            `📻 Radio mode is **${this.manager.autoplayEnabled(guildId) ? "on" : "off"}**. ` +
-              `Set it with \`${ctx.commandPrefix}autoplay on|off\`.`,
-          );
+          await ctx.reply(`📻 Radio: ${this.manager.autoplayEnabled(guildId) ? "on" : "off"}.`);
           return;
         }
         if (raw === "on" && this.votes && !(await this.votes.hasVoted(ctx.user.id))) {
@@ -403,15 +392,13 @@ export class MusicCommands {
           return;
         }
         const n = queue.shuffle();
-        await ctx.reply(`🔀 Shuffled **${n}** upcoming track${n === 1 ? "" : "s"}.`);
+        await ctx.reply(`🔀 Shuffled ${n} track${n === 1 ? "" : "s"}.`);
         return;
       }
       case "remove": {
         const position = this.readPosition(ctx);
         if (position === null) {
-          await ctx.replyHidden(
-            `❓ Which track? Give me the #position from \`${ctx.commandPrefix}queue\`, e.g. \`${ctx.commandPrefix}remove 3\`.`,
-          );
+          await ctx.replyHidden(`Usage: \`${ctx.commandPrefix}remove <position>\`.`);
           return;
         }
         const removed = this.manager.queue(guildId).remove(position);
@@ -421,32 +408,22 @@ export class MusicCommands {
           );
           return;
         }
-        await ctx.reply(`🗑 Removed **${removed.title}** (was #${position}).`);
+        await ctx.reply(`🗑 Removed **${removed.title}**.`);
         return;
       }
       case "clear": {
         const n = this.manager.queue(guildId).clear();
-        await ctx.reply(
-          n === 0
-            ? "The queue is already empty."
-            : `🗑 Cleared **${n}** upcoming track${n === 1 ? "" : "s"} — the current song keeps playing.`,
-        );
+        await ctx.reply(n === 0 ? "Queue is empty." : `🗑 Cleared ${n} upcoming track${n === 1 ? "" : "s"}.`);
         return;
       }
       case "stop": {
         const wasActive = this.manager.isPlayingSomewhere(guildId);
         this.manager.teardown(guildId, false);
-        await ctx.reply(
-          wasActive
-            ? "⏹ **Stopped.** Queue cleared — see you next time!"
-            : "I wasn't playing anything, but fine — left the channel.",
-        );
+        await ctx.reply(wasActive ? "⏹ Stopped." : "⏹ Left the channel.");
         return;
       }
       default:
-        await ctx.replyHidden(
-          `❓ I don't know that music command. Try \`${ctx.commandPrefix}help\` or \`/monarch help\` for the full list.`,
-        );
+        await ctx.replyHidden(`❓ Unknown music command. Try \`${ctx.commandPrefix}help\`.`);
     }
   }
 
@@ -490,10 +467,7 @@ export class MusicCommands {
     }
 
     if (query.length === 0) {
-      await ctx.replyHidden(
-        `❓ What should I play? \`${ctx.commandPrefix}play <link or search>\` — YouTube and Spotify links, playlists, albums or just a song name.\n` +
-          `Pick a source: \`${ctx.commandPrefix}play <song> youtube\` (default) or \`${ctx.commandPrefix}play <song> spotify\` — slash: \`/music play query:<song> source:<youtube|spotify>\`.`,
-      );
+      await ctx.replyHidden(`Usage: \`${ctx.commandPrefix}play <song>\`. Details: \`${ctx.commandPrefix}help play\`.`);
       return;
     }
     const { maxQueue, maxPlaylistTracks } = musicLimits();
@@ -512,7 +486,7 @@ export class MusicCommands {
 
     const queue = this.manager.queue(ctx.guildId);
     const wasIdle = queue.nowPlaying() === null;
-    const { added, dropped } = await this.manager.enqueue(ctx.guildId, result.tracks);
+    const { added } = await this.manager.enqueue(ctx.guildId, result.tracks);
 
     const position = queue.size - added + 1; // 1-based position of the first added track
     const first = result.tracks[0];
@@ -528,23 +502,14 @@ export class MusicCommands {
     }
 
     const startingNow = wasIdle;
-    const viaLabel = source === "spotify" ? "Spotify → YouTube" : "YouTube";
     if (result.tracks.length === 1) {
       await ctx.edit(
-        `🎶 Added **[${first.title}](${first.url})** by ${first.author} \`${formatDuration(first.durationMs)}\` · _via ${viaLabel}_\n` +
-          (startingNow
-            ? "— **preparing playback**."
-            : `— position **#${queue.size}** in the queue.`),
+        startingNow
+          ? `🎶 Playing **[${first.title}](${first.url})**.`
+          : `🎶 Queued **[${first.title}](${first.url})** (#${queue.size}).`,
       );
     } else {
-      const capped = result.skipped;
-      const summary =
-        `📚 Added **${added}** track${added === 1 ? "" : "s"} from **${result.origin}** · _via ${viaLabel}_` +
-        (dropped + capped > 0
-          ? ` (${dropped + capped} left out — queue/playlist limit is ${maxQueue}/${maxPlaylistTracks})`
-          : "") +
-        (startingNow ? " — **starting now**." : ` — starting at position **#${position}**.`);
-      await ctx.edit(summary);
+      await ctx.edit(`📚 Added ${added} tracks${startingNow ? " · starting now" : ` · queue #${position}`}.`);
     }
 
     if (this.manager.isPaused(ctx.guildId)) this.manager.resume(ctx.guildId);
@@ -565,11 +530,8 @@ export class MusicCommands {
     // 1) DJ / staff / requester → instant skip, no vote.
     const force = this.manager.canForceSkip(ctx.member as GuildMember, current);
     if (force.allowed) {
-      const label = FORCE_SKIP_LABEL[force.reason ?? "staff"];
       this.manager.skip(guildId);
-      await ctx.reply(
-        `⏭ **${current.title}** skipped by ${label === "the requester" ? "you (it's your song)" : `**${label}** ${ctx.user.displayName}`} — no vote needed.`,
-      );
+      await ctx.reply(`⏭ **${current.title}** skipped.`);
       return;
     }
 
@@ -577,24 +539,17 @@ export class MusicCommands {
     const election = this.manager.castSkipVote(guildId, ctx.user.id);
 
     if (election.status === "already") {
-      await ctx.reply(
-        `🗳 You already voted to skip **${current.title}** — ${election.voters.length}/${election.required} so far.`,
-      );
+      await ctx.reply(`🗳️ Vote already counted (${election.voters.length}/${election.required}).`);
       return;
     }
 
     if (election.status === "passed-by-this-vote") {
       this.manager.skip(guildId);
-      await ctx.reply(
-        `🗳️ Vote passed (${election.voters.length}/${election.required}) — skipping **${current.title}**.`,
-      );
+      await ctx.reply(`🗳️ Vote passed (${election.voters.length}/${election.required}); skipped.`);
       return;
     }
 
-    await ctx.reply(
-      `🗳 Vote counted — **${election.voters.length}/${election.required}** to skip **${current.title}**.\n` +
-        `A majority of everyone listening passes it. Have a **DJ** or **Moderator/Staff** role? You can skip instantly.`,
-    );
+    await ctx.reply(`🗳️ Vote counted (${election.voters.length}/${election.required}).`);
   }
 
   // ── argument readers (slash options ⇄ prefix words) ────────────────

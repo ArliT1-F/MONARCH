@@ -190,6 +190,10 @@ export interface MonarchStore {
   getCommandPrefix(guildId: string): Promise<string | null>;
   putCommandPrefix(guildId: string, prefix: string | null): Promise<void>;
 
+  /** Global cat-card pull totals, plus one adoption claim per cat per guild. */
+  incrementCatCardPull(catId: string): Promise<number>;
+  adoptCatCard(guildId: string, catId: string, userId: string): Promise<boolean>;
+
   /** Bot-managed #jail cell and members; kept separate from the settings form. */
   getJailConfig(guildId: string): Promise<JailConfigRecord>;
   putJailConfig(guildId: string, config: JailConfigRecord): Promise<void>;
@@ -249,6 +253,21 @@ async function readJson<T>(file: string): Promise<T | null> {
 }
 
 const writeQueues = new Map<string, Promise<void>>();
+const catMutationQueues = new Map<string, Promise<void>>();
+
+/** Serialize file-store read/modify/write operations in this process. */
+async function serializeCatMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = catMutationQueues.get("global") ?? Promise.resolve();
+  const current = previous.catch(() => {}).then(operation);
+  catMutationQueues.set(
+    "global",
+    current.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return current;
+}
 
 async function writeJson(file: string, data: unknown): Promise<void> {
   // Serialize writes per file and use a unique tmp name — route handlers can
@@ -417,6 +436,27 @@ class FileStore implements MonarchStore {
     if (prefix === null) delete all[guildId];
     else all[guildId] = prefix;
     await writeJson("command-prefixes.json", all);
+  }
+
+  async incrementCatCardPull(catId: string): Promise<number> {
+    return serializeCatMutation(async () => {
+      const all = (await readJson<Record<string, number>>("cat-card-pulls.json")) ?? {};
+      const total = (Number.isSafeInteger(all[catId]) && all[catId]! > 0 ? all[catId]! : 0) + 1;
+      all[catId] = total;
+      await writeJson("cat-card-pulls.json", all);
+      return total;
+    });
+  }
+
+  async adoptCatCard(guildId: string, catId: string, userId: string): Promise<boolean> {
+    return serializeCatMutation(async () => {
+      const all = (await readJson<Record<string, string>>("cat-card-adoptions.json")) ?? {};
+      const key = `${guildId}:${catId}`;
+      if (all[key]) return false;
+      all[key] = userId;
+      await writeJson("cat-card-adoptions.json", all);
+      return true;
+    });
   }
 
   async getJailConfig(guildId: string): Promise<JailConfigRecord> {

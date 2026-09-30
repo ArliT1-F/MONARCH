@@ -316,6 +316,13 @@ describe("alias table ⇄ shared command catalog", () => {
     }
   });
 
+  it("routes both cat-card aliases", () => {
+    for (const alias of ["cat", "c"]) {
+      const parsed = extractPrefixCommand(`!${alias}`, PREFIXES, BOT_ID)!;
+      expect(matchCommand(parsed)).toMatchObject({ kind: "command", surface: "monarch", sub: "cat" });
+    }
+  });
+
   it("routes /jail under its own name", () => {
     const doc = JAIL_COMMANDS[0]!;
     expect(doc.prefixAliases).toEqual(["jail"]);

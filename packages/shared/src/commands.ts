@@ -364,6 +364,27 @@ export const MONARCH_COMMANDS: CommandDoc[] = [
   },
 ];
 
+/** Cat cards are a lightweight standalone prefix/slash command. */
+export const CAT_COMMANDS: CommandDoc[] = [
+  {
+    name: "/cat",
+    usage: "/cat",
+    prefixUsage: "!cat",
+    prefixAliases: ["cat", "c"],
+    group: "community",
+    summary: "Roll a cat card and adopt it before someone else does.",
+    who: "everyone",
+    details:
+      "Draws a random cat card using its rarity drop rate, shows the image and all-server pull count, and lets one person adopt that card in this server. The same card may be adopted independently in another server.",
+    examples: ["!cat", "!c", "/cat"],
+    notes: [
+      "Cat images are loaded from the repository's `cats/` folders; the filename becomes the card name.",
+      "The bot owner can add an image by DMing `!cat add <rarity>`, then uploading it; Mythic cards drop at 0.01%.",
+      "Only add images you own or have permission to reuse. Global pull totals and adoptions require INTERNAL_API_TOKEN for persistent storage.",
+    ],
+  },
+];
+
 /** The standalone /jail toggle is documented beside the Monarch jail commands. */
 export const JAIL_COMMANDS: CommandDoc[] = [
   {
@@ -594,6 +615,7 @@ export const MUSIC_COMMANDS: CommandDoc[] = [
 /** Every command, in display order. */
 export const COMMAND_CATALOG: CommandDoc[] = [
   ...MONARCH_COMMANDS,
+  ...CAT_COMMANDS,
   ...JAIL_COMMANDS,
   ...MUSIC_COMMANDS,
 ];

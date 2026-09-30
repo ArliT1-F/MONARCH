@@ -1,4 +1,6 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
   PermissionsBitField,
   type APIEmbed,
   type Guild,
@@ -52,6 +54,12 @@ export interface CommandContext {
   /** Same as {@link reply} but explicitly for the invoker only. */
   replyHidden(content: string, options?: ReplyOptions): Promise<unknown>;
   replyEmbeds(embeds: APIEmbed[], options?: ReplyOptions): Promise<unknown>;
+  /** Send an embed with local image attachments (used by cat cards). */
+  replyEmbedsWithFiles(
+    embeds: APIEmbed[],
+    files: CommandFile[],
+    options?: ReplyOptions,
+  ): Promise<unknown>;
   /**
    * Announce that work started (interaction `deferReply` / a placeholder
    * message). Optional: surfaces that already answered can ignore it.
@@ -129,6 +137,7 @@ export interface CommandFile {
 
 export interface ReplyOptions {
   embeds?: APIEmbed[];
+  components?: ActionRowBuilder<ButtonBuilder>[];
   /** Let the reply ping users/roles. Off by default: replies never mass-mention. */
   mentions?: boolean;
   hidden?: boolean;

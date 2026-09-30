@@ -43,6 +43,73 @@ export const COMMAND_HELP: CommandHelp[] = MONARCH_COMMANDS.map((c) => ({
   who: c.who === "everyone" ? undefined : c.who,
 }));
 
+/** Detailed, opt-in help for `!help <command>` without lengthening routine replies. */
+export function commandHelpEmbed(query: string, prefix = DEFAULT_COMMAND_PREFIX): APIEmbed | null {
+  const wanted = query.trim().toLowerCase().replace(/^[/!]+/, "");
+  if (!wanted) return null;
+
+  const docs = COMMAND_CATALOG.filter((doc) => {
+    const slashPath = doc.name.replace(/^\//, "").toLowerCase();
+    const tail = doc.name.split(" ").at(-1)?.toLowerCase() ?? "";
+    return (
+      slashPath === wanted ||
+      tail === wanted ||
+      (doc.prefixAliases ?? []).some((alias) => alias.toLowerCase() === wanted)
+    );
+  });
+  // `jail` names both the jail toggle and the cell-setup family. Prefer the
+  // quick jail action; users can ask for `monarch jail` to see setup/status.
+  const doc =
+    (wanted === "jail" ? docs.find((item) => item.name === "/jail") : undefined) ?? docs[0];
+  if (!doc) return null;
+
+  const fields: NonNullable<APIEmbed["fields"]> = [];
+  const prefixUsage = doc.prefixUsage?.replace(/^!/, prefix);
+  if (prefixUsage) fields.push({ name: "Usage", value: `\`${prefixUsage}\``, inline: false });
+  if (doc.prefixAliases?.length) {
+    fields.push({
+      name: "Short commands",
+      value: doc.prefixAliases.map((alias) => `\`${prefix}${alias}\``).join(", "),
+      inline: true,
+    });
+  }
+  if (doc.details) fields.push({ name: "What it does", value: doc.details.slice(0, 1024), inline: false });
+  if (doc.who && doc.who !== "everyone") {
+    fields.push({ name: "Who can use it", value: doc.who, inline: true });
+  }
+  if (doc.examples?.length) {
+    fields.push({ name: "Examples", value: doc.examples.slice(0, 5).join("\n").slice(0, 1024), inline: false });
+  }
+  if (doc.args?.length) {
+    fields.push({
+      name: "Arguments",
+      value: doc.args.slice(0, 8).map((arg) => `**${arg.name}** — ${arg.description}`).join("\n").slice(0, 1024),
+      inline: false,
+    });
+  }
+  if (doc.notes?.length) {
+    fields.push({
+      name: "Notes",
+      value: doc.notes.slice(0, 5).map((note) => `• ${note}`).join("\n").slice(0, 1024),
+      inline: false,
+    });
+  }
+  return {
+    color: 0xf5c542,
+    title: `${doc.name} — ${doc.summary}`.slice(0, 256),
+    fields: fields.slice(0, 25),
+    footer: { text: `More commands: ${prefix}help` },
+  };
+}
+
+export function catCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
+  return new SlashCommandBuilder()
+    .setName("cat")
+    .setDescription("Roll a cat card and adopt it")
+    .setContexts(0)
+    .toJSON();
+}
+
 export function monarchCommandJSON(): RESTPostAPIApplicationCommandsJSONBody {
   return (
     new SlashCommandBuilder()
@@ -362,6 +429,8 @@ export function renderHelp(appUrl: string, prefix: string = DEFAULT_COMMAND_PREF
     "👑 **Monarch commands**",
     "",
     ...lines,
+    "",
+    `**/cat** · also \`${prefix}cat\`, \`${prefix}c\` — Roll a cat card and adopt it.`,
     "",
     `Prefix: every command also answers to \`${prefix}\` (\`${prefix}help\`) or an @Monarch mention — \`${prefix}prefix set <new>\` to change it.`,
     `Dashboard: ${appUrl}`,
