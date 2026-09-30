@@ -131,8 +131,7 @@ describe("slash surface", () => {
     expect(ctx.args).toEqual([]); // slash options are typed; there's no free text
     await monarch.run(ctx, "status");
     const payload = payloadAt(interaction.reply);
-    expect(payload.content).toContain("Prefix: `m!`");
-    expect(payload.content).toContain("m!prefix set <new>");
+    expect(payload.content).toContain("prefix `m!`");
   });
 
   it("replies ephemerally for invoker-only answers", async () => {
@@ -162,8 +161,7 @@ describe("slash surface", () => {
     expect(entry.style).toBe("cat");
     expect(entry.until).toBe(Date.now() + 10 * 60 * 1000);
     const payload = payloadAt(interaction.reply);
-    expect(payload.content).toContain("jailed for **10m**");
-    expect(payload.content).toContain("being silly");
+    expect(payload.content).toBe(`<@${TARGET_ID}> has been put in jail ⚖️`);
     expect(payload.flags).toBe(64);
 
     // …and the prefix surface sees exactly the same state.
@@ -189,7 +187,7 @@ describe("slash surface", () => {
     const interaction = fakeInteraction({ user: { id: TARGET_ID } });
     await monarch.jail(context(interaction));
     expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(false);
-    expect(payloadAt(interaction.reply, 0).content).toContain("is out of jail");
+    expect(payloadAt(interaction.reply, 0).content).toBe(`<@${TARGET_ID}> has been released from jail ⚖️`);
   });
 
   it("updates the entry when re-run with options instead of toggling off", async () => {
@@ -220,7 +218,7 @@ describe("slash surface", () => {
     await monarch.run(context(interaction), "jailed");
     const payload = payloadAt(interaction.reply, 0);
     expect(payload.content).toContain(`<@${TARGET_ID}>`);
-    expect(payload.content).toContain("until released");
+    expect(payload.content).toContain("Jailed (1)");
     expect(payload.flags).toBe(64);
   });
 
@@ -256,7 +254,7 @@ describe("slash surface", () => {
     expect(interaction.editReply).toHaveBeenCalledOnce();
     const edited = payloadAt(interaction.editReply);
     // The reply names the snapshot the API says it saved.
-    expect(edited.content).toContain("Backup **Backup** saved — 2 categories, 9 channels");
+    expect(edited.content).toBe("✅ Backup **Backup** saved.");
     const call = fetchMock.mock.calls[0] as unknown as [string, { method: string; body: string }];
     expect(call[1]).toMatchObject({ method: "POST" });
     expect(call[0]).toContain(`/api/internal/guilds/${GUILD_ID}/backup`);
@@ -267,7 +265,7 @@ describe("slash surface", () => {
   it("shows the prefix subcommand's current value and refuses without Manage Server", async () => {
     const show = fakeInteraction();
     await monarch.run(context(show), "prefix");
-    expect(payloadAt(show.reply, 0).content).toContain("(the default)");
+    expect(payloadAt(show.reply, 0).content).toContain("Prefix: `!`");
 
     const change = fakeInteraction({ prefix: "?" });
     change.memberPermissions = new PermissionsBitField(0n);
@@ -293,7 +291,7 @@ describe("slash surface", () => {
     const interaction = fakeInteraction({ prefix: ">>" });
     await monarch.run(context(interaction), "prefix");
     expect(save).toHaveBeenCalledWith(GUILD_ID, ">>");
-    expect(payloadAt(interaction.reply, 0).content).toContain("now `>>`");
+    expect(payloadAt(interaction.reply, 0).content).toBe("✅ Prefix set to `>>`.");
     expect(await prefixes.get(GUILD_ID)).toBe(">>");
   });
 

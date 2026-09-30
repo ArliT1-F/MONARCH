@@ -4,6 +4,7 @@ import {
   Events,
   GatewayIntentBits,
   MessageFlags,
+  Partials,
   PermissionFlagsBits,
   REST,
   Routes,
@@ -16,7 +17,7 @@ import {
   type VoiceState,
 } from "discord.js";
 import { createLogger } from "@monarch/shared";
-import { jailCommandJSON, monarchCommandJSON } from "./commands.js";
+import { catCommandJSON, jailCommandJSON, monarchCommandJSON } from "./commands.js";
 import { internalJailConfigStore, JailConfigRegistry } from "./jail-config.js";
 import { JailManager } from "./jail-manager.js";
 import { internalJailEntryStore, JailRegistry } from "./jail.js";
@@ -40,6 +41,8 @@ import { handlePrefixMessage, type PrefixDispatcherDeps } from "./prefix/dispatc
 import { internalPrefixStore, PrefixRegistry } from "./prefix/registry.js";
 import { applyHelpStatus, BOT_STATUS_TEXT, helpCommandPresence } from "./presence.js";
 import { SlashCommandContext } from "./slash-context.js";
+import { CatCards, internalCatCardStore, MemoryCatCardStore } from "./cat-cards.js";
+import { CatUploadManager } from "./cat-upload.js";
 
 /**
  * Monarch bot — deliberately lightweight.
@@ -106,8 +109,13 @@ const FULL_INTENTS = [
   GatewayIntentBits.GuildMessages,
   GatewayIntentBits.MessageContent,
   GatewayIntentBits.GuildVoiceStates,
+  GatewayIntentBits.DirectMessages,
 ];
-const BASIC_INTENTS = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates];
+const BASIC_INTENTS = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildVoiceStates,
+  GatewayIntentBits.DirectMessages,
+];
 
 let messageContentEnabled = true;
 let client = createClient(FULL_INTENTS);
@@ -245,7 +253,7 @@ async function checkMusicReady(): Promise<void> {
 function createClient(intents: number[]): Client {
   // Presence rides the identify payload, so the status is the help command
   // the moment the gateway session opens — including after a reconnect.
-  const c = new Client({ intents, presence: helpCommandPresence() });
+  const c = new Client({ intents, partials: [Partials.Channel], presence: helpCommandPresence() });
   c.once(Events.ClientReady, (ready) => {
     // Identify carries the presence, but a custom status set only there is
     // dropped by some gateway sessions. Setting it again once the user
@@ -368,7 +376,16 @@ process.on("unhandledRejection", (e) => {
  * jailed member costs only a map lookup.
  */
 async function onMessage(message: Message) {
-  if (!message.inGuild() || message.author.bot || message.webhookId || message.system) return;
+  if (message.author.bot || message.webhookId || message.system) return;
+  if (!message.inGuild()) {
+    try {
+      await catUploads.handleDirectMessage(message);
+    } catch (error) {
+      log.error("cat image DM upload failed", { error: String(error) });
+      await message.reply("Couldn't process that cat upload. Try `!cat add <rarity>` again.").catch(() => {});
+    }
+    return;
+  }
 
   // A jailed member cannot use commands to speak outside the cell: confine
   // before prefix dispatch (otherwise `!help` and friends bypass deletion).
@@ -383,6 +400,13 @@ async function onMessage(message: Message) {
       }
       return;
     }
+  }
+
+  try {
+    if (await catUploads.handleGuildCommand(message)) return;
+  } catch (error) {
+    log.error("cat upload command failed", { error: String(error) });
+    return;
   }
 
   // 1) Text commands. Only when the MessageContent intent is on (without it
@@ -442,6 +466,14 @@ const confessionCooldowns = new ConfessionCooldowns({
 
 jailManager = new JailManager({ client: () => client, configs: jailConfigs, registry: jail, log });
 
+const catCards = new CatCards(
+  internalToken ? internalCatCardStore(appUrl, internalToken) : new MemoryCatCardStore(),
+);
+const catUploads = new CatUploadManager(ownerUserId);
+if (!internalToken) {
+  log.warn("cat-card stats/adoptions are memory-only without INTERNAL_API_TOKEN");
+}
+
 const monarchCommands = new MonarchCommands({
   appUrl,
   internalToken,
@@ -455,6 +487,7 @@ const monarchCommands = new MonarchCommands({
   ownerUserId,
   debug: debugFlags,
   votes,
+  cats: catCards,
   log,
 });
 // A bot's user id *is* its application id, so a worker without
@@ -584,6 +617,20 @@ async function onInteraction(interaction: Interaction) {
     return;
   }
 
+  if (interaction.isButton() && interaction.customId.startsWith("cat-adopt:")) {
+    try {
+      await catCards.handleAdoption(interaction);
+    } catch (error) {
+      log.error("cat adoption failed", { error: String(error) });
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction
+          .reply({ content: "🐾 Couldn't save that adoption. Please try again.", flags: MessageFlags.Ephemeral })
+          .catch(() => {});
+      }
+    }
+    return;
+  }
+
   // Confession components: the Confess button opens the modal (unless the
   // person is still cooling down), the modal posts the anonymous embed (and
   // the staff log entry, when configured) after claiming the 6h window.
@@ -618,6 +665,9 @@ async function runChatInput(interaction: ChatInputCommandInteraction) {
       await runSlash(interaction, "interaction", (ctx) => monarchCommands.run(ctx, sub));
       return;
     }
+    case "cat":
+      await runSlash(interaction, "cat card", (ctx) => monarchCommands.run(ctx, "cat"));
+      return;
     default:
       return;
   }
@@ -635,7 +685,7 @@ async function registerCommands(botToken: string) {
     log.warn("DISCORD_CLIENT_ID is not set — slash commands were not registered");
     return;
   }
-  const commands = [monarchCommandJSON(), jailCommandJSON(), musicCommandJSON()];
+  const commands = [monarchCommandJSON(), jailCommandJSON(), musicCommandJSON(), catCommandJSON()];
   const route = guildIdForCommands
     ? Routes.applicationGuildCommands(clientId, guildIdForCommands)
     : Routes.applicationCommands(clientId);

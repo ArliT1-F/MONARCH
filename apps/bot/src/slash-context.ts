@@ -1,5 +1,7 @@
 import {
+  ActionRowBuilder,
   AttachmentBuilder,
+  ButtonBuilder,
   MessageFlags,
   type APIEmbed,
   type PermissionsBitField,
@@ -78,7 +80,27 @@ export class SlashCommandContext implements CommandContext {
   }
 
   async replyEmbeds(embeds: APIEmbed[], options?: ReplyOptions): Promise<unknown> {
-    return this.send({ embeds }, options);
+    return this.send({ embeds, components: options?.components }, options);
+  }
+
+  async replyEmbedsWithFiles(
+    embeds: APIEmbed[],
+    files: CommandFile[],
+    options?: ReplyOptions,
+  ): Promise<unknown> {
+    return this.send(
+      {
+        embeds,
+        components: options?.components,
+        files: files.map(
+          (file) =>
+            new AttachmentBuilder(Buffer.from(file.body, file.encoding ?? "utf8"), {
+              name: file.name,
+            }),
+        ),
+      },
+      options,
+    );
   }
 
   async defer(options?: { hidden?: boolean }): Promise<unknown> {
@@ -161,7 +183,12 @@ export class SlashCommandContext implements CommandContext {
   }
 
   private async send(
-    payload: { content?: string; embeds?: APIEmbed[] },
+    payload: {
+      content?: string;
+      embeds?: APIEmbed[];
+      components?: ActionRowBuilder<ButtonBuilder>[];
+      files?: AttachmentBuilder[];
+    },
     options?: ReplyOptions,
   ): Promise<unknown> {
     this.responded = true;
@@ -172,12 +199,16 @@ export class SlashCommandContext implements CommandContext {
       return this.interaction.editReply({
         content: payload.content,
         embeds: payload.embeds,
+        components: payload.components,
+        files: payload.files,
         allowedMentions,
       });
     }
     return this.interaction.reply({
       content: payload.content,
       embeds: payload.embeds,
+      components: payload.components,
+      files: payload.files,
       ...this.replyFlags(options),
       allowedMentions,
     });

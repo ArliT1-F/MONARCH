@@ -5,7 +5,6 @@ import { JailRegistry } from "../src/jail.js";
 import { JailConfigRegistry } from "../src/jail-config.js";
 import { MonarchCommands } from "../src/monarch-commands.js";
 import { ConfessionRegistry } from "../src/confession.js";
-import { formatDuration } from "../src/durations.js";
 import type { MusicCommands } from "../src/music/commands.js";
 import { handlePrefixMessage, type PrefixDispatcherDeps } from "../src/prefix/dispatch.js";
 import { PrefixRegistry } from "../src/prefix/registry.js";
@@ -256,7 +255,7 @@ describe("dispatch: what counts as a command", () => {
 
     const mention = fakeMessage({ content: `<@${BOT_ID}>` });
     expect(await handlePrefixMessage(mention, deps)).toBe(true);
-    expect(text(mention)).toContain("Monarch — Design your Discord");
+    expect(text(mention)).toContain("Monarch online");
     expect(text(mention)).toContain("!help");
     expect(text(mention)).not.toContain("zhvishu");
   });
@@ -264,7 +263,7 @@ describe("dispatch: what counts as a command", () => {
   it("answers an unknown command addressed to Monarch", async () => {
     const message = fakeMessage({ content: `<@${BOT_ID}> frobnicate` });
     expect(await handlePrefixMessage(message, deps)).toBe(true);
-    expect(text(message)).toContain("isn't a Monarch command");
+    expect(text(message)).toContain("Unknown command");
     expect(text(message)).toContain("!help");
   });
 
@@ -314,6 +313,18 @@ describe("dispatch: general commands", () => {
     ).toEqual([]);
   });
 
+  it("!help <command> returns detailed, command-specific help", async () => {
+    const message = fakeMessage({ content: "!help play" });
+    await handlePrefixMessage(message, deps);
+    const embed = sent(message)[0]?.embeds?.[0] as {
+      title?: string;
+      fields?: { name: string; value: string }[];
+    };
+    expect(embed.title).toContain("/music play");
+    expect(embed.fields?.find((field) => field.name === "What it does")?.value).toBeTruthy();
+    expect(embed.fields?.find((field) => field.name === "Short commands")?.value).toContain("!play");
+  });
+
   it("!commands is the same command", async () => {
     const message = fakeMessage({ content: "!commands" });
     expect(await handlePrefixMessage(message, deps)).toBe(true);
@@ -328,14 +339,13 @@ describe("dispatch: general commands", () => {
     const status = fakeMessage({ content: "!monarch status" });
     await handlePrefixMessage(status, deps);
     expect(text(status)).toContain("Test Guild");
-    expect(text(status)).toContain("Prefix: `!`");
+    expect(text(status)).toContain("prefix `!`");
   });
 
-  it("!prefix shows the current prefix and how to change it", async () => {
+  it("!prefix shows the current prefix concisely", async () => {
     const message = fakeMessage({ content: "!prefix" });
     await handlePrefixMessage(message, deps);
-    expect(text(message)).toContain("**Prefix in Test Guild**: `!` (the default)");
-    expect(text(message)).toContain("!prefix set <new>");
+    expect(text(message)).toContain("Prefix: `!`");
   });
 
   it("!prefix set explains what's missing without INTERNAL_API_TOKEN", async () => {
@@ -363,7 +373,7 @@ describe("dispatch: general commands", () => {
     expect(url.searchParams.get("guild_id")).toBeNull();
     expect(url.searchParams.get("disable_guild_select")).toBeNull();
     expect(BigInt(url.searchParams.get("permissions")!) & 0b1000n).toBe(0n); // never Administrator
-    expect(reply).toContain("never Administrator");
+    expect(reply).toContain("Invite Monarch");
   });
 
   it("!add and !monarch invite are the same command", async () => {
@@ -393,8 +403,7 @@ describe("dispatch: general commands", () => {
     deps.prefixes = prefixes;
     const withPrefix = fakeMessage({ content: "?invite", perms: NOTHING, authorId: TARGET_ID });
     await handlePrefixMessage(withPrefix, deps);
-    expect(text(withPrefix)).toContain("`?help`");
-    expect(text(withPrefix)).toContain("`?prefix set <new>`");
+    expect(text(withPrefix)).toContain("discord.com/oauth2/authorize");
 
     setup({ clientId: null });
     deps.botUserId = () => null;
@@ -425,7 +434,7 @@ describe("dispatch: general commands", () => {
     const message = fakeMessage({ content: "!prefix set ?" });
     await handlePrefixMessage(message, deps);
     expect(save).toHaveBeenCalledWith(GUILD_ID, "?");
-    expect(text(message)).toContain("now `?`");
+    expect(text(message)).toContain("Prefix set to `?`");
 
     const next = fakeMessage({ content: "?help" });
     expect(await handlePrefixMessage(next, deps)).toBe(true);
@@ -433,7 +442,7 @@ describe("dispatch: general commands", () => {
     // …and the default prefix keeps working so nobody gets locked out.
     const fallback = fakeMessage({ content: "!status" });
     expect(await handlePrefixMessage(fallback, deps)).toBe(true);
-    expect(text(fallback)).toContain("Prefix: `?`");
+    expect(text(fallback)).toContain("prefix `?`");
   });
 
   it("!prefix reset needs Manage Server and clears the stored value", async () => {
@@ -461,7 +470,7 @@ describe("dispatch: general commands", () => {
     const mod = fakeMessage({ content: "m!prefix reset" });
     await handlePrefixMessage(mod, deps);
     expect(save).toHaveBeenCalledWith(GUILD_ID, null);
-    expect(text(mod)).toContain("reset to the default");
+    expect(text(mod)).toContain("Prefix reset to `!`");
   });
 
   it("rejects a prefix that would swallow ordinary words", async () => {
@@ -500,10 +509,8 @@ describe("dispatch: jail runs the moderation checks", () => {
     expect(entry.until).toBe(Date.now() + 10 * 60 * 1000); // exactly ten minutes
     expect(entry.jailedBy).toBe(MOD_ID);
     expect(entry.style).toBe("cat");
-    expect(text(message)).toContain(`jailed for **${formatDuration(entry.until! - Date.now())}**`);
-    expect(text(message)).toContain(`until <t:${Math.floor(entry.until! / 1000)}:f>`);
-    expect(text(message)).toContain("being silly");
-    expect(text(message)).toContain("**cat** style");
+    expect(entry.reason).toBe("being silly");
+    expect(text(message)).toBe(`<@${TARGET_ID}> has been put in jail ⚖️`);
   });
 
   it("accepts a bare snowflake and defaults to a random style until toggled off", async () => {
@@ -512,8 +519,7 @@ describe("dispatch: jail runs the moderation checks", () => {
     expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true);
     expect(jail.get(GUILD_ID, TARGET_ID)?.until).toBeNull();
     expect(jail.get(GUILD_ID, TARGET_ID)?.style).toBe("random");
-    expect(text(byId)).toContain("until released");
-    expect(text(byId)).toContain("!jail"); // an open-ended jail says how to end it
+    expect(text(byId)).toBe(`<@${TARGET_ID}> has been put in jail ⚖️`);
   });
 
   it("refuses without Kick Members, and says who can", async () => {
@@ -596,7 +602,7 @@ describe("dispatch: jail runs the moderation checks", () => {
     const message = fakeMessage({ content: `!jail <@${TARGET_ID}>` });
     await handlePrefixMessage(message, deps);
     expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(false);
-    expect(text(message)).toContain("is out of jail");
+    expect(text(message)).toBe(`<@${TARGET_ID}> has been released from jail ⚖️`);
   });
 
   it("!jailed lists active jails and says when nobody is", async () => {
@@ -614,8 +620,7 @@ describe("dispatch: jail runs the moderation checks", () => {
     const list = fakeMessage({ content: "!jailed" });
     await handlePrefixMessage(list, deps);
     expect(text(list)).toContain(`<@${TARGET_ID}>`);
-    expect(text(list)).toContain("until released");
-    expect(text(list)).toContain("cat");
+    expect(text(list)).toContain("Jailed (1)");
   });
 
   it("refuses a duration it can't parse instead of jailing forever by accident", async () => {
@@ -630,7 +635,7 @@ describe("dispatch: jail runs the moderation checks", () => {
       const message = fakeMessage({ content });
       await handlePrefixMessage(message, deps);
       expect(jail.isJailed(GUILD_ID, TARGET_ID), content).toBe(false);
-      expect(text(message), content).toContain("didn't understand that duration");
+      expect(text(message), content).toContain("Invalid duration");
     }
   });
 
@@ -639,7 +644,7 @@ describe("dispatch: jail runs the moderation checks", () => {
     await handlePrefixMessage(message, deps);
     expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true);
     expect(jail.get(GUILD_ID, TARGET_ID)?.until).toBeNull(); // until toggled off
-    expect(text(message)).toContain("spamming memes in general");
+    expect(jail.get(GUILD_ID, TARGET_ID)?.reason).toBe("spamming memes in general");
   });
 
   it("lets natural time words stay in the reason", async () => {
@@ -652,7 +657,7 @@ describe("dispatch: jail runs the moderation checks", () => {
       const message = fakeMessage({ content: `!jail <@${TARGET_ID}> ${reason}` });
       await handlePrefixMessage(message, deps);
       expect(jail.isJailed(GUILD_ID, TARGET_ID), reason).toBe(true);
-      expect(text(message), reason).toContain(reason);
+      expect(jail.get(GUILD_ID, TARGET_ID)?.reason, reason).toBe(reason);
     }
   });
 
@@ -661,7 +666,7 @@ describe("dispatch: jail runs the moderation checks", () => {
     await handlePrefixMessage(message, deps);
     expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true);
     expect(jail.get(GUILD_ID, TARGET_ID)?.style).toBe("random");
-    expect(text(message)).toContain("being chaotic today");
+    expect(jail.get(GUILD_ID, TARGET_ID)?.reason).toBe("being chaotic today");
   });
 });
 
@@ -673,13 +678,12 @@ describe("dispatch: the jail toggle and its update path", () => {
     await handlePrefixMessage(on, deps);
     expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true);
     expect(jail.get(GUILD_ID, TARGET_ID)?.style).toBe("cat");
-    expect(text(on)).toContain("jailed for **5m**");
-    expect(text(on)).toContain("**cat** style");
+    expect(text(on)).toBe(`<@${TARGET_ID}> has been put in jail ⚖️`);
 
     const off = fakeMessage({ content: `!jail <@${TARGET_ID}>` });
     await handlePrefixMessage(off, deps);
     expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(false);
-    expect(text(off)).toContain("is out of jail");
+    expect(text(off)).toBe(`<@${TARGET_ID}> has been released from jail ⚖️`);
   });
 
   it("re-running with options updates the entry instead of toggling off", async () => {
@@ -698,8 +702,7 @@ describe("dispatch: the jail toggle and its update path", () => {
     expect(second.style).toBe("cat");
     expect(second.until).toBe(first.until); // the timer was untouched
     expect(text(update)).toContain("Updated");
-    expect(text(update)).toContain("**cat** style");
-    expect(text(update)).toContain("for **9m**"); // one minute already elapsed
+    expect(text(update)).toBe(`Updated <@${TARGET_ID}>'s jail ⚖️`);
   });
 
   it("a typo while jailed errors instead of toggling the gag off", async () => {
@@ -713,7 +716,7 @@ describe("dispatch: the jail toggle and its update path", () => {
     const message = fakeMessage({ content: `!jail <@${TARGET_ID}> ten minutes` });
     await handlePrefixMessage(message, deps);
     expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(true); // the gag survives the typo
-    expect(text(message)).toContain("didn't understand that duration");
+    expect(text(message)).toContain("Invalid duration");
   });
 
   it("jailing the bot owner reverses the gag onto the invoker", async () => {
@@ -732,8 +735,7 @@ describe("dispatch: the jail toggle and its update path", () => {
     await handlePrefixMessage(message, deps);
     expect(jail.isJailed(GUILD_ID, TARGET_ID)).toBe(false);
     expect(jail.isJailed(GUILD_ID, MOD_ID)).toBe(true);
-    expect(text(message)).toContain("bot owner");
-    expect(text(message)).toContain("you* are jailed");
+    expect(text(message)).toBe(`<@${MOD_ID}> has been put in jail ⚖️`);
   });
 
   it("the reverse doesn't toggle an already-jailed invoker off", async () => {
@@ -770,7 +772,7 @@ describe("dispatch: the jail toggle and its update path", () => {
   it("asks who to jail when no member is given", async () => {
     const message = fakeMessage({ content: "!jail" });
     await handlePrefixMessage(message, deps);
-    expect(text(message)).toContain("Say who to jail");
+    expect(text(message)).toContain("Use `!jail @user`");
   });
 });
 
@@ -827,7 +829,7 @@ describe("dispatch: the jail relay still gets non-command messages", () => {
     jail.jail({ guildId: GUILD_ID, userId: MOD_ID, until: null, jailedBy: TARGET_ID });
     const message = fakeMessage({ content: "!jailed", authorId: MOD_ID });
     expect(await handlePrefixMessage(message, deps)).toBe(true);
-    expect(text(message)).toContain("Jailed in Test Guild");
+    expect(text(message)).toContain("Jailed (1)");
   });
 });
 
@@ -892,8 +894,7 @@ describe("dispatch: confession commands (prefix surface)", () => {
     expect(post?.embeds?.[0]?.title).toContain("Confessions");
     const row = post?.components?.[0] as { components: { label: string }[] } | undefined;
     expect(row?.components?.[0]?.label).toBe("Confess");
-    expect(finalAnswer(message)).toContain("Confessions are live");
-    expect(finalAnswer(message)).toContain("No log channel");
+    expect(finalAnswer(message)).toContain("Confessions live in");
   });
 
   it("reads the channel and log channel from mentions in order", async () => {
@@ -903,7 +904,7 @@ describe("dispatch: confession commands (prefix surface)", () => {
     await handlePrefixMessage(message, deps);
 
     expect(stored[GUILD_ID]).toEqual({ channelId: CURRENT_CHANNEL, logChannelId: LOG_CHANNEL });
-    expect(finalAnswer(message)).toContain("confession-logs");
+    expect(finalAnswer(message)).toContain("Confessions live in");
   });
 
   it("reads two different channels as two different options", async () => {
@@ -916,7 +917,7 @@ describe("dispatch: confession commands (prefix surface)", () => {
     await handlePrefixMessage(message, deps);
 
     expect(stored[GUILD_ID]).toEqual({ channelId: CURRENT_CHANNEL, logChannelId: LOG_CHANNEL });
-    expect(finalAnswer(message)).toContain("Confessions are live");
+    expect(finalAnswer(message)).toContain("Confessions live in");
     expect(finalAnswer(message)).not.toContain("must be different");
   });
 
@@ -932,7 +933,7 @@ describe("dispatch: confession commands (prefix surface)", () => {
       channelId: CURRENT_CHANNEL,
       logChannelId: UNCACHED_CHANNEL_ID,
     });
-    expect(finalAnswer(message)).toContain("staff-room");
+    expect(finalAnswer(message)).toContain("Confessions live in");
   });
 
   it("accepts pasted channel ids and mentions in either mix", async () => {
@@ -970,11 +971,11 @@ describe("dispatch: confession commands (prefix surface)", () => {
   it("shows usage when the verb is missing or unknown", async () => {
     const bare = fakeMessage({ content: "!confession" });
     await handlePrefixMessage(bare, deps);
-    expect(text(bare)).toContain("Confessions usage");
+    expect(text(bare)).toContain("!help confession");
 
     const typo = fakeMessage({ content: "!monarch confession enable" });
     await handlePrefixMessage(typo, deps);
-    expect(text(typo)).toContain("Confessions usage");
+    expect(text(typo)).toContain("!help confession");
   });
 
   it("disables confessions and clears both channels", async () => {

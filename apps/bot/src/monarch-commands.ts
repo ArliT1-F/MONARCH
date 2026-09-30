@@ -1,28 +1,30 @@
 import { PermissionFlagsBits, type GuildBasedChannel, type GuildMember, type Role } from "discord.js";
 import {
   COMMAND_PREFIX_CHARS,
-  CONFESSION_COOLDOWN_MS,
   DEFAULT_COMMAND_PREFIX,
   MAX_COMMAND_PREFIX_LENGTH,
   buildBotInviteUrl,
-  invitePermissionNames,
 } from "@monarch/shared";
-import { JAIL_PERMISSIONS, DESIGN_PERMISSIONS, renderHelpEmbeds } from "./commands.js";
+import {
+  JAIL_PERMISSIONS,
+  DESIGN_PERMISSIONS,
+  commandHelpEmbed,
+  renderHelpEmbeds,
+} from "./commands.js";
 import type { JailConfig, JailConfigRegistry } from "./jail-config.js";
 import type { JailManager } from "./jail-manager.js";
 import {
   isVoterJailStyle,
-  styleLabel as jailStyleLabel,
-  toJailSpeak,
   type JailRegistry,
   type JailStyle,
 } from "./jail.js";
 import { voteRequiredMessage, type VoteGate } from "./votes.js";
 import type { CommandContext } from "./context.js";
 import { confessButtonRow, starterEmbed, type ConfessionRegistry } from "./confession.js";
-import { formatDuration, parseDuration } from "./durations.js";
+import { parseDuration } from "./durations.js";
 import type { PrefixRegistry } from "./prefix/registry.js";
 import type { DebugFlags } from "./debug.js";
+import type { CatCards } from "./cat-cards.js";
 
 /**
  * The `/monarch` command family, written once against {@link CommandContext}
@@ -73,6 +75,8 @@ export interface MonarchCommandDeps {
    * `TOPGG_TOKEN`) every perk is unlocked — see ./votes.ts.
    */
   votes?: VoteGate;
+  /** Local image catalog plus global pull/adoption persistence. */
+  cats?: CatCards;
   botUserId?: () => string | null;
   log: {
     info: (msg: string, meta?: Record<string, unknown>) => void;
@@ -103,18 +107,13 @@ export const MONARCH_SUBCOMMANDS = [
 
 export type MonarchSubcommand = (typeof MONARCH_SUBCOMMANDS)[number];
 
-function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
-
 function describeApiError(e: ApiError | undefined, fallback: string): string {
   if (!e) return `❌ ${fallback}`;
   return `❌ ${e.message}\n${[e.reason, e.fix].filter(Boolean).join("\n")}`.trim();
 }
 
 /** One wording for "that duration makes no sense", on both surfaces. */
-export const DURATION_ERROR =
-  "❌ I didn't understand that duration. Use `30s`, `10m`, `2h`, `1d` or `1h30m`.";
+export const DURATION_ERROR = "❌ Invalid duration. Try `10m` or `2h`.";
 
 /** Jail styles, shared with the slash command's choices (./jail.ts). */
 const JAIL_STYLE_WORDS = [
@@ -279,6 +278,8 @@ export class MonarchCommands {
         return this.confession(ctx);
       case "debug":
         return this.debug(ctx);
+      case "cat":
+        return this.cat(ctx);
       default:
         await ctx.replyHidden(
           `❓ I don't know \`${sub}\`. Try \`${ctx.commandPrefix}help\` or \`/monarch help\` for the full list.`,
@@ -317,12 +318,7 @@ export class MonarchCommands {
     if (on || off) {
       const state = flags.set(on);
       this.deps.log.info("debug mode changed", { userId: ctx.user.id, enabled: state });
-      await ctx.replyHidden(
-        state
-          ? "🐞 **Debug on.** Raw errors (the downloader's own words) will be posted next to every failure. " +
-              "Turn it off with `/monarch debug off`."
-          : "🐞 **Debug off.** Failures go back to one tidy line.",
-      );
+      await ctx.replyHidden(`🐞 Debug ${state ? "on" : "off"}.`);
       return;
     }
 
@@ -334,30 +330,38 @@ export class MonarchCommands {
       return;
     }
 
-    await ctx.replyHidden(
-      [
-        `🐞 **Debug is ${flags.enabled ? "on" : "off"}.**`,
-        "• `on` — post the raw error (yt-dlp's stderr, stack traces) next to every music failure.",
-        "• `off` — failures stay one human-readable line, which is the default.",
-        `• Turn it on with \`/monarch debug on\` or \`${ctx.commandPrefix}debug on\`.`,
-        "• Only the bot's owner can use this, and a restart puts it back to off.",
-      ].join("\n"),
-    );
+    await ctx.replyHidden(`🐞 Debug is ${flags.enabled ? "on" : "off"}.`);
   }
 
   // ── general ────────────────────────────────────────────────────────
 
+  private async cat(ctx: CommandContext): Promise<void> {
+    if (!this.deps.cats) {
+      await ctx.replyHidden("🐾 Cat cards aren't configured on this bot worker yet.");
+      return;
+    }
+    await this.deps.cats.roll(ctx);
+  }
+
   private async help(ctx: CommandContext): Promise<void> {
-    // ctx.commandPrefix is already the guild's own prefix on both surfaces —
-    // no second lookup (and no chance of quoting the wrong one).
+    const query = ctx.surface === "prefix" ? ctx.args.join(" ").trim() : "";
+    if (query) {
+      const detail = commandHelpEmbed(query, ctx.commandPrefix);
+      if (!detail) {
+        await ctx.replyHidden(`❓ I don't know that command. Try \`${ctx.commandPrefix}help\`.`);
+        return;
+      }
+      await ctx.replyEmbeds([detail], { hidden: true });
+      return;
+    }
+    // No query: the compact directory. Ask `!help <command>` for details.
     await ctx.replyEmbeds(renderHelpEmbeds(this.appUrl, ctx.guildId, ctx.commandPrefix), {
       hidden: true,
     });
   }
 
   private async dashboard(ctx: CommandContext): Promise<void> {
-    const url = `${this.appUrl}/s/${ctx.guildId}`;
-    await ctx.replyHidden(`👑 Design **${ctx.guild.name}** in the Monarch studio:\n${url}`);
+    await ctx.replyHidden(`${this.appUrl}/s/${ctx.guildId}`);
   }
 
   /**
@@ -384,31 +388,14 @@ export class MonarchCommands {
       );
       return;
     }
-    await ctx.replyHidden(
-      [
-        `👑 **Add Monarch to a server** — ${url}`,
-        `• Discord's dialog lists the servers you can manage — pick the one you want Monarch in (this one already has it).`,
-        `• Monarch asks for ${invitePermissionNames().length} permissions and never Administrator — the ones it actually uses: ` +
-          `channels, roles, webhooks (the jail relay), messages and files.`,
-        `• Once it's in: \`${ctx.commandPrefix}help\` lists everything, and \`${ctx.commandPrefix}prefix set <new>\` picks a prefix.`,
-        `• The dashboard for it lives at ${this.appUrl}/s/<server>.`,
-      ].join("\n"),
-    );
+    await ctx.replyHidden(`👑 Invite Monarch: ${url}`);
   }
 
   private async status(ctx: CommandContext): Promise<void> {
     const jailed = this.deps.jail.list(ctx.guildId).length;
     const prefix = ctx.commandPrefix;
     await ctx.replyHidden(
-      [
-        "**Monarch** — Design your Discord.",
-        `• Server: ${ctx.guild.name}`,
-        `• Dashboard: ${this.appUrl}`,
-        `• Prefix: \`${prefix}\` (also @Monarch) — change it with \`${prefix}prefix set <new>\``,
-        `• Jailed members: ${jailed}`,
-        "• All design changes are previewed and applied from the dashboard.",
-        `• \`${prefix}help\` or \`/monarch help\` lists every command — \`${prefix}invite\` adds Monarch to another server.`,
-      ].join("\n"),
+      `👑 ${ctx.guild.name} · ${jailed} jailed · prefix \`${prefix}\` · ${this.appUrl}/s/${ctx.guildId}`,
     );
   }
 
@@ -433,20 +420,7 @@ export class MonarchCommands {
     // `!prefix`, `!prefix show` → what am I using?
     if (args.length === 0 || (args.length === 1 && args[0]!.toLowerCase() === "show")) {
       const isDefault = current === DEFAULT_COMMAND_PREFIX;
-      await ctx.replyHidden(
-        [
-          `**Prefix in ${ctx.guild.name}**: \`${current}\`${isDefault ? " (the default)" : ""}`,
-          `• Commands: \`${current}help\`, \`${current}play <song>\`, \`${current}jail @user\` — @Monarch works as a prefix too.`,
-          isDefault
-            ? `• Change it with \`${current}prefix set <new>\` — 1-${MAX_COMMAND_PREFIX_LENGTH} characters from \`${COMMAND_PREFIX_CHARS}\`.`
-            : `• \`${DEFAULT_COMMAND_PREFIX}\` still works, and \`${current}prefix reset\` restores the default.`,
-          this.deps.prefixes.persistent
-            ? ""
-            : "• ℹ Custom prefixes are saved through the Monarch dashboard — this bot has no `INTERNAL_API_TOKEN`, so only the default prefix is available.",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      );
+      await ctx.replyHidden(`Prefix: \`${current}\`${isDefault ? " (default)" : ""}.`);
       return;
     }
 
@@ -468,9 +442,7 @@ export class MonarchCommands {
         await ctx.replyHidden(outcome.message);
         return;
       }
-      await ctx.replyHidden(
-        `✅ Prefix reset to the default: \`${outcome.prefix}\` — try \`${outcome.prefix}help\`.`,
-      );
+      await ctx.replyHidden(`✅ Prefix reset to \`${outcome.prefix}\`.`);
       return;
     }
 
@@ -486,13 +458,7 @@ export class MonarchCommands {
       await ctx.replyHidden(outcome.message);
       return;
     }
-    await ctx.replyHidden(
-      [
-        `✅ Prefix for **${ctx.guild.name}** is now \`${outcome.prefix}\`.`,
-        `• Try \`${outcome.prefix}help\`, \`${outcome.prefix}play <song>\`, \`${outcome.prefix}jail @user\`.`,
-        `• \`${DEFAULT_COMMAND_PREFIX}\` and an @Monarch mention keep working; \`${outcome.prefix}prefix reset\` restores the default.`,
-      ].join("\n"),
-    );
+    await ctx.replyHidden(`✅ Prefix set to \`${outcome.prefix}\`.`);
   }
 
   // ── design studio (dashboard internal API) ─────────────────────────
@@ -528,10 +494,7 @@ export class MonarchCommands {
         error?: ApiError;
       };
       if (res.ok && data.ok) {
-        await ctx.edit(
-          `✅ Backup **${data.snapshot?.name}** saved — ${data.categoryCount} categories, ${data.channelCount} channels.\n` +
-            `Restore it any time from ${this.appUrl}/s/${ctx.guildId}/history`,
-        );
+        await ctx.edit(`✅ Backup **${data.snapshot?.name}** saved.`);
       } else {
         await ctx.edit(describeApiError(data.error, "Monarch couldn't save the backup."));
       }
@@ -568,8 +531,7 @@ export class MonarchCommands {
         const cats = data.template.data?.categories?.length ?? 0;
         const chans = data.template.data?.channels?.length ?? 0;
         await ctx.attach(
-          `📦 **${ctx.guild.name}** exported — ${cats} categories, ${chans} channels.\n` +
-            `Import it into any server at ${this.appUrl}/s/<server>/import-export.`,
+          `📦 **${ctx.guild.name}** exported (${cats} categories, ${chans} channels).`,
           [
             {
               name: data.fileName ?? "monarch-template.json",
@@ -586,32 +548,7 @@ export class MonarchCommands {
   }
 
   private async embed(ctx: CommandContext): Promise<void> {
-    const url = `${this.appUrl}/s/${ctx.guildId}/embeds`;
-    let info = "";
-    if (!this.internalToken) {
-      info =
-        "\n\nℹ Tip: set `INTERNAL_API_TOKEN` in the dashboard and bot to see the saved embed here.";
-    } else {
-      try {
-        const res = await fetch(`${this.appUrl}/api/internal/guilds/${ctx.guildId}/workspace`, {
-          headers: this.internalHeaders(),
-        });
-        if (res.ok) {
-          const data = (await res.json()) as {
-            workspace?: { embed?: { title?: string; description?: string } };
-          };
-          const embed = data.workspace?.embed;
-          info = embed
-            ? `\n\nSaved embed: **${truncate(embed.title ?? embed.description ?? "untitled", 80)}**`
-            : "\n\nNo embed saved yet — the builder starts fresh.";
-        } else if (res.status === 503) {
-          info = "\n\nℹ Set `INTERNAL_API_TOKEN` to enable saved-design previews.";
-        }
-      } catch {
-        info = "\n\n(Monarch dashboard is not reachable right now.)";
-      }
-    }
-    await ctx.replyHidden(`👑 **Embed Builder** for **${ctx.guild.name}**:\n${url}${info}`);
+    await ctx.replyHidden(`👑 Embed Builder: ${this.appUrl}/s/${ctx.guildId}/embeds`);
   }
 
   private async test(ctx: CommandContext): Promise<void> {
@@ -699,20 +636,8 @@ export class MonarchCommands {
       await ctx.replyHidden("Nobody is jailed right now. 🎉");
       return;
     }
-    const config = await this.deps.jailConfigs.get(ctx.guildId);
     await ctx.replyHidden(
-      [
-        `🔒 **Jailed in ${ctx.guild.name}** (${entries.length})`,
-        ...entries.map(
-          (e) =>
-            `• <@${e.userId}> — ${e.style} · ${
-              e.until ? `until <t:${Math.floor(e.until / 1000)}:R>` : "until released"
-            } · by <@${e.jailedBy}>${e.reason ? ` — ${e.reason}` : ""}`,
-        ),
-        config
-          ? `-# They can only talk in <#${config.channelId}>. Release one with \`${ctx.commandPrefix}jail @user\`.`
-          : `-# No cell is set up, so this is the relay-only gag — \`${ctx.commandPrefix}jail setup\` confines them to #jail.`,
-      ].join("\n"),
+      [`⚖️ Jailed (${entries.length})`, ...entries.map((entry) => `<@${entry.userId}>`)].join("\n"),
     );
   }
 
@@ -784,20 +709,8 @@ export class MonarchCommands {
       return;
     }
 
-    const staffList =
-      result.staffRoleIds.length > 0
-        ? result.staffRoleIds.map((id) => `<@&${id}>`).join(", ")
-        : "none yet (roles with moderation permissions are picked up automatically)";
     await ctx.edit(
-      [
-        `🔒 **The jail cell is ready in ${ctx.guild.name}.**`,
-        `• Cell: <#${result.channel.id}> (${result.channel.created ? "created" : "reused"}) — @everyone can't see it; jailed members and staff can.`,
-        `• Jail role: <@&${result.role.id}> (${result.role.created ? "created" : "created earlier"}) — no server-wide permissions, denied view **and** write outside the cell; I add and remove it automatically.`,
-        `• Locked **${result.locked}** channel${result.locked === 1 ? "" : "s"} against that role (${result.skipped} already locked${result.failed > 0 ? `, ${result.failed} failed — check my Manage Roles permission` : ""}).`,
-        `• Staff access: ${staffList}.`,
-        `• Jail someone: \`/jail @user [duration] [style] [reason]\` or \`${ctx.commandPrefix}jail @user 10m\`.`,
-        `• Undo everything: \`/monarch jail disable\`.`,
-      ].join("\n"),
+      `🔒 Jail cell ready: <#${result.channel.id}> · role <@&${result.role.id}>${result.failed ? ` · ${result.failed} channel locks failed` : ""}.`,
     );
   }
 
@@ -815,12 +728,7 @@ export class MonarchCommands {
       return;
     }
     await ctx.replyHidden(
-      [
-        `🔓 **The jail cell is switched off** — ${result.released} member${result.released === 1 ? "" : "s"} released.`,
-        `• Removed the @jailed overwrites from ${result.cleaned} channel${result.cleaned === 1 ? "" : "s"}${result.failed > 0 ? ` (${result.failed} failed — check my Manage Roles permission)` : ""}.`,
-        "• The channel itself stays exactly as it is (still private), and the `/jail` relay keeps working — it is just no longer confining anyone.",
-        `• Bring it back any time with \`${ctx.commandPrefix}jail setup\`.`,
-      ].join("\n"),
+      `🔓 Jail disabled · ${result.released} released${result.failed > 0 ? ` · ${result.failed} permission errors` : ""}.`,
     );
   }
 
@@ -847,19 +755,8 @@ export class MonarchCommands {
       );
       return;
     }
-    const staffList =
-      status.config.staffRoleIds.length > 0
-        ? status.config.staffRoleIds.map((id) => `<@&${id}>`).join(", ")
-        : "none yet";
     await ctx.replyHidden(
-      [
-        `🔒 **Jail cell in ${ctx.guild.name}**`,
-        `• Cell: ${status.channelExists ? `<#${status.config.channelId}>` : `⚠️ the channel (${status.config.channelId}) is gone — re-run setup`}`,
-        `• Jail role: ${status.roleExists ? `<@&${status.config.roleId}>` : `⚠️ the role (${status.config.roleId}) is gone — re-run setup`}`,
-        `• Staff access: ${staffList}`,
-        `• Currently jailed: ${status.jailed.length}${status.jailed.length > 0 ? ` (see \`${ctx.commandPrefix}jailed\`)` : ""}`,
-        `• Refresh staff access or repair the locks: \`${ctx.commandPrefix}jail setup\`. Switch it off: \`${ctx.commandPrefix}monarch jail disable\`.`,
-      ].join("\n"),
+      `🔒 Jail: ${status.channelExists ? `<#${status.config.channelId}>` : "channel missing"} · ${status.jailed.length} jailed · ${status.roleExists ? "role active" : "role missing"}.`,
     );
   }
 
@@ -879,18 +776,14 @@ export class MonarchCommands {
   async jail(ctx: CommandContext): Promise<void> {
     const { jail, log } = this.deps;
     if (!ctx.memberHasAny(JAIL_PERMISSIONS)) {
-      await ctx.replyHidden(
-        "❌ Only administrators and roles with **Kick Members** can use /jail.",
-      );
+      await ctx.replyHidden("❌ You need Kick Members to use jail.");
       return;
     }
 
     const target = await this.targetMember(ctx);
     if (!target) {
       if (ctx.surface === "prefix" && !this.targetUserId(ctx)) {
-        await ctx.replyHidden(
-          `❓ Say who to jail — \`${ctx.commandPrefix}jail @user [duration] [style] [reason]\` (run it again to release them).`,
-        );
+        await ctx.replyHidden(`Use \`${ctx.commandPrefix}jail @user\`.`);
       } else {
         // Slash always carries a user option, and a prefix id that resolves
         // to nobody, both mean the same thing: the member isn't here.
@@ -920,17 +813,11 @@ export class MonarchCommands {
         surface: ctx.surface,
         roleRemoved: freed,
       });
-      await ctx.replyHidden(
-        `🔓 <@${target.id}> is out of jail — their messages are back to normal` +
-          (freed ? " and the `@jailed` role is gone." : "."),
-      );
+      await ctx.replyHidden(`<@${target.id}> has been released from jail ⚖️`);
       return;
     }
     if (!this.deps.jailEnabled()) {
-      await ctx.replyHidden(
-        "❌ /jail is disabled on this Monarch instance: the **Message Content** intent isn't enabled for the bot application. " +
-          "The host must turn it on under Bot → Privileged Gateway Intents and restart the bot.",
-      );
+      await ctx.replyHidden("❌ Jail needs the Message Content intent enabled.");
       return;
     }
     if (target.id === ctx.user.id) {
@@ -959,9 +846,7 @@ export class MonarchCommands {
       });
       const config = await this.deps.jailConfigs.get(ctx.guildId);
       if (config) await this.confineOrWarn(ctx, ctx.user.id, config);
-      await ctx.replyHidden(
-        "🔄 You tried to jail the bot owner. That's not how it works around here. Now *you* are jailed.",
-      );
+      await ctx.replyHidden(`<@${ctx.user.id}> has been put in jail ⚖️`);
       return;
     }
     if (target.user.bot) {
@@ -978,18 +863,12 @@ export class MonarchCommands {
       return;
     }
     if (target.permissions.has(PermissionFlagsBits.Administrator)) {
-      await ctx.replyHidden(
-        "❌ Administrators can't be confined: Discord ignores channel denies for them. " +
-          "Remove their Administrator role first.",
-      );
+      await ctx.replyHidden("❌ Admins can't be jailed; Discord bypasses channel restrictions.");
       return;
     }
     const mine = ctx.myPermissions();
     if (mine !== null && !mine.has(PermissionFlagsBits.ManageMessages)) {
-      await ctx.replyHidden(
-        "❌ Monarch needs the **Manage Messages** permission to delete and re-post jailed messages.\n" +
-          `Re-invite it from ${this.appUrl} or grant the permission in Server Settings → Roles, then try again.`,
-      );
+      await ctx.replyHidden("❌ Give the bot Manage Messages permission first.");
       return;
     }
     if (mine !== null && !mine.has(PermissionFlagsBits.ManageWebhooks)) {
@@ -1043,13 +922,7 @@ export class MonarchCommands {
         style: resolvedStyle,
         surface: ctx.surface,
       });
-      const when = resolvedUntil
-        ? `for **${formatDuration(resolvedUntil - Date.now())}** (until <t:${Math.floor(resolvedUntil / 1000)}:f>)`
-        : `**until released** with \`${ctx.commandPrefix}jail @user\``;
-      await ctx.replyHidden(
-        `🔒 Updated <@${target.id}>'s cell — now ${when}${inputs.reason ? ` — ${inputs.reason}` : ""}.\n` +
-          `Now using ${jailStyleLabel(resolvedStyle)}. Run \`${ctx.commandPrefix}jail @user\` with no options to release them.`,
-      );
+      await ctx.replyHidden(`Updated <@${target.id}>'s jail ⚖️`);
       if (config) await this.confineOrWarn(ctx, target.id, config);
       return;
     }
@@ -1071,18 +944,7 @@ export class MonarchCommands {
       surface: ctx.surface,
       confined: config !== null,
     });
-    const when = until
-      ? `for **${formatDuration(until - Date.now())}** (until <t:${Math.floor(until / 1000)}:f>)`
-      : `**until released** with \`${ctx.commandPrefix}jail @user\``;
-    await ctx.replyHidden(
-      [
-        `🔒 <@${target.id}> is jailed ${when}${inputs.reason ? ` — ${inputs.reason}` : ""}.`,
-        config
-          ? `They now hold the \`@jailed\` role: the server is invisible to them, they can only talk in <#${config.channelId}>, and anything they type elsewhere gets removed.`
-          : `No cell is set up yet, so this is the relay-only gag — every message they post comes back cute. Run \`${ctx.commandPrefix}jail setup\` to also confine them to #jail.`,
-        `Their words come back as ${jailStyleLabel(style)}: ${toJailSpeak("hello there", style)}`,
-      ].join("\n"),
-    );
+    await ctx.replyHidden(`<@${target.id}> has been put in jail ⚖️`);
     if (config) await this.confineOrWarn(ctx, target.id, config);
   }
 
@@ -1097,7 +959,7 @@ export class MonarchCommands {
     config: JailConfig,
   ): Promise<void> {
     const result = await this.deps.jailManager.confine(ctx.guild, userId, config);
-    if (!result.ok) await ctx.replyHidden(result.message);
+    if (!result.ok) await ctx.replyHidden(`⚠️ Couldn't confine <@${userId}>. Check bot permissions.`);
   }
 
   // ── voter perks ────────────────────────────────────────────────────
@@ -1119,15 +981,7 @@ export class MonarchCommands {
     const gate = this.deps.votes;
     const url = gate?.voteUrl() ?? null;
     if (!gate || !gate.enabled) {
-      await ctx.replyHidden(
-        [
-          "🗳️ This Monarch instance can't check top.gg votes (`TOPGG_TOKEN` isn't set), so **every perk is already unlocked**:",
-          "• the pirate, shakespeare and robot jail styles",
-          "• `/music autoplay` — radio mode",
-          "• `/monarch report` — the full Design Analyzer report",
-          "Nothing to do here — enjoy the bot! 👑",
-        ].join("\n"),
-      );
+      await ctx.replyHidden("🗳️ Vote checks are off; all perks are unlocked.");
       return;
     }
     // Always re-check rather than trusting the cache: the point of this
@@ -1135,17 +989,7 @@ export class MonarchCommands {
     gate.forget(ctx.user.id);
     const voted = await gate.hasVoted(ctx.user.id);
     await ctx.replyHidden(
-      [
-        voted
-          ? "🗳️ **Your vote counts right now — voter perks unlocked.** Thank you! 💛"
-          : "🗳️ **You haven't voted for Monarch yet.**",
-        url ? `Vote here: ${url}` : "The vote link is in the dashboard's help page.",
-        "A vote counts for **12 hours** and unlocks:",
-        "• jail styles: pirate, shakespeare, robot",
-        "• `/music autoplay` — the queue keeps itself fed",
-        "• `/monarch report` — the full Design Analyzer report in chat",
-        "-# Everything moderation-related in Monarch stays open to everyone; only these extras are gated.",
-      ].join("\n"),
+      `🗳️ Vote ${voted ? "counted — perks unlocked" : "not found"}.${url ? ` ${url}` : ""}`,
     );
   }
 
@@ -1176,9 +1020,7 @@ export class MonarchCommands {
         error?: ApiError;
       };
       if (res.ok && data.ok && data.markdown) {
-        await ctx.attach(
-          `📊 **${ctx.guild.name}** scored **${data.score ?? "?"}/100** — the full Design Analyzer report is attached. ` +
-            "Suggestions only: nothing was changed.",
+        await ctx.attach(`📊 Design score: **${data.score ?? "?"}/100**.`,
           [{ name: data.fileName ?? "monarch-design-report.md", body: data.markdown }],
         );
       } else {
@@ -1206,15 +1048,7 @@ export class MonarchCommands {
     const verb = (ctx.getSubcommand() ?? "").toLowerCase();
     if (verb === "disable") return this.confessionDisable(ctx);
     if (verb !== "setup") {
-      await ctx.replyHidden(
-        [
-          `❓ Confessions usage:`,
-          `• \`${ctx.commandPrefix}monarch confession setup [#channel] [#logs]\` — point confessions at a channel (this one by default) and an optional staff log channel, then post the starter confession`,
-          `• \`${ctx.commandPrefix}monarch confession disable\` — switch confessions off`,
-          `• Anyone can confess from the **Confess** button — one confession per person every ${formatDuration(CONFESSION_COOLDOWN_MS)}, across every server.`,
-          `• Also try \`/monarch confession setup\` with the channel picker.`,
-        ].join("\n"),
-      );
+      await ctx.replyHidden(`Use \`${ctx.commandPrefix}confession setup\` or \`${ctx.commandPrefix}confession disable\`. Details: \`${ctx.commandPrefix}help confession\`.`);
       return;
     }
     if (!ctx.memberHasAny(DESIGN_PERMISSIONS)) {
@@ -1292,17 +1126,7 @@ export class MonarchCommands {
       return;
     }
 
-    await ctx.edit(
-      [
-        `🤫 **Confessions are live in ${publicChannel.name}** — the starter confession is posted.`,
-        "• Anyone can press **Confess** on any confession and tell us their secret — it goes up as an embed with no name, no avatar, no id.",
-        `• One confession per person every **${formatDuration(CONFESSION_COOLDOWN_MS)}**, counted across every server Monarch is in — the button tells them when they're next allowed, and **Manage Server** / **Administrator** skip the wait.`,
-        logChannel
-          ? `• Staff log: **${logChannel.name}** receives who, when, and a link to every confession — keep it staff-only.`
-          : "• No log channel — confessions are fully untraceable. Add one with the `logs` option if staff should be able to see who confesses.",
-        `• Re-run \`${ctx.commandPrefix}monarch confession setup\` to change the channels, or \`${ctx.commandPrefix}monarch confession disable\` to switch off.`,
-      ].join("\n"),
-    );
+    await ctx.edit(`🤫 Confessions live in **#${publicChannel.name}**.`);
   }
 
   private async confessionDisable(ctx: CommandContext): Promise<void> {
@@ -1328,11 +1152,7 @@ export class MonarchCommands {
       return;
     }
     this.deps.log.info("confessions disabled", { guildId: ctx.guildId });
-    await ctx.replyHidden(
-      "🤫 Confessions are off in this server. The old confession messages stay in the channel " +
-        "(delete them manually if you want a clean slate) — the Confess buttons on them will just say " +
-        "confessions are off.",
-    );
+    await ctx.replyHidden("🤫 Confessions are off.");
   }
 
   /** A guild text channel Monarch can view and post in. */

@@ -161,6 +161,25 @@ model Template {
   @@index([ownerId])
 }
 
+// Cat-game state is global by cat id for pull counts, while adoption ownership
+// is scoped to a guild: the same cat can be adopted independently in different
+// servers, but only once in each server.
+model CatCardPull {
+  catId     String   @id
+  pullCount Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model CatAdoption {
+  guildId   String
+  catId     String
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@id([guildId, catId])
+  @@index([guildId, userId])
+}
+
 model AuditEntry {
   id        String   @id @default(cuid())
   guildId   String

@@ -157,8 +157,8 @@ describe("bot startup", () => {
 
     expect(mocks.put).toHaveBeenCalledOnce();
     expect(mocks.login).toHaveBeenCalledWith("test-token");
-    // Three top-level commands: /monarch, /jail and /music.
-    expect(find("registered slash commands")).toMatchObject({ level: "info", count: 3 });
+    // Four top-level command groups: /monarch, /jail, /music and /cat.
+    expect(find("registered slash commands")).toMatchObject({ level: "info", count: 4 });
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -172,7 +172,7 @@ describe("bot startup", () => {
     expect(find("registered slash commands")).toMatchObject({
       scope: "guild",
       guildId: "9876543210",
-      count: 3,
+      count: 4,
     });
   });
 

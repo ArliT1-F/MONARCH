@@ -140,21 +140,11 @@ async function runCommand(
 
 /** "@Monarch" with nothing after it — point at help instead of staying mute. */
 function greeting(prefix: string): string {
-  return [
-    "👑 **Monarch — Design your Discord.**",
-    `• \`${prefix}help\` — every command (slash commands work too)`,
-    `• \`${prefix}dashboard\` — open this server in the design studio`,
-    `• \`${prefix}play <song>\` — music · \`${prefix}queue\` · \`${prefix}skip\``,
-    `• \`${prefix}prefix set <new>\` — use your own prefix`,
-    `• \`${prefix}invite\` — add Monarch to a server of your own`,
-  ].join("\n");
+  return `👑 Monarch online. \`${prefix}help\` for commands · \`${prefix}help <command>\` for details.`;
 }
 
-function unknownCommand(token: string, prefix: string): string {
-  return (
-    `❓ \`${token}\` isn't a Monarch command.\n` +
-    `Try \`${prefix}help\` for the full list — or \`/monarch help\` in slash form.`
-  );
+function unknownCommand(_token: string, prefix: string): string {
+  return `❓ Unknown command. Try \`${prefix}help\`.`;
 }
 
 export type { PrefixInvocation };
