@@ -99,6 +99,21 @@ export default async function LandingPage({
             Go to your servers
           </Link>
         </p>
+
+        <nav
+          aria-label="Legal"
+          className="mt-6 flex items-center justify-center gap-3 text-[11px] text-ink-400"
+        >
+          <Link href="/privacy" className="transition hover:text-ink-200">
+            Privacy Policy
+          </Link>
+          <span aria-hidden className="text-ink-600">
+            ·
+          </span>
+          <Link href="/terms" className="transition hover:text-ink-200">
+            Terms of Service
+          </Link>
+        </nav>
       </div>
     </main>
   );
