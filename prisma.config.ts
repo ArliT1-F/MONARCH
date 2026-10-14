@@ -4,7 +4,7 @@ import { defineConfig } from "prisma/config";
 /**
  * Prisma 7 CLI configuration.
  *
- * - `directUrl` lives here (not in schema.prisma anymore): pooled providers
+ * - The CLI uses the direct URL as `datasource.url`: pooled providers
  *   such as Neon / Vercel Postgres expose a pooled URL for the serverless
  *   app and a direct, non-pooled URL for migrations. Set both to the same
  *   value when running against plain PostgreSQL (local dev, Docker).
@@ -18,7 +18,6 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env.DATABASE_URL,
-    directUrl: process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL,
+    url: process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL,
   },
 });

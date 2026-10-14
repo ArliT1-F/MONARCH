@@ -1,24 +1,46 @@
-/**
- * Environment access — the only place process.env is read.
- * Bot credentials are server-only and must never reach the client bundle.
- */
-export const env = {
-  discordClientId: process.env.DISCORD_CLIENT_ID ?? "",
-  discordClientSecret: process.env.DISCORD_CLIENT_SECRET ?? "",
-  discordBotToken: process.env.DISCORD_BOT_TOKEN ?? "",
-  appUrl: process.env.APP_URL ?? "http://localhost:3000",
-  sessionSecret: process.env.SESSION_SECRET ?? "dev-only-secret-change-me",
-  databaseUrl: process.env.DATABASE_URL ?? "",
-  forceDemo: process.env.MONARCH_DEMO === "1",
-};
+import { MonarchConfigError, resolveConfig } from "./config";
 
-/**
- * Demo mode: active when explicitly forced, or when Discord credentials are
- * absent. In demo mode Monarch uses the MockDiscordGateway with seeded
- * guilds so the entire design → diff → apply loop works without a Discord
- * application. The UI labels it clearly.
- */
+/** Server-only. Resolve at use time so configuration cannot be captured before loading. */
+export function getConfig() {
+  return resolveConfig(process.env);
+}
+export const env = {
+  get discordClientId() {
+    return getConfig().discordClientId;
+  },
+  get discordClientSecret() {
+    return getConfig().discordClientSecret;
+  },
+  get discordBotToken() {
+    return getConfig().discordBotToken;
+  },
+  get appUrl() {
+    return getConfig().appUrl;
+  },
+  get sessionSecret() {
+    return requireSessionSecret();
+  },
+  get databaseUrl() {
+    return getConfig().databaseUrl;
+  },
+  get forceDemo() {
+    return getConfig().demoMode;
+  },
+};
 export function isDemoMode(): boolean {
-  if (env.forceDemo) return true;
-  return !(env.discordClientId && env.discordClientSecret && env.discordBotToken);
+  return getConfig().demoMode;
+}
+export function assertConfigUsable() {
+  const config = getConfig();
+  if (config.errors.length) throw new MonarchConfigError(config.errors);
+  return config;
+}
+export function requireSessionSecret(): string {
+  const config = getConfig();
+  const errors = config.errors.filter((i) => i.variable === "SESSION_SECRET");
+  if (errors.length) throw new MonarchConfigError(errors);
+  return config.sessionSecret;
+}
+export function internalApiToken(): string | null {
+  return getConfig().internalApiToken;
 }

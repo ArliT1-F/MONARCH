@@ -198,6 +198,7 @@ let log: {
 function setup(
   options: {
     internalToken?: string;
+    dashboardInternalUrl?: string;
     enabled?: boolean;
     clientId?: string | null;
   } = {},
@@ -211,6 +212,7 @@ function setup(
     monarch: new MonarchCommands({
       appUrl: "https://monarch.example",
       internalToken: options.internalToken,
+      dashboardInternalUrl: options.dashboardInternalUrl,
       jail,
       jailConfigs: new JailConfigRegistry(),
       jailManager: jailManagerStub,
@@ -988,5 +990,24 @@ describe("dispatch: confession commands (prefix surface)", () => {
 
     expect(stored[GUILD_ID]).toEqual({ channelId: null, logChannelId: null });
     expect(text(message)).toContain("Confessions are off");
+  });
+});
+
+
+describe("public versus internal dashboard destinations", () => {
+  it("routes backup to the private API but keeps dashboard links public", async () => {
+    setup({ internalToken: "test-token", dashboardInternalUrl: "http://dashboard:3000" });
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ ok: true, snapshot: { name: "Test" } }),
+    );
+    const backup = fakeMessage({ content: "!backup" });
+    await handlePrefixMessage(backup, deps);
+    expect(fetcher).toHaveBeenCalledWith(
+      `http://dashboard:3000/api/internal/guilds/${GUILD_ID}/backup`, expect.any(Object),
+    );
+    const dashboard = fakeMessage({ content: "!dashboard" });
+    await handlePrefixMessage(dashboard, deps);
+    expect(text(dashboard)).toContain("https://monarch.example");
+    expect(text(dashboard)).not.toContain("http://dashboard:3000");
   });
 });

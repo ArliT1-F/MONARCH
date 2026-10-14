@@ -37,11 +37,15 @@ updated).
 `.env.example` — a _tracked_ file — contained a real Neon connection string:
 
 ```
-DATABASE_URL=postgresql://neondb_owner:npg_…@ep-curly-bonus-…aws.neon.tech/neondb…
+DATABASE_URL=postgresql://neondb_owner:<REDACTED-PASSWORD>@ep-<REDACTED>-pooler.<region>.aws.neon.tech/neondb?…
 ```
 
 It is present in `main` (`38489c0`), so it is in GitHub history and in every
 clone and fork. Redacting the file (done here) does **not** unpublish it.
+
+> The credential value itself is never reproduced in this repository — not even
+> redacted-by-truncation, so secret scanners stay quiet. See
+> `docs/security.md` → *Credential rotation* for the full incident record.
 
 **Action needed:** rotate that database password in the Neon console
 (_Project → Roles → Reset password_), then update `DATABASE_URL` wherever it is

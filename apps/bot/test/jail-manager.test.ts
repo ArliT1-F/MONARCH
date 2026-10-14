@@ -98,6 +98,7 @@ describe("jail live enforcement", () => {
     h.guild.members.me.permissions = perms();
     const result = await h.manager.setup(h.guild as never, { actorId: MOD });
     expect(result).toMatchObject({ ok: false });
+    if (result.ok) throw new Error("Expected setup to fail without Manage Roles");
     expect(result.message).toContain("Manage Roles");
     expect(h.roleCreate).not.toHaveBeenCalled();
     expect(h.writes.get(CELL)!.edit).not.toHaveBeenCalled();

@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { jsonError } from "./api";
+import { internalApiToken } from "./env";
 
 /**
  * Server-to-server auth for the /api/internal/* routes used by the Discord
@@ -17,12 +18,12 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export function isInternalTokenConfigured(): boolean {
-  return Boolean(process.env.INTERNAL_API_TOKEN);
+  return Boolean(internalApiToken());
 }
 
 /** Returns a response to return immediately, or null when authorized. */
 export function assertInternalAuth(req: NextRequest): import("next/server").NextResponse | null {
-  const expected = process.env.INTERNAL_API_TOKEN;
+  const expected = internalApiToken();
   if (!expected) {
     return jsonError(503, {
       code: "internal.disabled",

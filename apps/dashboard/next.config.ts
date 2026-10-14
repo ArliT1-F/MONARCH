@@ -1,4 +1,6 @@
 import type { NextConfig } from "next";
+import { PHASE_PRODUCTION_SERVER } from "next/constants";
+import { resolveConfig, MonarchConfigError } from "./lib/config";
 
 const nextConfig: NextConfig = {
   transpilePackages: [
@@ -31,4 +33,12 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default function configuration(phase: string): NextConfig {
+  // `next start` must reject bad configuration before serving requests. The
+  // instrumentation hook independently covers serverless initialization.
+  if (phase === PHASE_PRODUCTION_SERVER) {
+    const config = resolveConfig(process.env);
+    if (config.errors.length) throw new MonarchConfigError(config.errors);
+  }
+  return nextConfig;
+}

@@ -17,10 +17,14 @@ responsive/mobile dashboard shell, and the bot's `help`, `backup`, `export`,
 of which also answers as a **prefix (text) command** (`!help`, `!play`,
 `@Monarch status`) with a per-server prefix set by `!prefix set ?`.
 
-Role Designer, Welcome Designer, Branding and Analyzer are represented as
-phase-labelled placeholders in the navigation; their shared infrastructure
-(schemas, validation, diff engine, renderer, target resolver, variables)
-already exists and must be reused — do not fork per-feature copies.
+**Role Designer and Design Analyzer are implemented**, not placeholders:
+roles use the shared draft/diff/apply pipeline, and Analyzer inspects live
+supported structure with deterministic checks and dismissals. Welcome Designer
+and Branding remain explicitly planned placeholder pages. A full visual
+permission editor, unified blueprints and drift reconciliation are not shipped.
+
+For runtime security, mandatory environment variables and deployment topology,
+see [security and configuration](security.md).
 
 ## Backups, restore, templates
 
@@ -56,8 +60,8 @@ created channel; moderation roles and optional
 staff role are allowed in. Re-run setup to repair overwrites, or disable to
 release members and remove the role overwrites. The bot needs Manage Channels,
 Manage Roles, Manage Messages and Manage Webhooks, plus Message Content intent.
-Administrator roles and roles with server-wide View Channel bypass channel
-denies; do not put jailed members in privileged roles. Setup refuses a stored jail role
+Administrator roles bypass channel denies; explicit allow overwrites from other
+member roles can also defeat the intended jail restrictions; do not put jailed members in privileged roles. Setup refuses a stored jail role
 that gained server-wide permissions.
 
 `/jail @user [duration] [style] [reason]` assigns the role after setup. Messages

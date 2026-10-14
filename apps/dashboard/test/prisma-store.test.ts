@@ -388,3 +388,12 @@ describe("PrismaStore confession cooldown reads and releases", () => {
     await expect(store.releaseConfessionCooldown(USER)).resolves.toBeUndefined(); // P2025 is not an error here
   });
 });
+
+describe("Prisma session revocation failures", () => {
+  it("propagates real database errors instead of reporting a successful logout", async () => {
+    const deleteMany = vi.fn().mockRejectedValue(new Error("database unavailable"));
+    const store = new PrismaStore({ session: { deleteMany } } as never);
+    await expect(store.deleteSession("sess_test")).rejects.toThrow("database unavailable");
+    expect(deleteMany).toHaveBeenCalledWith({ where: { id: "sess_test" } });
+  });
+});

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import type { GuildSummary } from "@monarch/schemas";
 import { createLogger, type MonarchError } from "@monarch/shared";
 import { getSession } from "./session";
+import { MonarchConfigError } from "./config";
+import { env, assertConfigUsable } from "./env";
 import { getGuildSummary } from "./discord";
 import type { SessionRecord } from "./store";
 
@@ -27,9 +29,16 @@ export function jsonError(status: number, error: Partial<MonarchError> & { messa
 
 export function assertSameOrigin(req: NextRequest): NextResponse | null {
   const site = req.headers.get("sec-fetch-site");
-  if (site && site !== "same-origin" && site !== "none") {
-    return jsonError(403, { code: "csrf", message: "Cross-origin request rejected." });
-  }
+  const origin = req.headers.get("origin");
+  const reject = () =>
+    jsonError(403, { code: "csrf", message: "Request origin could not be verified." });
+  if (site && site !== "same-origin" && site !== "none") return reject();
+  // Compare against configured APP_URL, never req.url / forwarded Host.
+  // Origin-less browsers must supply positive same-origin Fetch Metadata.
+  // Non-browser clients should send Origin explicitly; internal APIs use bearer auth.
+  if (origin !== null) {
+    if (origin !== env.appUrl) return reject();
+  } else if (site !== "same-origin") return reject();
   return null;
 }
 
@@ -45,11 +54,18 @@ function isMissingTableError(error: unknown): boolean {
  * Convert an unexpected storage/pipeline failure into a JSON 500.
  * Route handlers must never throw: an unhandled throw produces an
  * empty-body 500, and clients calling `res.json()` on it crash with a raw
- * `JSON.parse: unexpected end of data…` string. Full detail goes to the
- * server log only — the response stays free of connection internals.
+ * `JSON.parse: unexpected end of data…` string. Neither the response nor
+ * logs include raw driver exceptions (which can carry credentials).
  */
 export function jsonStorageError(error: unknown, fallbackMessage: string): NextResponse {
-  log.error("storage failure", { error: String(error) });
+  if (error instanceof MonarchConfigError) {
+    return jsonError(503, {
+      code: "config.invalid",
+      message: "Monarch's server configuration is invalid. Contact the deployment administrator.",
+    });
+  }
+  // Driver exceptions can contain DSNs or query parameters; never log raw errors.
+  log.error("storage failure");
   if (isMissingTableError(error)) {
     return jsonError(500, {
       code: "db.migration-pending",
@@ -63,7 +79,13 @@ export function jsonStorageError(error: unknown, fallbackMessage: string): NextR
 export async function requireSession(): Promise<
   { ok: true; session: SessionRecord } | { ok: false; response: NextResponse }
 > {
-  const session = await getSession();
+  let session;
+  try {
+    assertConfigUsable();
+    session = await getSession();
+  } catch (error) {
+    return { ok: false, response: jsonStorageError(error, "Session verification is unavailable.") };
+  }
   if (!session) {
     return {
       ok: false,
