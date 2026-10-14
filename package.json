@@ -12,6 +12,8 @@
     "dev:bot": "npm run dev --workspace @monarch/bot",
     "build": "npm run build --workspace @monarch/dashboard",
     "test": "vitest run",
+    "security:scan": "node scripts/scan-secrets.mjs",
+    "security:scan:quiet": "node scripts/scan-secrets.mjs --quiet",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p packages/music/tsconfig.json",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",

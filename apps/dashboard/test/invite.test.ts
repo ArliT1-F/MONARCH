@@ -21,7 +21,7 @@ const DEMO = {
   DISCORD_CLIENT_ID: "",
   DISCORD_CLIENT_SECRET: "",
   DISCORD_BOT_TOKEN: "",
-  MONARCH_DEMO: "",
+  MONARCH_DEMO: "1",
 };
 
 let saved: NodeJS.ProcessEnv;

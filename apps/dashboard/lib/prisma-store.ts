@@ -2,6 +2,7 @@ import type { MockState } from "@monarch/discord";
 import type { EmbedDesign, MessageDesign, ServerDesign } from "@monarch/schemas";
 import { CONFESSION_COOLDOWN_MS } from "@monarch/shared";
 import type { PrismaClient } from "@/lib/generated/prisma/client";
+import { SESSION_TTL_MS } from "./config";
 import { getPrisma } from "./prisma";
 import { decryptSecret, encryptSecret } from "./secure-token";
 import type {
@@ -37,9 +38,6 @@ import type {
  * - DesignDraft ↔ DraftRecord, DesignVersion ↔ SnapshotRecord,
  *   GuildSettings columns ↔ the designatedChannels record.
  */
-
-/** Mirror of the session cookie maxAge in lib/session.ts (14 days). */
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
 
 export type SessionRow = {
   id: string;
@@ -237,7 +235,7 @@ export class PrismaStore implements MonarchStore {
     const row = await this.db.session.findUnique({ where: { id }, include: { user: true } });
     if (!row) return null;
     if (row.expiresAt.getTime() <= Date.now()) {
-      await this.db.session.delete({ where: { id } }).catch(() => {});
+      await this.db.session.deleteMany({ where: { id } });
       return null;
     }
     return sessionRowToRecord(row, row.user);
@@ -250,7 +248,12 @@ export class PrismaStore implements MonarchStore {
       avatarUrl: session.avatarUrl ?? null,
     });
     const createdAt = new Date(session.createdAt);
-    const expiresAt = new Date(createdAt.getTime() + SESSION_TTL_MS);
+    // Prefer the caller's expiry so the cookie maxAge, the in-memory record
+    // and the database row all agree; fall back to the shared TTL for records
+    // created before expiry tracking existed.
+    const expiresAt = session.expiresAt
+      ? new Date(session.expiresAt)
+      : new Date(createdAt.getTime() + SESSION_TTL_MS);
     await this.db.session.upsert({
       where: { id: session.id },
       create: {
@@ -269,7 +272,7 @@ export class PrismaStore implements MonarchStore {
   }
 
   async deleteSession(id: string): Promise<void> {
-    await this.db.session.delete({ where: { id } }).catch(() => {});
+    await this.db.session.deleteMany({ where: { id } });
   }
 
   async getDraft(guildId: string, userId: string): Promise<DraftRecord | null> {

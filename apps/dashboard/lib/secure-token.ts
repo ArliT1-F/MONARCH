@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
-import { env } from "./env";
+import { requireSessionSecret } from "./env";
 
 /**
  * Encryption-at-rest for Discord OAuth tokens (Session.accessTokenEnc).
@@ -15,8 +15,21 @@ import { env } from "./env";
 const FORMAT_VERSION = "v1";
 const KEY_CONTEXT = "monarch:oauth-token:v1";
 
+/**
+ * The key depends only on SESSION_SECRET and the fixed context above, so it is
+ * identical across restarts and deploys — which is what keeps tokens written
+ * yesterday decryptable today.
+ *
+ * It deliberately does **not** move to the HKDF-based `deriveSigningKey`
+ * helper in lib/keys.ts: that would change the key and silently turn every
+ * stored OAuth token into garbage. scrypt under its own context is already
+ * purpose-separated from the signing keys.
+ *
+ * `requireSessionSecret()` throws in production when the secret is missing or
+ * a published placeholder, so tokens are never encrypted with a known key.
+ */
 function deriveKey(): Buffer {
-  return scryptSync(env.sessionSecret, KEY_CONTEXT, 32);
+  return scryptSync(requireSessionSecret(), KEY_CONTEXT, 32);
 }
 
 export function encryptSecret(plaintext: string): string {

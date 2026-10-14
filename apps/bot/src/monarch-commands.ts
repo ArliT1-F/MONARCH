@@ -40,8 +40,10 @@ import type { CatCards } from "./cat-cards.js";
  */
 
 export interface MonarchCommandDeps {
-  /** Dashboard origin, e.g. https://monarch.example — also the internal API. */
+  /** Public dashboard origin, used in member-facing links. */
   appUrl: string;
+  /** Reachable internal origin; defaults to appUrl for backward compatibility. */
+  dashboardInternalUrl?: string;
   /** Server-to-server token; without it backup/export/embed/test/prefix-set explain what's missing. */
   internalToken?: string;
   jail: JailRegistry;
@@ -233,6 +235,10 @@ export class MonarchCommands {
   botUserId?: () => string | null;
 
   constructor(private readonly deps: MonarchCommandDeps) {}
+
+  private get internalAppUrl(): string {
+    return this.deps.dashboardInternalUrl ?? this.deps.appUrl;
+  }
 
   private get appUrl(): string {
     return this.deps.appUrl;
@@ -481,7 +487,7 @@ export class MonarchCommands {
     const name =
       (ctx.getStringOption("name") ?? joinArgs(ctx.args) ?? undefined)?.slice(0, 100) || undefined;
     try {
-      const res = await fetch(`${this.appUrl}/api/internal/guilds/${ctx.guildId}/backup`, {
+      const res = await fetch(`${this.internalAppUrl}/api/internal/guilds/${ctx.guildId}/backup`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...this.internalHeaders() },
         body: JSON.stringify({ name, userId: ctx.user.id }),
@@ -518,7 +524,7 @@ export class MonarchCommands {
     }
     await ctx.defer({ hidden: true });
     try {
-      const res = await fetch(`${this.appUrl}/api/internal/guilds/${ctx.guildId}/template`, {
+      const res = await fetch(`${this.internalAppUrl}/api/internal/guilds/${ctx.guildId}/template`, {
         headers: this.internalHeaders(),
       });
       const data = (await res.json()) as {
@@ -578,7 +584,7 @@ export class MonarchCommands {
       : undefined;
 
     try {
-      const res = await fetch(`${this.appUrl}/api/internal/guilds/${ctx.guildId}/workspace/send`, {
+      const res = await fetch(`${this.internalAppUrl}/api/internal/guilds/${ctx.guildId}/workspace/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...this.internalHeaders() },
         body: JSON.stringify({ kind, mode, target }),
@@ -1009,7 +1015,7 @@ export class MonarchCommands {
 
     await ctx.defer({ hidden: true });
     try {
-      const res = await fetch(`${this.appUrl}/api/internal/guilds/${ctx.guildId}/analyzer`, {
+      const res = await fetch(`${this.internalAppUrl}/api/internal/guilds/${ctx.guildId}/analyzer`, {
         headers: this.internalHeaders(),
       });
       const data = (await res.json()) as {

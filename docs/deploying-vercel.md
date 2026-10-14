@@ -1,3 +1,6 @@
+> Production requirements and upgrade actions: [security/configuration](security.md).
+> Production no longer permits demo authentication or file-store fallback.
+
 # Deploying Monarch to Vercel (+ PostgreSQL via Prisma)
 
 The dashboard is a Next.js app and deploys cleanly to Vercel. The **bot**
@@ -149,7 +152,7 @@ jobs:
 | `DATABASE_URL`                                                      | **pooled** connection string                                                 |
 | `SESSION_SECRET`                                                    | `openssl rand -hex 32` — signs cookies **and** encrypts OAuth tokens at rest |
 | `APP_URL`                                                           | `https://<your-app>.vercel.app`                                              |
-| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` / `DISCORD_BOT_TOKEN` | from the Discord developer portal (omit all three for **demo mode**)         |
+| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` / `DISCORD_BOT_TOKEN` | all required from the Discord developer portal; production demo mode is forbidden         |
 
 5. Deploy.
 

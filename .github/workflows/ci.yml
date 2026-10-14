@@ -1,0 +1,39 @@
+# Syntax reference: https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+      # Scan before dependency lifecycle scripts; never print matched values.
+      - name: Scan tracked source for secrets
+        run: node scripts/scan-secrets.mjs
+      - name: Install locked dependencies and generate Prisma client
+        run: npm ci --no-audit --no-fund
+      - name: Validate Prisma schema
+        run: npx prisma validate
+        env:
+          DATABASE_URL: postgresql://localhost/monarch_ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit and PostgreSQL integration tests (all migrations via PGlite)
+        run: npm test
+      - name: Production build (no production credentials)
+        run: npm run build

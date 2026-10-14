@@ -1,9 +1,11 @@
+import { randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { EmbedDesign, MessageDesign, ServerDesign } from "@monarch/schemas";
 import type { MockState } from "@monarch/discord";
 import { CONFESSION_COOLDOWN_MS } from "@monarch/shared";
-import { env } from "./env";
+import { MonarchConfigError, SESSION_TTL_MS, type ResolvedConfig } from "./config";
+import { getConfig } from "./env";
 import { PrismaStore } from "./prisma-store";
 
 /**
@@ -29,6 +31,12 @@ export interface SessionRecord {
   /** Discord OAuth access token (absent in demo mode). Server-side only. */
   accessToken?: string;
   createdAt: string;
+  /**
+   * Absolute expiry (ISO-8601). Enforced in `lib/session.ts` for every
+   * backend, and mirrored into `Session.expiresAt` by the PrismaStore.
+   * Legacy records expire 14 days after createdAt.
+   */
+  expiresAt?: string;
 }
 
 export interface DraftRecord {
@@ -98,7 +106,8 @@ export interface ConfessionCooldownRecord {
  * bot can tell them when they are back instead of guessing.
  */
 export type ConfessionCooldownClaim =
-  { claimed: true; nextAllowedAt: string } | { claimed: false; nextAllowedAt: string };
+  | { claimed: true; nextAllowedAt: string }
+  | { claimed: false; nextAllowedAt: string };
 
 /** How a caller may override the confession window (tests; the route never does). */
 export interface ConfessionCooldownWindow {
@@ -247,8 +256,11 @@ async function readJson<T>(file: string): Promise<T | null> {
   try {
     const raw = await fs.readFile(path.join(DATA_DIR, file), "utf8");
     return JSON.parse(raw) as T;
-  } catch {
-    return null;
+  } catch (error) {
+    // Missing files are normal on a new dev store. Corrupt or unreadable files
+    // are not: treating them as empty would overwrite saved user data.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
   }
 }
 
@@ -293,8 +305,8 @@ const COOLDOWN_FILE = "confession-cooldowns.json";
 
 async function readCooldowns(): Promise<Record<string, string>> {
   const all = await readJson<Record<string, string>>(COOLDOWN_FILE);
-  // A hand-edited or half-written file degrades to "nobody is cooling down"
-  // rather than throwing — the bot fails open on this by design.
+  // Invalid parsed shapes degrade to an empty map; corrupt/unreadable JSON
+  // propagates so a subsequent write cannot erase the original file.
   return all && typeof all === "object" && !Array.isArray(all) ? all : {};
 }
 
@@ -322,11 +334,20 @@ function liveCooldown(all: Record<string, string>, userId: string, now: Date): s
 class FileStore implements MonarchStore {
   async getSession(id: string) {
     const all = (await readJson<Record<string, SessionRecord>>("sessions.json")) ?? {};
-    return all[id] ?? null;
+    const session = all[id] ?? null;
+    if (session && isSessionExpired(session)) return null;
+    return session;
   }
   async putSession(session: SessionRecord) {
     const all = (await readJson<Record<string, SessionRecord>>("sessions.json")) ?? {};
     all[session.id] = session;
+    // Drop expired rows on every write so a dev/demo store can't grow without
+    // bound. `lib/session.ts` enforces expiry on read for both backends; this
+    // is just housekeeping for the file.
+    const now = Date.now();
+    for (const [key, value] of Object.entries(all)) {
+      if (value && isSessionExpired(value, now)) delete all[key];
+    }
     await writeJson("sessions.json", all);
   }
   async deleteSession(id: string) {
@@ -572,34 +593,77 @@ class FileStore implements MonarchStore {
   }
 }
 
+/** Expiry check shared by the file store (the session layer enforces it too). */
+function isSessionExpired(session: SessionRecord, now: number = Date.now()): boolean {
+  const at = session.expiresAt
+    ? Date.parse(session.expiresAt)
+    : Date.parse(session.createdAt) + SESSION_TTL_MS;
+  return !Number.isFinite(at) || at <= now;
+}
+
 /**
- * The JSON file store is local-only. It writes under .monarch-data next to
- * the process, so on Vercel/serverless (read-only, ephemeral filesystem) it
- * fails with ENOENT when a route first does `mkdir`. Detect that environment
- * and fail fast with a config error instead of silently falling back.
+ * Which persistence backend this process uses, and why.
+ *
+ * Exposed for the startup banner and `/api/internal`-style diagnostics: an
+ * operator should be able to see at a glance whether Monarch is writing to
+ * PostgreSQL or to a JSON file on one container's disk.
  */
-function isServerlessRuntime(): boolean {
-  return process.env.VERCEL === "1" || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
+export type StorageBackend = "postgres" | "file";
+
+/**
+ * Resolve the backend from the validated configuration.
+ *
+ * Pure — no singletons, no side effects — so the decision table is directly
+ * unit-testable (`apps/dashboard/test/storage-security.test.ts`).
+ *
+ * The rule that matters: **production never falls back to the JSON file store
+ * silently.** Previously the only guard was "am I on Vercel/Lambda?", so a
+ * Docker, Render, Fly or bare-Node production deployment with a missing
+ * DATABASE_URL quietly started writing sessions, drafts, snapshots and
+ * templates to `./.monarch-data` — lost on every restart, invisible to every
+ * other replica, and reported as if everything had succeeded.
+ */
+export function resolveStorageBackend(config: ResolvedConfig): {
+  backend: StorageBackend;
+  /** Throwing this is what "fail closed" means; null when the config is fine. */
+  error: MonarchConfigError | null;
+} {
+  const blocking = config.errors.filter((issue) => issue.code.startsWith("database-url."));
+  if (blocking.length > 0)
+    return { backend: config.storageMode, error: new MonarchConfigError(blocking) };
+  return { backend: config.storageMode, error: null };
 }
 
 let storeSingleton: MonarchStore | null = null;
 
+/** Test hook: runtime configuration changes require a process restart. */
+export function resetStoreCache(): void {
+  storeSingleton = null;
+}
+
 export function getStore(): MonarchStore {
+  const config = getConfig();
+  const { backend, error } = resolveStorageBackend(config);
+  if (error) throw error;
+
   if (!storeSingleton) {
-    if (env.databaseUrl) {
-      storeSingleton = new PrismaStore();
-    } else if (isServerlessRuntime()) {
-      throw new Error(
-        "DATABASE_URL is not set. Monarch's file store is not supported on Vercel/serverless; " +
-          "configure a Postgres database (see docs/deploying-vercel.md).",
-      );
-    } else {
-      storeSingleton = new FileStore();
-    }
+    storeSingleton = backend === "postgres" ? new PrismaStore() : new FileStore();
   }
   return storeSingleton;
 }
 
+/**
+ * Opaque, prefixed identifier.
+ *
+ * Uses `crypto.randomBytes`, not `Math.random()`. Several of these ids are
+ * security-sensitive: `newId("sess")` is the session id in the signed cookie.
+ * The signature protects integrity; a CSPRNG independently makes ids
+ * unpredictable. Snapshot, audit and template ids use the same generator.
+ *
+ * 128 bits of entropy, hex-encoded: URL-safe, case-insensitively unambiguous,
+ * and no collision risk that a caller has to think about. The previous
+ * `Date.now()` suffix is gone — ids are never sorted by, they are looked up.
+ */
 export function newId(prefix: string): string {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+  return `${prefix}_${randomBytes(16).toString("hex")}`;
 }

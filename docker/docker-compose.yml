@@ -1,30 +1,16 @@
-# ── Where Compose looks for `.env` ────────────────────────────────────────────
-# Compose interpolates ${VAR} from a `.env` in the *project directory* — the
-# folder holding this file (`docker/`), not the repo root. To make both
-# locations work, every service below declares `env_file: [../.env, .env]`
-# (`required: false`, so a fresh clone without a `.env` still starts):
-#
-#   docker compose -f docker/docker-compose.yml up -d            # repo root
-#   cd docker && docker compose up -d                            # inside docker/
-#
-# Explicit `--env-file` still wins if you pass it:
-#   docker compose --env-file .env -f docker/docker-compose.yml up -d
-#
-# Or `ln -s ../.env docker/.env` once (gitignored either way). The units that
-# deploy/laptop-install.sh writes read the repo's .env through EnvironmentFile=
-# and have no such trap — see docs/hosting-laptop.md.
+# Production deployment (HTTPS public dashboard, PostgreSQL, one bot worker).
+# env_file loads container variables; it does NOT provide Compose interpolation.
+# Always pass the repo-root file explicitly:
+#   docker compose --env-file .env -f docker/docker-compose.yml up --build -d
+# Missing required secrets fail configuration; there are no shared DB defaults.
+# See docs/security.md for reverse-proxy/TLS and local-development requirements.
 
 services:
   postgres:
     image: postgres:16-alpine
-    env_file:
-      - path: ../.env
-        required: false
-      - path: .env
-        required: false
     environment:
       POSTGRES_USER: monarch
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monarch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
       POSTGRES_DB: monarch
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -40,14 +26,10 @@ services:
       dockerfile: docker/dashboard.Dockerfile
     # One-shot: apply Prisma migrations before the dashboard boots.
     command: sh -c "npx prisma migrate deploy"
-    env_file:
-      - path: ../.env
-        required: false
-      - path: .env
-        required: false
     environment:
-      DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:-monarch}@postgres:5432/monarch
-      DIRECT_DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:-monarch}@postgres:5432/monarch
+      NODE_ENV: production
+      DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/monarch
+      DIRECT_DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/monarch
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,12 +44,14 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:-monarch}@postgres:5432/monarch
+      NODE_ENV: production
+      DATABASE_URL: postgresql://monarch:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/monarch
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
-      APP_URL: ${APP_URL:-http://localhost:3000}
-      SESSION_SECRET: ${SESSION_SECRET}
+      APP_URL: ${APP_URL:?Set APP_URL to the public HTTPS dashboard origin}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?Set INTERNAL_API_TOKEN}
     ports:
       - "3000:3000"
     depends_on:
@@ -84,10 +68,12 @@ services:
       - path: .env
         required: false
     environment:
+      NODE_ENV: production
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
-      APP_URL: ${APP_URL:-http://localhost:3000}
-      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      APP_URL: ${APP_URL:?Set APP_URL to the public HTTPS dashboard origin}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?Set INTERNAL_API_TOKEN}
+      DASHBOARD_INTERNAL_URL: ${DASHBOARD_INTERNAL_URL:-http://dashboard:3000}
       MONARCH_OWNER_USER_ID: ${MONARCH_OWNER_USER_ID:-}
 
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}

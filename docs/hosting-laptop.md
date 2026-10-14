@@ -1,3 +1,7 @@
+> Configure `NODE_ENV=production`, a public HTTPS `APP_URL`, and the matching
+> `INTERNAL_API_TOKEN` on the worker. `DASHBOARD_INTERNAL_URL` optionally overrides
+> the API destination without changing public links. See [security/configuration](security.md).
+
 # Running the bot worker on your own machine, 24/7
 
 Zero hosting cost, and it fixes the thing your provider can't: **Discord voice

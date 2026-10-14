@@ -1,3 +1,4 @@
+import { resolveDashboardConnection } from "./dashboard-config.js";
 import os from "node:os";
 import {
   Client,
@@ -69,8 +70,6 @@ const log = createLogger("bot");
 const token = process.env.DISCORD_BOT_TOKEN;
 const clientId = process.env.DISCORD_CLIENT_ID;
 const guildIdForCommands = process.env.DISCORD_GUILD_ID?.trim();
-const appUrl = process.env.APP_URL ?? "http://localhost:3000";
-const internalToken = process.env.INTERNAL_API_TOKEN;
 // User id of the Discord account that owns this application (not the server owner).
 const ownerUserId = process.env.MONARCH_OWNER_USER_ID?.trim() || null;
 
@@ -80,6 +79,8 @@ if (!token) {
   );
   process.exit(0);
 }
+
+const { appUrl, dashboardInternalUrl, internalToken } = resolveDashboardConnection(process.env);
 
 // The uno-reverse only exists when the worker knows who the application owner
 // is. A missing id fails *open* (the owner can be jailed like anyone else),
@@ -132,14 +133,14 @@ let client = createClient(FULL_INTENTS);
  */
 let jailManager: JailManager | null = null;
 const jail = new JailRegistry({
-  store: internalToken ? internalJailEntryStore(appUrl, internalToken) : null,
+  store: internalToken ? internalJailEntryStore(dashboardInternalUrl, internalToken) : null,
   onExpire: (entry) => {
     void jailManager?.releaseExpired(entry);
   },
   log,
 });
 const jailConfigs = new JailConfigRegistry({
-  store: internalToken ? internalJailConfigStore(appUrl, internalToken) : null,
+  store: internalToken ? internalJailConfigStore(dashboardInternalUrl, internalToken) : null,
   log,
 });
 
@@ -443,7 +444,7 @@ async function onMessage(message: Message) {
  * manager, the jail manager above, and the event handlers below.
  */
 const prefixes = new PrefixRegistry({
-  store: internalToken ? internalPrefixStore(appUrl, internalToken) : null,
+  store: internalToken ? internalPrefixStore(dashboardInternalUrl, internalToken) : null,
   log,
 });
 
@@ -451,7 +452,7 @@ const prefixes = new PrefixRegistry({
 // API like the command prefix, cached per click so a busy confession channel
 // doesn't turn every button press into a fetch.
 const confessions = new ConfessionRegistry({
-  store: internalToken ? internalConfessionStore(appUrl, internalToken) : null,
+  store: internalToken ? internalConfessionStore(dashboardInternalUrl, internalToken) : null,
   log,
 });
 
@@ -460,14 +461,14 @@ const confessions = new ConfessionRegistry({
 // redeploy doesn't hand everybody a fresh confession. Degrades to "let them
 // confess" when the dashboard is unreachable — see ./confession-cooldown.ts.
 const confessionCooldowns = new ConfessionCooldowns({
-  store: internalToken ? internalConfessionCooldownStore(appUrl, internalToken) : null,
+  store: internalToken ? internalConfessionCooldownStore(dashboardInternalUrl, internalToken) : null,
   log,
 });
 
 jailManager = new JailManager({ client: () => client, configs: jailConfigs, registry: jail, log });
 
 const catCards = new CatCards(
-  internalToken ? internalCatCardStore(appUrl, internalToken) : new MemoryCatCardStore(),
+  internalToken ? internalCatCardStore(dashboardInternalUrl, internalToken) : new MemoryCatCardStore(),
 );
 const catUploads = new CatUploadManager(ownerUserId);
 if (!internalToken) {
@@ -476,6 +477,7 @@ if (!internalToken) {
 
 const monarchCommands = new MonarchCommands({
   appUrl,
+  dashboardInternalUrl,
   internalToken,
   jail,
   jailConfigs,

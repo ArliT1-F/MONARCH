@@ -5,7 +5,8 @@
 A visual design and customization studio for Discord servers. Connect
 Discord, pick a server, redesign it visually, preview the exact diff, and
 apply it — with drafts, undo/redo, validation and snapshots along the way.
-Monarch is not a moderation bot and will not become one.
+Monarch is not a general-purpose moderation bot. The existing opt-in jail cell
+is a limited confinement/relay exception; no broader moderation expansion is planned.
 
 ```
 Draft → Preview → Validate → Diff → Confirm → Apply
@@ -164,12 +165,14 @@ Welcome Designer and Branding Studio are phased next — see
 ## Quick start (demo mode — no Discord app needed)
 
 ```bash
-npm install
+npm ci
+cp .env.example apps/dashboard/.env.local
+# Set MONARCH_DEMO=1 in apps/dashboard/.env.local explicitly for a local demo.
 npm run dev          # dashboard on http://localhost:3000
 npm test             # engine unit tests
 ```
 
-Without Discord credentials Monarch boots in demo mode: a mock Discord
+With explicit development/test `MONARCH_DEMO=1`, Monarch uses a mock Discord
 gateway with seeded servers where the entire design → diff → apply loop
 actually executes.
 
@@ -213,7 +216,8 @@ actually executes.
 Docker (dashboard + bot + PostgreSQL):
 
 ```bash
-cd docker && docker compose up --build
+# First configure .env; production requires HTTPS, Discord credentials and secrets.
+docker compose --env-file .env -f docker/docker-compose.yml up --build
 ```
 
 Deploying to **Vercel + Postgres (Prisma)** — see
@@ -226,8 +230,11 @@ to stop paying for a worker at all, run it on your own always-on box with
 that page also lists which hosts allow UDP. **Exactly one** worker may hold
 `DISCORD_BOT_TOKEN` — two of them double every `!jail`/prefix command and fight
 over one guild's voice channel — and it talks to the dashboard through
-`APP_URL` + a matching `INTERNAL_API_TOKEN`, because the bot keeps no database
+`DASHBOARD_INTERNAL_URL` (defaults to `APP_URL`) + a matching `INTERNAL_API_TOKEN`, because the bot keeps no database
 of its own.
+Production configuration now fails closed; see the primary
+[security/configuration guide](docs/security.md) and the
+[engineering status report](docs/engineering-audit.md) before upgrading.
 Set `DISCORD_CLIENT_ID` on the worker so it can register `/monarch`, `/jail`
 and `/music`; optionally set `DISCORD_GUILD_ID` while testing for immediate
 slash-command updates (global Discord commands can take up to an hour to
@@ -262,7 +269,7 @@ Spotify via the Web API, Discord embeds).
 - Preview first → validate → diff → confirm → apply. Never blind writes.
 - The internal design schema — not raw Discord JSON — is the source of truth.
 - Everything Discord-specific sits behind the `DiscordGateway` abstraction.
-- Errors are for humans; raw API errors stay in logs.
+- Errors are for humans; credentials must not appear in responses or logs.
 - What Discord's API can't do, Monarch says it can't do.
 
 ### Jail cell and voter perks
