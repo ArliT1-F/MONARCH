@@ -198,3 +198,26 @@ model MockDiscordState {
   state     Json
   updatedAt DateTime @updatedAt
 }
+
+// Durable operation log for partial-failure apply handling (F.1, F.2).
+// Tracks every apply attempt with idempotency, step persistence, and
+// reconciliation so retries can distinguish pre-mutation, partial,
+// uncertain and post-persistence failures.
+model OperationLog {
+  id               String   @id @default(cuid())
+  guildId          String
+  userId            String
+  idempotencyKey   String   // Client-supplied idempotency key for retries
+  action            String   // "design.apply"
+  status            String   // pending | completed | failed | uncertain
+  planDigest        String?  // Digest of the apply plan at submission time
+  stepResults       Json?    // Array of ApplyStepResult objects
+  reconciledDesign  Json?    // ServerDesign captured after apply (if completed/partial)
+  auditEntryId      String?  // Reference to the audit entry for this apply
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([guildId])
+  @@index([idempotencyKey])
+  @@index([guildId, userId])
+}

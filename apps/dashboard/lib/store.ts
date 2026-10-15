@@ -159,6 +159,21 @@ export interface TemplateRecord {
   updatedAt: string;
 }
 
+export interface OperationRecord {
+  id: string;
+  guildId: string;
+  userId: string;
+  idempotencyKey: string;
+  action: string;
+  status: "pending" | "completed" | "failed" | "uncertain";
+  planDigest?: string;
+  stepResults?: Array<{ describe: string; status: string; error?: { code: string; message: string } }>;
+  reconciledDesign?: ServerDesign;
+  auditEntryId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MonarchStore {
   getSession(id: string): Promise<SessionRecord | null>;
   putSession(session: SessionRecord): Promise<void>;
@@ -244,6 +259,17 @@ export interface MonarchStore {
   /** Demo-mode mock Discord state (unused in production). */
   getMockState(): Promise<MockState | null>;
   putMockState(state: MockState): Promise<void>;
+
+  /** Durable operation log for partial-failure apply handling (F.1, F.2). */
+  getOperation(id: string): Promise<OperationRecord | null>;
+  getOperationByKey(idempotencyKey: string): Promise<OperationRecord | null>;
+  putOperation(record: OperationRecord): Promise<void>;
+  claimApplyOperation(
+    guildId: string,
+    userId: string,
+    idempotencyKey: string,
+  ): Promise<{ claimed: boolean; existing?: OperationRecord }>;
+  listOperations(guildId: string, limit?: number): Promise<OperationRecord[]>;
 }
 
 // ── File store implementation ────────────────────────────────────────
@@ -590,6 +616,41 @@ class FileStore implements MonarchStore {
     const t = all[id];
     if (t && t.ownerId === ownerId) delete all[id];
     await writeJson("templates.json", all);
+  }
+
+  // ── Durable operation log (F.2) ───────────────────────────────────
+  async getOperation(id: string): Promise<OperationRecord | null> {
+    const all = (await readJson<Record<string, OperationRecord>>("operations.json")) ?? {};
+    return all[id] ?? null;
+  }
+  async getOperationByKey(idempotencyKey: string): Promise<OperationRecord | null> {
+    const all = (await readJson<Record<string, OperationRecord>>("operations.json")) ?? {};
+    return Object.values(all).find((o) => o.idempotencyKey === idempotencyKey) ?? null;
+  }
+  async putOperation(record: OperationRecord): Promise<void> {
+    const all = (await readJson<Record<string, OperationRecord>>("operations.json")) ?? {};
+    all[record.id] = record;
+    await writeJson("operations.json", all);
+  }
+  async claimApplyOperation(
+    guildId: string,
+    userId: string,
+    idempotencyKey: string,
+  ): Promise<{ claimed: boolean; existing?: OperationRecord }> {
+    const all = (await readJson<Record<string, OperationRecord>>("operations.json")) ?? {};
+    const existing = Object.values(all).find(
+      (o) => o.guildId === guildId && o.idempotencyKey === idempotencyKey && o.status !== "completed",
+    );
+    if (existing) return { claimed: false, existing };
+    // No concurrent pending operation for this guild + key.
+    return { claimed: true };
+  }
+  async listOperations(guildId: string, limit = 50): Promise<OperationRecord[]> {
+    const all = (await readJson<Record<string, OperationRecord>>("operations.json")) ?? {};
+    return Object.values(all)
+      .filter((o) => o.guildId === guildId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
   }
 }
 
