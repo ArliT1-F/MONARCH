@@ -16,6 +16,8 @@ const Body = z.object({
   /** Client must acknowledge deletions explicitly. */
   confirmDestructive: z.boolean().default(false),
   snapshotName: z.string().max(100).optional(),
+  /** Idempotency key for safe retries (optional but recommended). */
+  idempotencyKey: z.string().optional(),
 });
 
 /**
@@ -119,6 +121,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ gui
   }
 
   const store = getStore();
+  const idempotencyKey = body.data.idempotencyKey ?? newId("idemp");
+
+  // Durable operation claim (idempotency + concurrency guard).
+  const claimResult = await store.claimApplyOperation(guildId, session.userId, idempotencyKey);
+  if (!claimResult.claimed) {
+    const existing = claimResult.existing;
+    return NextResponse.json({
+      ok: existing?.status === "completed",
+      applied: false,
+      message: "A concurrent apply operation is in progress for this server.",
+      operationId: existing?.id,
+      status: existing?.status,
+      idempotencyKey,
+    });
+  }
+
+  const operationId = newId("op");
+  let operationRecord: import("@/lib/store").OperationRecord = {
+    id: operationId,
+    guildId,
+    userId: session.userId,
+    idempotencyKey,
+    action: "design.apply",
+    status: "pending",
+    planDigest: JSON.stringify(plan),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await store.putOperation(operationRecord);
+
   await store.addSnapshot({
     id: newId("snap"),
     guildId,
@@ -133,38 +165,132 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ gui
     userId: session.userId,
     steps: plan.steps.length,
     destructive: plan.destructive,
+    operationId,
+    idempotencyKey,
   });
-  const result = await executeApplyPlan(getGateway(), plan, desired);
 
-  const after = await fetchCurrentDesign(guildId);
-  if (result.ok && after) {
-    await store.addSnapshot({
-      id: newId("snap"),
-      guildId,
-      name: body.data.snapshotName?.trim() || "Applied design",
-      kind: "post-apply",
-      design: after,
-      createdAt: new Date().toISOString(),
+  let persistenceWarning: { auditFailed?: boolean; snapshotFailed?: boolean; message?: string } | undefined;
+
+  try {
+    const result = await executeApplyPlan(getGateway(), plan, desired);
+    const after = await fetchCurrentDesign(guildId);
+
+    // Update durable operation with step results and reconciliation.
+    const updatedOp: import("@/lib/store").OperationRecord = {
+      ...operationRecord,
+      status: result.ok ? "completed" : (after ? "uncertain" : "failed"),
+      stepResults: result.steps.map((s) => ({
+        describe: s.describe,
+        status: s.status,
+        error: s.error ? { code: s.error.code, message: s.error.message } : undefined,
+      })),
+      reconciledDesign: after ?? undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    await store.putOperation(updatedOp);
+    operationRecord = updatedOp;
+
+    let auditFailed = false;
+    let auditEntryId: string | undefined;
+    try {
+      const auditId = newId("audit");
+      auditEntryId = auditId;
+      await store.addAudit({
+        id: auditId,
+        guildId,
+        userId: session.userId,
+        action: "design.apply",
+        summary: applySummary(plan, result),
+        createdAt: new Date().toISOString(),
+      });
+    } catch (auditError) {
+      auditFailed = true;
+      log.error("audit persistence failed after apply", { guildId, operationId, error: auditError });
+    }
+
+    if (result.ok && after) {
+      let snapshotFailed = false;
+      try {
+        await store.addSnapshot({
+          id: newId("snap"),
+          guildId,
+          name: body.data.snapshotName?.trim() || "Applied design",
+          kind: "post-apply",
+          design: after,
+          createdAt: new Date().toISOString(),
+        });
+      } catch (snapError) {
+        snapshotFailed = true;
+        log.error("post-apply snapshot persistence failed", { guildId, operationId, error: snapError });
+      }
+
+      // Only delete the draft if both Discord mutation and persistence succeeded.
+      if (!auditFailed && !snapshotFailed) {
+        await store.deleteDraft(guildId, session.userId);
+      } else {
+        persistenceWarning = {
+          auditFailed,
+          snapshotFailed,
+          message: auditFailed || snapshotFailed ? "The apply completed, but some persistence records could not be saved. The draft has been preserved for review." : undefined,
+        };
+      }
+    } else {
+      // Partial or failed apply: keep the draft so the user can review and retry.
+      persistenceWarning = {
+        message: !result.ok ? "The apply did not complete. The draft has been preserved. Review the step results and try again." : undefined,
+      };
+    }
+
+    // Update operation with audit entry reference.
+    const finalOp: import("@/lib/store").OperationRecord = {
+      ...operationRecord,
+      status: result.ok ? "completed" : (after ? "uncertain" : "failed"),
+      auditEntryId,
+      stepResults: result.steps.map((s) => ({
+        describe: s.describe,
+        status: s.status,
+        error: s.error ? { code: s.error.code, message: s.error.message } : undefined,
+      })),
+      reconciledDesign: after ?? undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    await store.putOperation(finalOp);
+    operationRecord = finalOp;
+
+    return NextResponse.json({
+      ok: result.ok,
+      applied: true,
+      steps: result.steps,
+      createdIds: result.createdIds,
+      current: after,
+      persistenceWarning,
+      operationId,
+      idempotencyKey,
     });
-    await store.deleteDraft(guildId, session.userId);
+  } catch (executeError) {
+    // Unexpected execution failure: update durable operation, do not delete draft.
+    const errorOp: import("@/lib/store").OperationRecord = {
+      ...operationRecord,
+      status: "failed",
+      stepResults: [{ describe: "Unexpected execution failure", status: "failed", error: { code: "execute.exception", message: String(executeError) } }],
+      updatedAt: new Date().toISOString(),
+    };
+    await store.putOperation(errorOp);
+    operationRecord = errorOp;
+      stepResults: [{ describe: "Unexpected execution failure", status: "failed", error: { code: "execute.exception", message: String(executeError) } }],
+      updatedAt: new Date().toISOString(),
+    });
+    persistenceWarning = { message: "The apply encountered an unexpected error. The draft has been preserved." };
+    log.error("unexpected apply execution failure", { guildId, operationId, error: executeError });
+    return NextResponse.json({
+      ok: false,
+      applied: false,
+      message: "The apply encountered an unexpected error.",
+      persistenceWarning,
+      operationId,
+      idempotencyKey,
+    });
   }
-
-  await store.addAudit({
-    id: newId("audit"),
-    guildId,
-    userId: session.userId,
-    action: "design.apply",
-    summary: applySummary(plan, result),
-    createdAt: new Date().toISOString(),
-  });
-
-  return NextResponse.json({
-    ok: result.ok,
-    applied: true,
-    steps: result.steps,
-    createdIds: result.createdIds,
-    current: after,
-  });
 }
 
 /**

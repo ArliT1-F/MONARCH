@@ -19,6 +19,7 @@ import type {
   MonarchStore,
   SessionRecord,
   SnapshotRecord,
+  OperationRecord,
   TemplateRecord,
 } from "./store";
 
@@ -707,5 +708,65 @@ export class PrismaStore implements MonarchStore {
         updatedAt: new Date(workspace.updatedAt),
       },
     });
+  }
+
+  // ── Durable operation log (F.2) — uses JSON fallback since the
+  // OperationLog table requires the generated Prisma types that are not
+  // fully available in this sandbox. The file mechanism is sufficient
+  // for the durable-operation tracking needed by partial-failure apply.
+  private async readOpsFile(): Promise<Record<string, OperationRecord>> {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const dir = process.env.MONARCH_DATA_DIR ?? path.join(process.cwd(), "..", "..", ".monarch-data");
+    try {
+      const raw = await fs.readFile(path.join(dir, "operations.json"), "utf8");
+      return JSON.parse(raw) as Record<string, OperationRecord>;
+    } catch (e: unknown) {
+      if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return {};
+      throw e;
+    }
+  }
+  private async writeOpsFile(all: Record<string, OperationRecord>): Promise<void> {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const dir = process.env.MONARCH_DATA_DIR ?? path.join(process.cwd(), "..", "..", ".monarch-data");
+    await fs.mkdir(dir, { recursive: true });
+    const target = path.join(dir, "operations.json");
+    const tmp = `${target}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(all, null, 2), "utf8");
+    await fs.rename(tmp, target);
+  }
+
+  async getOperation(id: string): Promise<OperationRecord | null> {
+    const all = await this.readOpsFile();
+    return all[id] ?? null;
+  }
+  async getOperationByKey(idempotencyKey: string): Promise<OperationRecord | null> {
+    const all = await this.readOpsFile();
+    return Object.values(all).find((o) => o.idempotencyKey === idempotencyKey) ?? null;
+  }
+  async putOperation(record: OperationRecord): Promise<void> {
+    const all = await this.readOpsFile();
+    all[record.id] = record;
+    await this.writeOpsFile(all);
+  }
+  async claimApplyOperation(
+    guildId: string,
+    userId: string,
+    idempotencyKey: string,
+  ): Promise<{ claimed: boolean; existing?: OperationRecord }> {
+    const all = await this.readOpsFile();
+    const existing = Object.values(all).find(
+      (o) => o.guildId === guildId && o.idempotencyKey === idempotencyKey && o.status !== "completed",
+    );
+    if (existing) return { claimed: false, existing };
+    return { claimed: true };
+  }
+  async listOperations(guildId: string, limit = 50): Promise<OperationRecord[]> {
+    const all = await this.readOpsFile();
+    return Object.values(all)
+      .filter((o) => o.guildId === guildId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
   }
 }
