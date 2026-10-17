@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { VercelAnalytics } from "@/components/analytics/VercelAnalytics";
 
 export const metadata: Metadata = {
   title: "Monarch — Design your Discord",
@@ -19,7 +20,12 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        {children}
+        {/* Vercel Web Analytics — pageview tracking across every route.
+            Disabled when NEXT_PUBLIC_ANALYTICS_DISABLED=1; a no-op in dev. */}
+        <VercelAnalytics />
+      </body>
     </html>
   );
 }
