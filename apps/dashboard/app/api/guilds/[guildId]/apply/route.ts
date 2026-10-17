@@ -277,9 +277,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ gui
     };
     await store.putOperation(errorOp);
     operationRecord = errorOp;
-      stepResults: [{ describe: "Unexpected execution failure", status: "failed", error: { code: "execute.exception", message: String(executeError) } }],
-      updatedAt: new Date().toISOString(),
-    });
     persistenceWarning = { message: "The apply encountered an unexpected error. The draft has been preserved." };
     log.error("unexpected apply execution failure", { guildId, operationId, error: executeError });
     return NextResponse.json({
