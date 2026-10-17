@@ -145,14 +145,20 @@ jobs:
 3. Framework preset **Next.js**, build command comes from
    `apps/dashboard/vercel.json`: `npx prisma generate --schema
 ../../prisma/schema.prisma && next build`.
-4. Add environment variables (Production + Preview):
+4. **Add every environment variable before the first deploy** — the
+   instrumentation hook rejects bad configuration at serverless startup
+   and a missing `SESSION_SECRET` (or any of the others) shows the
+   dashboard as a 500. Generate with `openssl rand -hex 32` and copy
+   the result, no quotes:
 
 | Variable                                                            | Value                                                                        |
 | ------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `DATABASE_URL`                                                      | **pooled** connection string                                                 |
-| `SESSION_SECRET`                                                    | `openssl rand -hex 32` — signs cookies **and** encrypts OAuth tokens at rest |
+| `DIRECT_DATABASE_URL`                                               | direct (non-pooled) connection string — only needed if you run `npm run db:migrate` against Vercel; for the dashboard, `DATABASE_URL` alone is enough |
+| `SESSION_SECRET`                                                    | `openssl rand -hex 32` — signs cookies **and** encrypts OAuth tokens at rest. **Never** the placeholder `dev-only-secret-change-me` from `.env.example`; the validator rejects it in production |
 | `APP_URL`                                                           | `https://<your-app>.vercel.app`                                              |
 | `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` / `DISCORD_BOT_TOKEN` | all required from the Discord developer portal; production demo mode is forbidden         |
+| `INTERNAL_API_TOKEN`                                                | `openssl rand -hex 32` — must match the value the bot worker uses; empty disables `/api/internal/*` |
 
 5. Deploy.
 
@@ -251,6 +257,26 @@ matching `APP_URL` exactly. Then sign in, pick a server (the bot must be
 installed with _Manage Channels_; _Manage Messages_ is needed for
 `/jail` — servers that installed Monarch before it was added to the invite must
 re-run the invite link or grant it manually), and design away.
+
+## 6. (Optional) Enable Vercel Web Analytics
+
+The dashboard ships with `@vercel/analytics` mounted in the root layout, so
+pageviews across `/`, `/library`, `/s`, `/select`, `/privacy`, `/terms` and
+the API routes' HTML responses are tracked automatically once you flip it
+on in Vercel.
+
+1. In the Vercel project, open the **Analytics** tab and click
+   **Enable**.
+2. Redeploy — the `<Analytics />` component is already in
+   `apps/dashboard/app/layout.tsx`, no code changes needed.
+3. To opt out for a specific environment (e.g. a preview-only mirror or an
+   EU-hosted fork that wants nothing shipped to Vercel), set
+   `NEXT_PUBLIC_ANALYTICS_DISABLED=1` in that environment. The wrapper
+   short-circuits at build time and the tracking script is dropped from
+   the client bundle entirely.
+
+The bot never loads analytics — it's a long-lived gateway process, not a
+browser app.
 
 ## Notes & troubleshooting
 
