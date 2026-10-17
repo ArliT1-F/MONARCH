@@ -11,6 +11,12 @@ export default defineConfig({
     ],
     environment: "node",
   },
+  // The dashboard's tsconfig sets `"jsx": "preserve"` for Next's compiler.
+  // For unit tests we want a real JSX runtime (otherwise the test process
+  // needs `import React from "react"` in every .tsx file under test).
+  esbuild: {
+    jsx: "automatic",
+  },
   resolve: {
     alias: [
       // Mirror apps/dashboard/tsconfig.json "@/*" -> "./*" (regex so the
